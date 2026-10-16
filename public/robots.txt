@@ -1,0 +1,19 @@
+# KINOO Robots.txt
+# Directives d'indexation pour les moteurs de recherche
+User-agent: *
+Allow: /
+Allow: /?view=how_it_works
+Allow: /?view=media_sources
+Allow: /?view=pricing
+Allow: /?view=legal
+Allow: /?view=status
+
+# Exclusion stricte des espaces privés, administration et endpoints API
+Disallow: /admin
+Disallow: /superadmin
+Disallow: /dashboard
+Disallow: /api/
+Disallow: /ws
+
+# Déclaration du Sitemap
+Sitemap: https://kinoo.app/sitemap.xml

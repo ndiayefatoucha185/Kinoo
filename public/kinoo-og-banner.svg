@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="ogGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3AED" />
+      <stop offset="100%" stop-color="#EC4899" />
+    </linearGradient>
+    <radialGradient id="glowGrad" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.25" />
+      <stop offset="60%" stop-color="#EC4899" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#09090B" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="1200" height="630" fill="#09090B" />
+  <rect width="1200" height="630" fill="url(#glowGrad)" />
+
+  <!-- Subtle Grid Pattern -->
+  <g stroke="#1F1F24" stroke-width="1" opacity="0.4">
+    <line x1="0" y1="105" x2="1200" y2="105" />
+    <line x1="0" y1="210" x2="1200" y2="210" />
+    <line x1="0" y1="315" x2="1200" y2="315" />
+    <line x1="0" y1="420" x2="1200" y2="420" />
+    <line x1="0" y1="525" x2="1200" y2="525" />
+    <line x1="200" y1="0" x2="200" y2="630" />
+    <line x1="400" y1="0" x2="400" y2="630" />
+    <line x1="600" y1="0" x2="600" y2="630" />
+    <line x1="800" y1="0" x2="800" y2="630" />
+    <line x1="1000" y1="0" x2="1000" y2="630" />
+  </g>
+
+  <!-- Central Brand Logo Mark -->
+  <g transform="translate(530, 110)">
+    <g stroke="url(#ogGrad)" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="42" y1="28" x2="42" y2="112" stroke-width="18" />
+      <line x1="54" y1="40" x2="110" y2="70" stroke-width="17" />
+      <line x1="54" y1="100" x2="110" y2="70" stroke-width="17" />
+    </g>
+  </g>
+
+  <!-- Wordmark KINOO -->
+  <text x="600" y="310" text-anchor="middle" font-family="'Poppins', system-ui, sans-serif" font-weight="800" font-size="76" fill="#FFFFFF" letter-spacing="-1.5">
+    KIN<tspan fill="#FFFFFF">OO</tspan>
+  </text>
+  <!-- Twin signature bar under OO -->
+  <rect x="635" y="322" width="60" height="6" rx="3" fill="#EC4899" />
+
+  <!-- Tagline -->
+  <text x="600" y="380" text-anchor="middle" font-family="'Poppins', system-ui, sans-serif" font-weight="600" font-size="28" fill="#EC4899" letter-spacing="0.5">
+    Même à distance, ensemble.
+  </text>
+
+  <!-- Description -->
+  <text x="600" y="440" text-anchor="middle" font-family="'Poppins', system-ui, sans-serif" font-weight="400" font-size="20" fill="#B8B4C0">
+    Plateforme de visionnage collectif synchronisé en haute fidélité sans extension
+  </text>
+
+  <!-- Feature Pills -->
+  <g transform="translate(600, 500)">
+    <rect x="-380" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
+    <text x="-265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">🎬 Synchronisation &lt; 20ms</text>
+
+    <rect x="-115" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
+    <text x="0" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">🔒 Conforme RGPD &amp; DRM</text>
+
+    <rect x="150" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
+    <text x="265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">📱 Web, Mobile &amp; TV</text>
+  </g>
+</svg>

@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+/* ==========================================================================
+   LIGHT THEME ENGINE — WCAG AAA COMPLIANT
+   ========================================================================== */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Header & Navbars */
+html.light header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+}
+
+/* Base Surfaces & Dark Background Overrides */
+html.light .bg-\[\#090A10\],
+html.light .bg-\[\#08090E\],
+html.light .bg-\[\#08080A\],
+html.light .bg-\[\#09090B\],
+html.light .bg-\[\#0A0A0C\],
+html.light .bg-\[\#0C0D12\],
+html.light .bg-\[\#0F0F13\] {
+  background-color: #f8fafc !important;
+}
+
+html.light .bg-\[\#09090B\]\/95,
+html.light .bg-\[\#09090B\]\/90,
+html.light .bg-\[\#09090B\]\/80 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* Primary Cards & Surfaces */
+html.light .bg-\[\#121215\],
+html.light .bg-\[\#121217\],
+html.light .bg-\[\#141417\],
+html.light .bg-\[\#141418\],
+html.light .bg-\[\#111219\],
+html.light .bg-\[\#16161B\],
+html.light .bg-\[\#161724\],
+html.light .bg-\[\#1A1A22\] {
+  background-color: #ffffff !important;
+}
+
+/* Sub-Cards, Pills, Inputs & Containers */
+html.light .bg-\[\#1C1C22\],
+html.light .bg-\[\#1A1A1E\],
+html.light .bg-\[\#18181F\],
+html.light .bg-\[\#1C1C24\],
+html.light .bg-\[\#161720\],
+html.light .bg-\[\#232328\],
+html.light .bg-\[\#232326\] {
+  background-color: #f1f5f9 !important;
+}
+
+/* Borders */
+html.light .border-\[\#232326\],
+html.light .border-\[\#232328\],
+html.light .border-\[\#2B2B32\],
+html.light .border-\[\#1E202B\],
+html.light .border-\[\#1A1B24\],
+html.light .border-\[\#1C1E2A\],
+html.light .border-\[\#22232E\],
+html.light .border-\[\#2F2F3D\],
+html.light .border-\[\#2E2E38\],
+html.light .border-\[\#2E2E3A\],
+html.light .border-\[\#2A2B36\],
+html.light .border-\[\#282936\],
+html.light .border-\[\#2B2B36\],
+html.light .border-\[\#7C3AED\]\/40,
+html.light .border-\[\#EC4899\]\/30,
+html.light .border-\[\#EC4899\]\/40,
+html.light .border-\[\#EC4899\]\/50 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Headings & High-Contrast Titles (WCAG AAA > 14:1) */
+html.light .text-white,
+html.light .text-\[\#FAFAFA\] {
+  color: #0f172a !important;
+}
+
+/* Body & Secondary Text (WCAG AAA > 8.5:1 on light backgrounds) */
+html.light .text-gray-300,
+html.light .text-gray-400,
+html.light .text-\[\#B8B4C0\],
+html.light .text-\[\#8E8B99\],
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-\[\#E2E0EB\] {
+  color: #334155 !important;
+}
+
+/* Muted / Caption Text */
+html.light .text-gray-500,
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+/* Inputs, Selects & Forms in Light Mode */
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html.light select,
+html.light textarea {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+

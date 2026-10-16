@@ -1,0 +1,11 @@
+{
+  "name": "Kinoo",
+  "description": "Plateforme web et mobile de visionnage collectif synchronisé à distance — Même à distance, ensemble.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
