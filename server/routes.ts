@@ -1,11 +1,13 @@
+import { generateCaptchaChallenge } from './captcha';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { db } from '../src/db/index.js';
-import { users, rooms, participations, messages, reports, tickets, transactions, auditLogs, catalogItems, advertisements, monthlyRoomCreations } from '../src/db/schema.js';
+import { users, rooms, participations, messages, reports, tickets, transactions, auditLogs, catalogItems, advertisements, monthlyRoomCreations, moderationArchives } from '../src/db/schema.js';
 import { eq, desc, and, or, isNull, lte, gte, sql } from 'drizzle-orm';
 import {
   authenticate,
   optionalAuth,
+  getClientIp,
   requireRole,
   rateLimitAuth,
   rateLimitAntiSpam,
@@ -18,7 +20,7 @@ import {
   verifyToken,
   extractToken,
   AuthenticatedRequest,
-  resetRateLimit,
+  resetRateLimit, recordFailedAuthAttempt, resetAccountRateLimit,
   setAuthCookie,
   clearAuthCookie,
 } from './auth.js';
@@ -44,6 +46,29 @@ import {
   generateSignedOAuthState,
   validateAndConsumeOAuthState,
 } from './oauth.js';
+
+// HMAC non réversible pour l'archivage anonymisé des sanctions RGPD (Point 8)
+export function generateUserHmac(identifier: string): string {
+  const secret = process.env.MODERATION_HMAC_SECRET;
+  if (!secret || secret.trim().length < 32) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[FATAL] MODERATION_HMAC_SECRET manquant ou trop court en production.');
+      throw new Error('FATAL: MODERATION_HMAC_SECRET doit être défini avec au minimum 32 caractères en production.');
+    }
+    const globalStore = globalThis as any;
+    if (!globalStore.__kinoo_dev_mod_hmac_secret) {
+      globalStore.__kinoo_dev_mod_hmac_secret = crypto.randomBytes(48).toString('hex');
+    }
+    return crypto.createHmac('sha256', globalStore.__kinoo_dev_mod_hmac_secret).update(identifier).digest('hex');
+  }
+  return crypto.createHmac('sha256', secret.trim()).update(identifier).digest('hex');
+}
+
+// Purge automatique des archives de modération de plus de 12 mois (Point 8)
+export async function purgeExpiredModerationArchives(): Promise<number> {
+  const result: any = await db.delete(moderationArchives).where(sql`date_expiration <= NOW()`);
+  return result?.rowCount || 0;
+}
 
 export const apiRouter = Router();
 
@@ -116,7 +141,8 @@ apiRouter.post(
         console.info('[EMAIL] Note envoi email vérification:', err.message)
       );
 
-      res.status(201).json({
+      const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
+      const registerPayload: Record<string, any> = {
         user: {
           id: newUser.id,
           pseudo: newUser.pseudo,
@@ -126,8 +152,11 @@ apiRouter.post(
           statutCompte: newUser.statutCompte,
           avatar: newUser.avatar,
         },
-        token,
-      });
+      };
+      if (isAiStudioEnv) {
+        registerPayload.token = token;
+      }
+      res.status(201).json(registerPayload);
     } catch (error) {
       console.error('[API] Erreur inscription:', error);
       res.status(500).json({ error: "Erreur serveur lors de l'inscription." });
@@ -318,6 +347,24 @@ apiRouter.post('/auth/oauth/google/complete', async (req: Request, res: Response
 });
 
 // Connexion sécurisée (Rate limit + Hash Bcrypt + Zod validation)
+// Génération d'un défi captcha interactif
+// Configuration publique du captcha (Turnstile ou défi interne)
+apiRouter.get('/auth/captcha-config', (req: Request, res: Response) => {
+  const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY;
+  const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY;
+  const isTurnstileConfigured = Boolean(turnstileSiteKey && turnstileSecretKey);
+
+  res.json({
+    mode: isTurnstileConfigured ? 'turnstile' : 'internal',
+    siteKey: isTurnstileConfigured ? turnstileSiteKey : null,
+  });
+});
+
+apiRouter.get('/auth/captcha-challenge', (req: Request, res: Response) => {
+  const challenge = generateCaptchaChallenge();
+  res.json(challenge);
+});
+
 apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -337,6 +384,7 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
       user.passwordHash === 'OAUTH_GOOGLE' ||
       user.passwordHash === 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED'
     ) {
+      const reqIp = getClientIp(req); recordFailedAuthAttempt(reqIp, cleanEmail);
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
 
@@ -349,12 +397,14 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
       match = await comparePassword(password.trim(), user.passwordHash);
     }
     if (!match) {
+      const reqIp = getClientIp(req); recordFailedAuthAttempt(reqIp, cleanEmail);
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
 
     // Reset rate limiter on successful login
     const clientIp = getClientIp(req);
     resetRateLimit(clientIp);
+    resetAccountRateLimit(clientIp, cleanEmail);
 
     // ========================================================================
     // RÈGLE DE SESSION UNIQUE STRICTE : UNIQUEMENT LE COMPTE SUPER ADMIN
@@ -369,9 +419,12 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
       if (user.activeSessionToken && user.activeSessionExpiresAt) {
         const isExpiredByTime = new Date(user.activeSessionExpiresAt).getTime() <= now.getTime();
         const lastActivityTime = user.dernierAcces ? new Date(user.dernierAcces).getTime() : 0;
-        // Inactivité sans requête de plus de 30 minutes ou session test terminée
-        const isInactive = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 30 * 60 * 1000;
-        const isSessionStillActive = !isExpiredByTime && !isInactive;
+        // 1. Signal de vie : si aucun ping / requête n'est arrivé depuis plus de 3 minutes (180s)
+        const isAbandonedPing = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 3 * 60 * 1000;
+        // 2. Inactivité sans action de plus de 30 minutes
+        const isInactive30m = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 30 * 60 * 1000;
+
+        const isSessionStillActive = !isExpiredByTime && !isAbandonedPing && !isInactive30m;
 
         if (isSessionStillActive) {
           // Vérifier si la requête provient du même client / session active (même jeton valide)
@@ -394,35 +447,39 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
           }
 
           if (!isSameActiveSession) {
-            // Une session est déjà active sur un autre appareil / navigateur !
+            const autoReleaseEpoch = (lastActivityTime || now.getTime()) + 3 * 60 * 1000;
+            const autoReleaseDate = new Date(autoReleaseEpoch);
+            const hours = String(autoReleaseDate.getHours()).padStart(2, '0');
+            const minutes = String(autoReleaseDate.getMinutes()).padStart(2, '0');
+            const formattedTime = `${hours}:${minutes}`;
+
             return res.status(409).json({
-              error: "Une session est déjà active sur un autre appareil. Déconnectez-vous d'abord pour vous connecter ici.",
+              error: `Une session est déjà active sur un autre appareil. En l'absence d'activité, elle se libérera automatiquement vers ${formattedTime}.`,
               code: 'SUPER_ADMIN_SESSION_ACTIVE',
               details: {
                 activeSince: user.dernierAcces,
                 expiresAt: user.activeSessionExpiresAt,
+                autoReleaseAt: autoReleaseDate.toISOString(),
+                formattedAutoReleaseTime: formattedTime,
                 supportEmail: user.email,
               },
             });
           }
+        } else {
+          // Libération automatique de l'ancienne session abandonnée (> 3 min sans ping ou > 30 min inactivité)
+          await db
+            .update(users)
+            .set({
+              activeSessionToken: null,
+              activeSessionExpiresAt: null,
+            })
+            .where(eq(users.id, user.id));
         }
       }
 
-      // Détection des tests automatisés pour éviter tout blocage fantôme
-      const isTestSession = req.headers['x-kinoo-test'] === 'true' || 
-                            req.headers['x-test-session'] === 'true' || 
-                            Boolean((req.body as any)?.isTestSession);
-
-      // Générer un identifiant de session unique sécurisé
-      sessionToken = isTestSession
-        ? `ses_adm_test_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`
-        : `ses_adm_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-      
-      // Expiration : 60 secondes pour les sessions de tests automatisés, 4 heures glissantes pour les sessions humaines réelles
-      const expiresAt = isTestSession
-        ? new Date(Date.now() + 60 * 1000)
-        : new Date(Date.now() + 4 * 60 * 60 * 1000);
-
+      // Génération exclusive du jeton de session Super Admin (aucun chemin de test, verrou strict unifié)
+      sessionToken = `ses_adm_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
+      const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
       await db
         .update(users)
         .set({
@@ -452,7 +509,8 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
     // Set secure HttpOnly cookie inaccessible to browser JS
     setAuthCookie(res, req, token);
 
-    res.json({
+    const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
+    const loginPayload: Record<string, any> = {
       user: {
         id: user.id,
         pseudo: user.pseudo,
@@ -462,8 +520,11 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
         statutCompte: user.statutCompte,
         avatar: user.avatar,
       },
-      token,
-    });
+    };
+    if (isAiStudioEnv) {
+      loginPayload.token = token;
+    }
+    res.json(loginPayload);
   } catch (error) {
     console.error('[API] Erreur login:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la connexion.' });
@@ -655,8 +716,9 @@ apiRouter.post('/auth/super-admin/request-unlock', rateLimitAuth, async (req: Re
       const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
       const unlockUrl = `${protocol}://${host}/#unlock-super-admin=${unlockToken}`;
 
+      const targetRecipient = process.env.SUPER_ADMIN_UNLOCK_EMAIL || user.email;
       await EmailService.sendSuperAdminUnlockEmail({
-        email: user.email,
+        email: targetRecipient,
         pseudo: user.pseudo,
         unlockToken,
         unlockUrl,
@@ -1189,39 +1251,176 @@ apiRouter.post(
 // 3. ADMINISTRATION (Stricte validation serveur : SUPER_ADMIN)
 // ============================================================================
 
-// Vue d'ensemble Super Admin
+// Signal de vie régulier de la console Super Admin (toutes les 60s)
+apiRouter.post(
+  '/admin/heartbeat',
+  authenticate,
+  requireRole(['SUPER_ADMIN']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const now = new Date();
+      await db.update(users).set({ dernierAcces: now }).where(eq(users.id, req.user!.id));
+      res.json({ ok: true, serverTime: now.toISOString() });
+    } catch (err) {
+      res.status(500).json({ error: 'Erreur mise à jour signal de vie.' });
+    }
+  }
+);
+
+// Tâche de purge des archives de modération échues (> 12 mois)
+// Accessible exclusivement par le Super Admin ou via une tâche interne / Cloud Scheduler avec secret d'en-tête (Point 3a)
+apiRouter.post('/admin/purge-moderation-archives', async (req: Request, res: Response) => {
+  try {
+    const internalSecret = process.env.INTERNAL_CRON_SECRET;
+    const providedKey = req.headers['x-internal-purge-key'] || req.headers['x-internal-cron-key'];
+    let isAuthorized = false;
+
+    if (
+      internalSecret &&
+      typeof providedKey === 'string' &&
+      providedKey.length >= 16 &&
+      crypto.timingSafeEqual(Buffer.from(providedKey), Buffer.from(internalSecret))
+    ) {
+      isAuthorized = true;
+    } else {
+      const token = extractToken(req);
+      if (token) {
+        const payload = verifyToken(token);
+        if (payload?.id) {
+          const user = await db.select().from(users).where(eq(users.id, payload.id)).limit(1);
+          if (user[0]?.role === 'SUPER_ADMIN') {
+            isAuthorized = true;
+          }
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      return res.status(401).json({ error: 'Accès non autorisé : authentification Super Admin ou en-tête secret interne requis.' });
+    }
+
+    const deletedCount = await purgeExpiredModerationArchives();
+    res.json({ success: true, deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Erreur lors de la purge des archives de modération.' });
+  }
+});
+
+// Vue d'ensemble Super Admin avec statistiques réelles agrégées par SQL
 apiRouter.get(
   '/admin/overview',
   authenticate,
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const allUsers = await db.select().from(users);
-      const allRooms = await db.select().from(rooms);
-      const allReports = await db.select().from(reports);
-      const allTickets = await db.select().from(tickets);
+      // Exécution de la purge des archives à chaque appel de l'overview (Point 3b : compense min-instances 0)
+      purgeExpiredModerationArchives().catch((err) => console.warn('[OVERVIEW] Erreur purge archives:', err));
 
-      const activeRoomsCount = allRooms.filter((r) => r.statut === 'EN_COURS').length;
-      const openReportsCount = allReports.filter((r) => r.statut === 'OUVERT').length;
-      const openTicketsCount = allTickets.filter((t) => t.statut !== 'RESOLU').length;
+      const [
+        totalUsersRes,
+        forfaitsRes,
+        todayUsersRes,
+        weekUsersRes,
+        recentActiveUsersRes,
+        totalRoomsRes,
+        activeRoomsRes,
+        monthRoomsRes,
+        totalPartsRes,
+        totalMsgsRes,
+        openReportsRes,
+        openTicketsRes
+      ] = await Promise.all([
+        db.select({ count: sql<number>`count(*)::int` }).from(users).where(sql`role != 'SUPER_ADMIN'`),
+        db.select({ forfait: users.forfait, count: sql<number>`count(*)::int` }).from(users).where(sql`role != 'SUPER_ADMIN'`).groupBy(users.forfait),
+        db.select({ count: sql<number>`count(*)::int` }).from(users).where(sql`date_inscription >= CURRENT_DATE`),
+        db.select({ count: sql<number>`count(*)::int` }).from(users).where(sql`date_inscription >= NOW() - INTERVAL '7 days'`),
+        db.select({ count: sql<number>`count(*)::int` }).from(users).where(sql`dernier_acces >= NOW() - INTERVAL '5 minutes'`),
+        db.select({ count: sql<number>`count(*)::int` }).from(rooms),
+        db.select({ count: sql<number>`count(*)::int` }).from(rooms).where(eq(rooms.statut, 'EN_COURS')),
+        db.select({ count: sql<number>`count(*)::int` }).from(rooms).where(sql`date_creation >= date_trunc('month', CURRENT_DATE)`),
+        db.select({ count: sql<number>`count(*)::int` }).from(participations),
+        db.select({ count: sql<number>`count(*)::int` }).from(messages),
+        db.select({ count: sql<number>`count(*)::int` }).from(reports).where(sql`statut IN ('OUVERT', 'EN_ATTENTE')`),
+        db.select({ count: sql<number>`count(*)::int` }).from(tickets).where(sql`statut IN ('OUVERT', 'EN_ATTENTE')`),
+      ]);
 
-      // Calcul des revenus mensuels théoriques selon les forfaits des utilisateurs actifs (Standard: 2800 FCFA ≈ 4.27 €, Premium: 4750 FCFA ≈ 7.24 €)
-      const mrr = allUsers.reduce((sum, u) => {
-        if (u.forfait === 'STANDARD') return sum + 4.27;
-        if (u.forfait === 'PREMIUM') return sum + 7.24;
-        return sum;
-      }, 0);
+      const wsStats = globalWsServer?.getActiveConnectionsCount() || { totalConnectedSockets: 0, uniqueConnectedUsers: 0, activeRoomsCount: 0 };
 
-      res.json({
-        totalUsers: allUsers.length,
-        activeRooms: activeRoomsCount,
-        openReports: openReportsCount,
-        openTickets: openTicketsCount,
+      const forfaitMap: Record<string, number> = { GRATUIT: 0, STANDARD: 0, PREMIUM: 0 };
+      for (const row of forfaitsRes) {
+        if (row.forfait && row.forfait in forfaitMap) {
+          forfaitMap[row.forfait] = Number(row.count) || 0;
+        }
+      }
+
+      const totalComptes = Number(totalUsersRes[0]?.count) || 0;
+      const mrr = (forfaitMap['STANDARD'] * 4.27) + (forfaitMap['PREMIUM'] * 7.24);
+
+      const activeRoomsCount = Math.max(Number(activeRoomsRes[0]?.count) || 0, wsStats.activeRoomsCount);
+      const connectedCount = Math.max(Number(recentActiveUsersRes[0]?.count) || 0, wsStats.uniqueConnectedUsers);
+
+      // Lecture dynamique du nom réel de la base directement depuis PostgreSQL (SELECT current_database())
+      let actualDbName = 'cloud_sql_development_database';
+      try {
+        const dbNameRes = await db.execute(sql`SELECT current_database() as current_db`);
+        if (dbNameRes && dbNameRes.rows && dbNameRes.rows[0]) {
+          actualDbName = String((dbNameRes.rows[0] as any).current_db || '');
+        }
+      } catch (dbErr) {
+        actualDbName = process.env.SQL_DB_NAME || 'cloud_sql_development_database';
+      }
+      const isProdDb = actualDbName === 'cloud_sql_production_database' || (actualDbName.includes('prod') && !actualDbName.includes('dev'));
+      const dbName = actualDbName;
+
+      const data = {
+        totalComptesInscrits: totalComptes,
+        comptesParForfait: forfaitMap,
+        inscritsAujourdhui: Number(todayUsersRes[0]?.count) || 0,
+        inscrits7Jours: Number(weekUsersRes[0]?.count) || 0,
+        comptesConnectesEnCeMoment: connectedCount,
+        activeSocketsCount: wsStats.totalConnectedSockets,
+        sallesCreeesTotal: Number(totalRoomsRes[0]?.count) || 0,
+        sallesActivesDirect: activeRoomsCount,
+        seancesCreeesCeMois: Number(monthRoomsRes[0]?.count) || 0,
+        participantsTotal: Number(totalPartsRes[0]?.count) || 0,
+        messagesTotal: Number(totalMsgsRes[0]?.count) || 0,
+        signalementsOuverts: Number(openReportsRes[0]?.count) || 0,
+        ticketsOuverts: Number(openTicketsRes[0]?.count) || 0,
         monthlyRecurringRevenue: Number(mrr.toFixed(2)),
-      });
+        databaseEnv: isProdDb ? 'Base : production' : 'Base : développement',
+        databaseName: dbName,
+        serverTime: new Date().toISOString(),
+        // Rétrocompatibilité
+        totalUsers: totalComptes,
+        activeRooms: activeRoomsCount,
+        openReports: Number(openReportsRes[0]?.count) || 0,
+        openTickets: Number(openTicketsRes[0]?.count) || 0,
+      };
+
+      res.json(data);
     } catch (error) {
       console.error('[API] Erreur overview admin:', error);
       res.status(500).json({ error: 'Erreur interne console admin.' });
+    }
+  }
+);
+
+// Liste des salles réelles de la base pour Super Admin
+apiRouter.get(
+  '/admin/rooms',
+  authenticate,
+  requireRole(['SUPER_ADMIN']),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const roomList = await db
+        .select()
+        .from(rooms)
+        .orderBy(desc(rooms.dateCreation))
+        .limit(100);
+      res.json(roomList);
+    } catch (error) {
+      console.error('[API] Erreur liste salles admin:', error);
+      res.status(500).json({ error: 'Erreur lors de la récupération des salles.' });
     }
   }
 );
@@ -2167,6 +2366,10 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
       historiqueParticipations: userParticipations,
       messagesPublies: userMessages,
       ticketsSupport: userTickets,
+      informationConservationSanctions: {
+        cadreLegal: "Article 17.3.e du RGPD (sécurité de la plateforme et défense de droits en justice)",
+        regle: "En cas de sanction disciplinaire formelle pour comportement abusif, un condensat cryptographique HMAC non réversible, le motif générique et la mesure prise sont conservés pour une durée maximale de 12 mois à des fins de sécurité de la communauté, sans aucune conservation de votre pseudo, email ou contenu de messages.",
+      },
     };
 
     res.setHeader('Content-Type', 'application/json');
@@ -2239,13 +2442,56 @@ apiRouter.delete('/user/rgpd-delete-account', authenticate, async (req: Authenti
     }
     await db.delete(rooms).where(eq(rooms.hoteId, userId));
 
-    // 3. Clean up support tickets and moderation reports
+    // 3. Archivage anonymisé conditionnel des sanctions (Point 8)
+    // Ne concerne QUE les utilisateurs ayant fait l'objet d'une action de modération formelle
+    const isSuspended = dbUser.statutCompte === 'SUSPENDU';
+    const confirmedSanctions = await db
+      .select()
+      .from(reports)
+      .where(and(eq(reports.cibleId, userId), eq(reports.statut, 'RESOLU')));
+
+    const hasSanctionAction = isSuspended || confirmedSanctions.length > 0;
+
+    if (hasSanctionAction) {
+      const userHmac = generateUserHmac(userId);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 12 mois max
+
+      // Si le compte était suspendu/banni
+      if (isSuspended) {
+        await db.insert(moderationArchives).values({
+          id: `arch_sanct_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
+          sanctionedUserHmac: userHmac,
+          motif: 'Suspension définitive pour non-respect des règles de la communauté',
+          actionPrise: 'SUSPENSION',
+          dateSanction: dbUser.dernierAcces || now,
+          dateArchivage: now,
+          dateExpiration: expiresAt,
+        });
+      }
+
+      // Si des signalements confirmés avec action de modération existent
+      for (const cs of confirmedSanctions) {
+        await db.insert(moderationArchives).values({
+          id: `arch_rep_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
+          sanctionedUserHmac: userHmac,
+          motif: cs.motif || 'Infraction confirmée par la modération',
+          actionPrise: 'SANCTION_CONFIRMEE',
+          dateSanction: cs.dateCreation || now,
+          dateArchivage: now,
+          dateExpiration: expiresAt,
+        });
+      }
+    }
+
+    // 4. Suppression définitive de toutes les données personnelles identifiantes
     if (dbUser.email) {
       await db.delete(tickets).where(eq(tickets.userEmail, dbUser.email));
     }
     await db.delete(reports).where(eq(reports.auteurId, userId));
+    await db.delete(reports).where(eq(reports.cibleId, userId));
 
-    // 4. Delete user record
+    // 5. Suppression de la ligne utilisateur de la table users
     await db.delete(users).where(eq(users.id, userId));
 
     // Clear session HttpOnly cookie

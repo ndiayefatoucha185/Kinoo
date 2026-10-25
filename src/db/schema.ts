@@ -188,3 +188,13 @@ export const monthlyRoomCreations = pgTable("monthly_room_creations", {
   roomId: varchar("room_id", { length: 128 }).notNull(),
   creeLe: timestamp("cree_le", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const moderationArchives = pgTable('moderation_archives', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  sanctionedUserHmac: varchar('sanctioned_user_hmac', { length: 128 }).notNull(),
+  motif: text('motif').notNull(),
+  actionPrise: varchar('action_prise', { length: 50 }).notNull(),
+  dateSanction: timestamp('date_sanction', { withTimezone: true }).notNull().defaultNow(),
+  dateArchivage: timestamp('date_archivage', { withTimezone: true }).notNull().defaultNow(),
+  dateExpiration: timestamp('date_expiration', { withTimezone: true }).notNull(),
+});

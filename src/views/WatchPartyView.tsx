@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Room, User, UserRole, Participation, ChatMessage, ReactionItem, ContentSource } from '../types/kinoo';
+import {
+  Room, User, UserRole, Participation, ChatMessage, ReactionItem, ContentSource } from '../types/kinoo';
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
 import { syncEngine, SyncPacket } from '../services/syncEngine';
 import {
+  AlertTriangle,
   Play,
   Pause,
   RotateCcw,
@@ -56,6 +58,15 @@ interface WatchPartyViewProps {
   onLeaveRoom: () => void;
   onToast: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
+
+// Journal de synchronisation vidéo (activable via ?debug=1 dans l'URL) (Point 2c)
+const isDebugSync = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
+const debugSyncLog = (stage: string, details?: any) => {
+  if (isDebugSync) {
+    const ts = Date.now();
+    console.info(`[KINOO SYNC DEBUG ${ts}ms] ${stage}`, details !== undefined ? details : '');
+  }
+};
 
 export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   roomId,
@@ -239,7 +250,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               hoteId: r.hoteId,
               hotePseudo: r.hotePseudo,
               sourceContenuId: r.sourceContenu?.id || 'src-default',
-              sourceContenu: r.sourceContenu || {
+              sourceContenu: r.sourceContenu || { synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '', 
                 id: 'src-default',
                 titre: 'Vidéo',
                 typeSource: 'URL_WEB',
@@ -325,6 +336,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               ytPlayerReadyRef.current = true;
               const dur = event.target.getDuration() || 0;
               if (dur > 0) setDuration(dur);
+              debugSyncLog('🎯 LECTEUR PRÊT (YouTube onReady)', { duration: dur });
 
               // Warm-up YouTube actif en sourdine (Point 5b) :
               // cueVideoById ne chargeant pas les segments média en mémoire,
@@ -359,9 +371,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
               if (event.data === YTState.PLAYING) {
                 setIsPlaying(true);
+                debugSyncLog('▶️ ÉTAT EN LECTURE (YouTube getPlayerState() === 1 / PLAYING)', {
+                  position: event.target.getCurrentTime ? event.target.getCurrentTime() : 0,
+                });
                 if (isHost && !isInternalYTEventRef.current) {
                   const pos = event.target.getCurrentTime() || 0;
-                  syncEngine.sendEvent('PLAY', { id: localUserId, pseudo: localPseudo, role: userRole }, { positionSec: pos });
+                  debugSyncLog('🖱️ CLIC LECTURE HÔTE EFFECTUÉ', { positionSec: pos });
+    syncEngine.sendEvent('PLAY', { id: localUserId, pseudo: localPseudo, role: userRole }, { positionSec: pos });
                 }
               } else if (event.data === YTState.PAUSED) {
                 setIsPlaying(false);
@@ -489,7 +505,26 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         break;
       }
 
+      case 'PREPARE_PLAY': {
+        const prepPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
+        debugSyncLog('📥 SIGNAL PREPARE_PLAY REÇU DU SERVEUR', { positionSec: prepPos });
+        if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+          try { ytPlayerRef.current.seekTo(prepPos, true); } catch {}
+        } else if (videoRef.current) {
+          videoRef.current.currentTime = prepPos;
+        }
+        // Répondre CLIENT_READY au serveur
+        syncEngine.sendEvent('CLIENT_READY', { id: localUserId, pseudo: localPseudo, role: userRole });
+        debugSyncLog('📤 ENVOI SIGNAL CLIENT_READY AU SERVEUR');
+        break;
+      }
+
       case 'PLAY': {
+        debugSyncLog('⚡ SIGNAL TOP DÉPART PLAY REÇU DU SERVEUR', {
+          scheduledStartTime: packet.payload?.scheduledStartTime,
+          isAdaptive: packet.payload?.isAdaptive,
+          totalWaitMs: packet.payload?.totalWaitMs
+        });
         const targetPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
         const startAt = packet.payload?.scheduledStartTime;
         const now = Date.now();
@@ -732,6 +767,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       videoRef.current.play().catch((err: any) => { if (err?.name === 'NotAllowedError' || String(err).includes('play')) { setIsAutoplayBlocked(true); } });
     }
     setIsPlaying(true);
+    debugSyncLog('🖱️ CLIC LECTURE HÔTE EFFECTUÉ', { positionSec: pos });
     syncEngine.sendEvent('PLAY', { id: localUserId, pseudo: localPseudo, role: userRole }, { positionSec: pos });
   };
 
@@ -930,6 +966,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     onToast('Lien d’invitation copié dans le presse-papier !', 'success');
     setTimeout(() => setIsCopied(false), 2000);
   };
+
+  const invitation = room ? StorageService.getInvitationForRoom(room.id) : null;
 
   const handleRevokeToken = () => {
     if (!isHost || !invitation || !room) return;

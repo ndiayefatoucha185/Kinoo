@@ -27,6 +27,29 @@ interface AdminOverviewWidgetProps {
   onSelectTab: (tab: AdminTab) => void;
   currency: 'EUR' | 'FCFA';
   onToggleCurrency: () => void;
+  overviewMetrics?: {
+    totalComptesInscrits: number;
+    comptesParForfait: {
+      GRATUIT: number;
+      STANDARD: number;
+      PREMIUM: number;
+    };
+    inscritsAujourdhui: number;
+    inscrits7Jours: number;
+    comptesConnectesEnCeMoment: number;
+    activeSocketsCount: number;
+    sallesCreeesTotal: number;
+    sallesActivesDirect: number;
+    seancesCreeesCeMois: number;
+    participantsTotal: number;
+    messagesTotal: number;
+    signalementsOuverts: number;
+    ticketsOuverts: number;
+    monthlyRecurringRevenue: number;
+    databaseEnv?: string;
+    databaseName?: string;
+    serverTime?: string;
+  };
 }
 
 export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
@@ -38,6 +61,7 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
   onSelectTab,
   currency,
   onToggleCurrency,
+  overviewMetrics,
 }) => {
   const safeUsers = Array.isArray(users) ? users : [];
   const safeRooms = Array.isArray(rooms) ? rooms : [];
@@ -49,106 +73,105 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
     (u) => u && u.role !== 'ADMIN' && u.role !== 'SUPER_ADMIN'
   );
 
-  // Active users count
-  const activeUsersCount = clientUsers.filter((u) => u.statutCompte !== 'SUSPENDU').length;
-
-  // Live rooms count
-  const liveRooms = safeRooms.filter((r) => r && r.statut === 'EN_COURS');
-  const liveRoomsCount = liveRooms.length;
-
-  // Pending reports count
+  // Distinction rigoureuse entre totalite des comptes inscrits et utilisateurs connectes en ce moment
+  const totalComptesDisplay = overviewMetrics ? overviewMetrics.totalComptesInscrits : clientUsers.length;
+  const activeNowDisplay = overviewMetrics ? overviewMetrics.comptesConnectesEnCeMoment : clientUsers.filter((u) => u.statutCompte !== 'SUSPENDU').length;
+  const liveRoomsDisplay = overviewMetrics ? overviewMetrics.sallesActivesDirect : safeRooms.filter((r) => r && r.statut === 'EN_COURS').length;
+  const totalRoomsDisplay = overviewMetrics ? overviewMetrics.sallesCreeesTotal : safeRooms.length;
   const pendingReports = safeReports.filter((r) => r && r.statut === 'OUVERT');
-  const pendingReportsCount = pendingReports.length;
+  const pendingReportsDisplay = overviewMetrics ? overviewMetrics.signalementsOuverts : pendingReports.length;
+  const pendingReportsCount = pendingReportsDisplay;
+  const mrrDisplay =
+    typeof overviewMetrics?.monthlyRecurringRevenue === 'number' && !isNaN(overviewMetrics.monthlyRecurringRevenue)
+      ? overviewMetrics.monthlyRecurringRevenue
+      : clientUsers.reduce((sum, u) => sum + (PLAN_PRICES_EUR[u?.forfait as keyof typeof PLAN_PRICES_EUR] || 0), 0);
+  const payingSubscribersDisplay = overviewMetrics
+    ? (overviewMetrics.comptesParForfait?.STANDARD || 0) + (overviewMetrics.comptesParForfait?.PREMIUM || 0)
+    : clientUsers.filter((u) => u.forfait === 'PREMIUM' || u.forfait === 'STANDARD').length;
 
-  // Financials
-  const currentMRR = clientUsers.reduce((sum, u) => sum + (PLAN_PRICES_EUR[u.forfait] || 0), 0);
-  const payingSubscribers = clientUsers.filter((u) => u.forfait === 'PREMIUM' || u.forfait === 'STANDARD').length;
+  const liveRooms = safeRooms.filter((r) => r && r.statut === 'EN_COURS');
 
-  const formatMoney = (amountEur: number) => {
+  const formatMoney = (amountEur?: number | null) => {
+    const safeAmount = typeof amountEur === 'number' && !isNaN(amountEur) ? amountEur : 0;
     if (currency === 'FCFA') {
-      const fcfa = Math.round(amountEur * 655.957);
+      const fcfa = Math.round(safeAmount * 655.957);
       return `${fcfa.toLocaleString('fr-FR')} FCFA`;
     }
-    return `${amountEur.toFixed(2).replace('.', ',')} €`;
+    return `${safeAmount.toFixed(2).replace('.', ',')} €`;
   };
-
   return (
     <div className="space-y-6">
-      {/* 1. KEY INDICATORS ROW (CARTES CHIFFRÉES) */}
+      {/* 1. KEY INDICATORS ROW (CARTES CHIFFREES SERVEUR POSTGRESQL) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* Card 1: Active Users */}
+        {/* Card 1: Total Registered Accounts vs Live Active */}
         <div
           onClick={() => onSelectTab('users')}
           className="p-5 rounded-2xl bg-[#111219] border border-[#1E202B] hover:border-[#7C3AED]/50 transition-all cursor-pointer group shadow-sm relative overflow-hidden"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400">Utilisateurs actifs</span>
+            <span className="text-xs font-semibold text-gray-400">Comptes inscrits (Total)</span>
             <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-colors">
               <Users className="w-4 h-4" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              {activeUsersCount}
+              {totalComptesDisplay}
             </span>
-            {activeUsersCount > 0 ? (
-              <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-0.5">
-                <TrendingUp className="w-3 h-3" />
-                <span>+14% ce mois</span>
-              </span>
-            ) : (
-              <span className="text-[11px] text-gray-500 font-medium">0 activité</span>
-            )}
+            <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{activeNowDisplay} actif(s) en direct</span>
+            </span>
           </div>
-          <p className="mt-1 text-[11px] text-gray-500 truncate">
-            {clientUsers.length} compte(s) client(s) enregistré(s)
+          <p className="mt-1 text-[11px] text-gray-400 truncate">
+            +{overviewMetrics?.inscritsAujourdhui || 0} aujourd hui • +{overviewMetrics?.inscrits7Jours || 0} sur 7 jours
           </p>
         </div>
 
-        {/* Card 2: Live Rooms Currently Active */}
+        {/* Card 2: Live Rooms Currently Active vs Total Created */}
         <div
           onClick={() => onSelectTab('rooms')}
           className="p-5 rounded-2xl bg-[#111219] border border-[#1E202B] hover:border-emerald-500/50 transition-all cursor-pointer group shadow-sm relative overflow-hidden"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400">Salles en direct</span>
+            <span className="text-xs font-semibold text-gray-400">Salles actives en direct</span>
             <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
               <Radio className="w-4 h-4 animate-pulse" />
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              {liveRoomsCount}
+              {liveRoomsDisplay}
             </span>
-            {liveRoomsCount > 0 ? (
+            {liveRoomsDisplay > 0 ? (
               <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-full border border-emerald-500/30">
-                Synchronisées
+                En direct
               </span>
             ) : (
               <span className="text-[11px] text-gray-500 font-medium">0 active</span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-gray-500 truncate">
-            {safeRooms.length} salle(s) créée(s) sur la plateforme
+          <p className="mt-1 text-[11px] text-gray-400 truncate">
+            {totalRoomsDisplay} salle(s) créée(s) au total ({overviewMetrics?.seancesCreeesCeMois || 0} ce mois)
           </p>
         </div>
 
-        {/* Card 3: Pending Moderation Reports */}
+        {/* Card 3: Participants Total & Open Reports */}
         <div
           onClick={() => onSelectTab('moderation')}
           className={`p-5 rounded-2xl bg-[#111219] border transition-all cursor-pointer group shadow-sm relative overflow-hidden ${
-            pendingReportsCount > 0
+            pendingReportsDisplay > 0
               ? 'border-rose-500/40 hover:border-rose-500'
-              : 'border-[#1E202B] hover:border-rose-500/40'
+              : 'border-[#1E202B] hover:border-[#7C3AED]/40'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400">Signalements en attente</span>
+            <span className="text-xs font-semibold text-gray-400">Participants & Messages</span>
             <div
               className={`p-2 rounded-xl ${
-                pendingReportsCount > 0
+                pendingReportsDisplay > 0
                   ? 'bg-rose-500/20 text-rose-300'
-                  : 'bg-gray-800 text-gray-400'
+                  : 'bg-blue-500/10 text-blue-400'
               }`}
             >
               <ShieldAlert className="w-4 h-4" />
@@ -157,14 +180,14 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
           <div className="mt-3 flex items-baseline justify-between">
             <span
               className={`text-2xl sm:text-3xl font-bold tracking-tight ${
-                pendingReportsCount > 0 ? 'text-rose-400' : 'text-white'
+                pendingReportsDisplay > 0 ? 'text-rose-400' : 'text-white'
               }`}
             >
-              {pendingReportsCount}
+              {overviewMetrics?.participantsTotal || 0}
             </span>
-            {pendingReportsCount > 0 ? (
+            {pendingReportsDisplay > 0 ? (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500 text-white animate-pulse">
-                Action requise
+                {pendingReportsDisplay} signalement(s)
               </span>
             ) : (
               <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
@@ -173,8 +196,8 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
               </span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-gray-500 truncate">
-            {safeReports.length} signalement(s) au total
+          <p className="mt-1 text-[11px] text-gray-400 truncate">
+            {overviewMetrics?.messagesTotal || 0} message(s) • {overviewMetrics?.ticketsOuverts || 0} ticket(s) ouvert(s)
           </p>
         </div>
 
@@ -203,17 +226,39 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
           </div>
           <div className="mt-3 flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-mono">
-              {formatMoney(currentMRR)}
+              {formatMoney(mrrDisplay)}
             </span>
             <span className="text-[11px] font-semibold text-amber-400">
-              {payingSubscribers} abonné(s) payant(s)
+              {payingSubscribersDisplay} abonné(s) payant(s)
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-gray-500 truncate">
-            Projection ARR : {formatMoney(currentMRR * 12)} / an
+          <p className="mt-1 text-[11px] text-gray-400 truncate">
+            Projection ARR : {formatMoney(mrrDisplay * 12)} / an
           </p>
         </div>
       </div>
+
+      {/* REPARTITION DES COMPTES PAR FORFAIT & WEBSOCKET EN DIRECT */}
+      {overviewMetrics?.comptesParForfait && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-[#111219] border border-[#1E202B] text-xs">
+          <div className="space-y-0.5">
+            <span className="text-gray-400 text-[11px]">Forfait Gratuit</span>
+            <p className="text-base font-bold text-white">{overviewMetrics.comptesParForfait.GRATUIT || 0}</p>
+          </div>
+          <div className="space-y-0.5">
+            <span className="text-gray-400 text-[11px]">Forfait Standard</span>
+            <p className="text-base font-bold text-[#EC4899]">{overviewMetrics.comptesParForfait.STANDARD || 0}</p>
+          </div>
+          <div className="space-y-0.5">
+            <span className="text-gray-400 text-[11px]">Forfait Premium</span>
+            <p className="text-base font-bold text-[#7C3AED]">{overviewMetrics.comptesParForfait.PREMIUM || 0}</p>
+          </div>
+          <div className="space-y-0.5">
+            <span className="text-gray-400 text-[11px]">Sockets actives WS</span>
+            <p className="text-base font-bold text-emerald-400">{overviewMetrics.activeSocketsCount || 0} en direct</p>
+          </div>
+        </div>
+      )}
 
       {/* 2-COLUMN MAIN DASHBOARD SPLIT */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

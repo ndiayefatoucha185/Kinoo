@@ -101,9 +101,10 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
   const standardQuotaCapacity = Math.max(standardUsers.length * KINOO_PLANS.STANDARD.maxMonthlyRooms, KINOO_PLANS.STANDARD.maxMonthlyRooms);
   const standardQuotaUsedPct = Math.min(100, Math.round((standardRoomsCount / standardQuotaCapacity) * 100));
 
-  const renderDualMoney = (amountEur: number, isAccent?: boolean) => {
-    const fcfa = Math.round(amountEur * 655.957);
-    const eurStr = amountEur.toFixed(2).replace('.', ',');
+  const renderDualMoney = (amountEur?: number | null, isAccent?: boolean) => {
+    const safeAmount = typeof amountEur === 'number' && !isNaN(amountEur) ? amountEur : 0;
+    const fcfa = Math.round(safeAmount * 655.957);
+    const eurStr = safeAmount.toFixed(2).replace('.', ',');
     return (
       <div className="flex flex-col">
         <span className="text-xl sm:text-2xl font-extrabold text-white font-mono">
@@ -116,12 +117,10 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
     );
   };
 
-  const formatMoney = (amountEur: number) => {
-    const fcfa = Math.round(amountEur * 655.957);
-    const eurStr = amountEur.toFixed(2).replace('.', ',');
-    if (currency === 'FCFA') {
-      return `${fcfa.toLocaleString('fr-FR')} FCFA (≈ ${eurStr} €)`;
-    }
+  const formatMoney = (amountEur?: number | null) => {
+    const safeAmount = typeof amountEur === 'number' && !isNaN(amountEur) ? amountEur : 0;
+    const fcfa = Math.round(safeAmount * 655.957);
+    const eurStr = safeAmount.toFixed(2).replace('.', ',');
     return `${fcfa.toLocaleString('fr-FR')} FCFA (≈ ${eurStr} €)`;
   };
 

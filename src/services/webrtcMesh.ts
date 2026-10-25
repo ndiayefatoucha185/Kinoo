@@ -54,12 +54,18 @@ class WebRTCMeshService {
   private speakingState: Record<string, boolean> = {};
 
   constructor() {
-    this.fetchIceServers();
+    // Ne pas appeler fetchIceServers() à froid lors de l'instanciation du module.
+    // L'appel partira uniquement à l'entrée effective dans une salle de visionnage (Point 0d).
   }
 
-  private async fetchIceServers() {
+  public async fetchIceServers() {
     try {
-      const res = await fetch('/api/webrtc/ice-servers');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('kinoo_auth_token') : null;
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      const res = await fetch('/api/webrtc/ice-servers', { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
@@ -67,7 +73,7 @@ class WebRTCMeshService {
         }
       }
     } catch {
-      // Use standard fallback
+      // Use standard fallback STUN servers
     }
   }
 
@@ -113,6 +119,8 @@ class WebRTCMeshService {
     this.roomId = roomId;
     this.localUserId = localUser.id;
     this.localPseudo = localUser.pseudo;
+    // Récupérer les serveurs ICE uniquement à l'entrée dans la salle
+    this.fetchIceServers();
     this.onStreamsChanged = callbacks.onStreams;
     this.onSpeakingChanged = callbacks.onSpeaking;
   }

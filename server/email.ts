@@ -508,4 +508,42 @@ export const EmailService = {
     });
   },
 
-};
+
+  /**
+   * Alerte de sécurité : multiples tentatives infructueuses détectées sur un compte (seuil de 20 échecs sans blocage dur)
+   */
+  async sendSecurityAlertEmail(options: {
+    email: string;
+    pseudo?: string;
+    attempts: number;
+    ip?: string;
+  }): Promise<SentEmail> {
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #f59e0b; margin: 0; font-size: 24px; font-weight: 800;">Alerte de Sécurité Kinoo</h1>
+          <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Tentatives répétées de connexion détectées</p>
+        </div>
+        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+          <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.5;">
+            Bonjour <strong>${options.pseudo || options.email}</strong>,<br><br>
+            Nous avons détecté plus de <strong>${options.attempts} tentatives infructueuses</strong> de connexion sur votre compte Kinoo depuis l'adresse IP <code>${options.ip || 'non précisée'}</code>.<br><br>
+            <strong>Votre compte N'EST PAS verrouillé</strong>. Pour protéger vos accès, un test de sécurité (captcha) est désormais demandé avant d'accepter toute nouvelle tentative.
+          </p>
+        </div>
+        <p style="color: #64748b; font-size: 13px; line-height: 1.5;">
+          Si vous êtes à l'origine de ces essais, vous pouvez vous connecter normalement en renseignant le captcha et votre mot de passe.<br>
+          Si vous n'êtes pas à l'origine de ces essais, nous vous recommandons de réinitialiser votre mot de passe dès que possible.
+        </p>
+      </div>
+    `;
+
+    return sendEmail({
+      to: options.email,
+      subject: 'Alerte de sécurité Kinoo : tentatives de connexion répétées',
+      html,
+      type: 'SECURITY_ALERT' as any,
+    });
+  }
+
+}

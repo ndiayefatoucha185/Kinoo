@@ -205,6 +205,21 @@ export const LegalViews: React.FC<LegalViewsProps> = ({ initialTab = 'cgu', onOp
           </section>
 
           <section className="space-y-2">
+            <h3 className="text-sm font-bold text-white">2b. Conservation Anonymisée des Sanctions de Modération (Art. 17.3.e RGPD)</h3>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              En cas de suppression de compte par un utilisateur ayant fait l&apos;objet d&apos;une mesure formelle de modération (avertissement, suspension ou bannissement pour comportement abusif), l&apos;intégralité des données personnelles identifiantes (pseudo, adresse e-mail, messages) est immédiatement et irréversiblement détruite.
+            </p>
+            <div className="bg-[#09090B] border border-[#232326] p-3 rounded-xl text-xs text-gray-400 space-y-1">
+              <p className="text-gray-200 font-semibold">Cadre d&apos;application strict (Art. 17.3.e RGPD) :</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li><strong>Public concerné :</strong> Uniquement les utilisateurs ayant reçu une sanction disciplinaire avérée. Les utilisateurs non sanctionnés sont intégralement purgés sans aucune trace.</li>
+                <li><strong>Données minimisées :</strong> Un identifiant non réversible calculé par HMAC avec clé secrète serveur (protégeant contre toute attaque par dictionnaire), la date, le motif générique et la mesure prise. Aucun pseudo, e-mail ou message n&apos;est conservé.</li>
+                <li><strong>Notre durée de conservation :</strong> 12 mois (notre durée de conservation définie pour la prévention de la récidive et l'exercice des droits). Une tâche automatique purge définitivement toute archive dont l&apos;échéance est atteinte.</li>
+              </ul>
+            </div>
+          </section>
+
+          <section className="space-y-2">
             <h3 className="text-sm font-bold text-white">3. Cookies et Traceurs</h3>
             <p>
               KINOO n'utilise aucun cookie publicitaire tiers ni dispositif invasif de pistage inter-sites. Seuls sont déposés :

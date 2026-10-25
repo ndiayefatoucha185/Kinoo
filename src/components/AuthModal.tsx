@@ -152,9 +152,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSessionConflict, setIsSessionConflict] = useState(false);
+  const [requiresCaptcha, setRequiresCaptcha] = useState(false);
+  const [honeypot, setHoneypot] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileConfig, setTurnstileConfig] = useState<{ mode: 'turnstile' | 'internal'; siteKey: string | null } | null>(null);
+  const [captchaChallenge, setCaptchaChallenge] = useState<{ challengeId: string; question: string } | null>(null);
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [isSendingUnlock, setIsSendingUnlock] = useState(false);
 
   const prevIsOpenRef = useRef(false);
+  useEffect(() => {
+    if (requiresCaptcha && turnstileConfig?.mode === 'turnstile' && turnstileConfig?.siteKey) {
+      const renderWidget = () => {
+        const el = document.getElementById('cf-turnstile-container');
+        if (el && (window as any).turnstile) {
+          el.innerHTML = '';
+          try {
+            (window as any).turnstile.render('#cf-turnstile-container', {
+              sitekey: turnstileConfig.siteKey,
+              theme: 'dark',
+              callback: (token: string) => {
+                setTurnstileToken(token);
+              },
+            });
+          } catch {}
+        }
+      };
+      if ((window as any).turnstile) {
+        renderWidget();
+      } else {
+        const interval = setInterval(() => {
+          if ((window as any).turnstile) {
+            clearInterval(interval);
+            renderWidget();
+          }
+        }, 150);
+        return () => clearInterval(interval);
+      }
+    }
+  }, [requiresCaptcha, turnstileConfig]);
+
   useEffect(() => {
     // Ne réinitialiser le mode et l'onboarding que lors d'une NOUVELLE ouverture de la modale
     if (isOpen && !prevIsOpenRef.current) {
@@ -201,6 +238,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     reader.readAsDataURL(file);
   };
 
+    const fetchCaptcha = async () => {
+    try {
+      // Vérifier si Turnstile est configuré
+      const cfgRes = await fetch('/api/auth/captcha-config');
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        setTurnstileConfig(cfg);
+        if (cfg.mode === 'turnstile' && cfg.siteKey) {
+          // Chargement du script Cloudflare Turnstile
+          if (!(window as any).turnstile) {
+            const script = document.createElement('script');
+            script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+            script.async = true;
+            script.defer = true;
+            document.head.appendChild(script);
+          }
+        }
+      }
+
+      const res = await fetch('/api/auth/captcha-challenge');
+      if (res.ok) {
+        const data = await res.json();
+        setCaptchaChallenge(data);
+        setCaptchaAnswer('');
+      }
+    } catch {}
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -215,6 +280,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onClose();
     } catch (apiErr: any) {
       const errMsg = apiErr?.message || '';
+      if (apiErr?.requiresCaptcha || errMsg.includes('captcha') || errMsg.includes('sécurité requise')) {
+        setRequiresCaptcha(true);
+        fetchCaptcha();
+      }
+
       const isConflict =
         apiErr?.code === 'SUPER_ADMIN_SESSION_ACTIVE' ||
         errMsg.includes('SUPER_ADMIN_SESSION_ACTIVE') ||
@@ -288,7 +358,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         email.trim().toLowerCase(),
         motDePasse,
         selectedAvatar,
-        selectedForfait
+        selectedForfait,
+        honeypot || undefined,
+        honeypot || undefined
       );
       StorageService.setCurrentUser(res.user);
       onAuthSuccess(res.user);
@@ -736,6 +808,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {requiresCaptcha && (
+                  turnstileConfig?.mode === 'turnstile' && turnstileConfig?.siteKey ? (
+                    <div className="p-3.5 bg-[#141417] border border-purple-500/30 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                          🛡️ Contrôle de sécurité Cloudflare Turnstile
+                        </span>
+                      </div>
+                      <div id="cf-turnstile-container" className="flex justify-center min-h-[65px]" />
+                    </div>
+                  ) : captchaChallenge ? (
+                    <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
+                          🛡️ Ralentissement de sécurité (limitation de débit)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={fetchCaptcha}
+                          className="text-[11px] text-gray-400 hover:text-white underline cursor-pointer"
+                        >
+                          Autre calcul
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-200 font-medium">
+                        {captchaChallenge.question}
+                      </p>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Votre réponse (ex: 12)"
+                        value={captchaAnswer}
+                        onChange={(e) => setCaptchaAnswer(e.target.value)}
+                        className="w-full bg-[#09090B] border border-amber-500/40 rounded-lg px-3 py-1.5 text-white text-sm placeholder-gray-500 focus:outline-none focus:border-amber-400"
+                      />
+                    </div>
+                  ) : null
+                )}
 
                 <button
                   type="submit"

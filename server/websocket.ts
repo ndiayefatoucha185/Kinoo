@@ -27,10 +27,9 @@ interface ClientConnection {
 
 export let globalWsServer: KinooWebSocketServer | null = null;
 
-function extractWsToken(req: any, url: URL): string | null {
-  const paramToken = url.searchParams.get('token');
-  if (paramToken) return paramToken;
-
+function extractWsToken(req: any, _url?: URL): string | null {
+  // Sécurité stricte Cloud Run : AUCUN jeton JWT n est extrait de l URL de connexion (les logs Cloud Run enregistrent les query strings)
+  // L authentification s effectue exclusivement via le cookie HttpOnly ou dans le message INIT_SESSION
   const cookieHeader = req.headers?.cookie;
   if (cookieHeader) {
     const match = cookieHeader.match(/kinoo_token=([^;]+)/);
@@ -43,12 +42,38 @@ export class KinooWebSocketServer {
   private wss: WebSocketServer;
   private roomClients: Map<string, Set<ClientConnection>> = new Map();
   private activeGuestSecrets: Map<string, Map<string, { secret: string; expiresAt: number; pseudo: string }>> = new Map();
+  private pendingPlayNegotiations: Map<string, any> = new Map();
+
+  // Statistiques en temps reel pour la console Super Admin
+  public getActiveConnectionsCount(): { totalConnectedSockets: number; uniqueConnectedUsers: number; activeRoomsCount: number } {
+    let totalSockets = 0;
+    const uniqueUsers = new Set<string>();
+    let activeRooms = 0;
+    for (const [, clients] of this.roomClients.entries()) {
+      let openInRoom = 0;
+      for (const c of clients) {
+        if (c.ws.readyState === WebSocket.OPEN) {
+          totalSockets++;
+          uniqueUsers.add(c.userId);
+          openInRoom++;
+        }
+      }
+      if (openInRoom > 0) {
+        activeRooms++;
+      }
+    }
+    return {
+      totalConnectedSockets: totalSockets,
+      uniqueConnectedUsers: uniqueUsers.size,
+      activeRoomsCount: activeRooms,
+    };
+  }
 
   constructor(server: HttpServer) {
     this.wss = new WebSocketServer({ server, path: '/ws' });
     globalWsServer = this;
 
-    this.wss.on('connection', async (ws: WebSocket, req) => {
+    this.wss.on('connection', (ws: WebSocket, req) => {
       const url = new URL(req.url || '', `http://${req.headers.host}`);
       const roomId = url.searchParams.get('roomId') || '';
       const requestedPseudo = url.searchParams.get('pseudo') || 'Invité';
@@ -97,18 +122,8 @@ export class KinooWebSocketServer {
         return;
       }
 
-      // Détermination du rôle d'autorité (HOTE vs PARTICIPANT) vérifié côté serveur
+      // Rôle initial par défaut (réévalué de manière sécurisée en base lors du traitement d'INIT_SESSION)
       let role = 'PARTICIPANT';
-      if (roomId && !isGuest) {
-        try {
-          const roomRecord = await db.select({ hoteId: rooms.hoteId }).from(rooms).where(eq(rooms.id, roomId)).limit(1);
-          if (roomRecord[0] && roomRecord[0].hoteId === userId) {
-            role = 'HOTE';
-          }
-        } catch {
-          // ignore
-        }
-      }
 
       const client: ClientConnection = {
         ws,
@@ -172,6 +187,7 @@ export class KinooWebSocketServer {
 
         try {
           const packet = JSON.parse(data.toString());
+          
 
           // Premier message obligatoire : INIT_SESSION strictement requis (Point 3b)
           if (!isClientInitialized) {
@@ -199,6 +215,23 @@ export class KinooWebSocketServer {
             isClientInitialized = true;
 
             const p = packet.payload || {};
+
+            // Authentification securisee via jeton JWT dans INIT_SESSION (alternative au cookie pour API/WebSocket tiers)
+            if (!client.isAuthenticatedUser && p.token && typeof p.token === 'string') {
+              try {
+                const verified = verifyToken(p.token);
+                if (verified && verified.id) {
+                  client.userId = verified.id;
+                  client.pseudo = verified.pseudo || client.pseudo;
+                  client.isAuthenticatedUser = true;
+                  client.guestReconnectSecret = undefined;
+                  console.log();
+                }
+              } catch {
+                // Token invalide
+              }
+            }
+
             if (p.isRollover) {
               client.isRollover = true;
               client.presentedRolloverToken = p.rolloverToken;
@@ -246,7 +279,7 @@ export class KinooWebSocketServer {
             }
 
             if (roomId) {
-              const canJoin = await this.canUserJoinRoom(roomId, client.userId, url.searchParams.get('codeAcces') || undefined);
+              const canJoin = await this.canUserJoinRoom(roomId, client.userId, url.searchParams.get('codeAcces') || undefined, client);
               if (!canJoin.allowed) {
                 try {
                   ws.send(
@@ -340,7 +373,8 @@ export class KinooWebSocketServer {
   private async canUserJoinRoom(
     roomId: string,
     userId: string,
-    codeAcces?: string
+    codeAcces?: string,
+    client?: ClientConnection
   ): Promise<{ allowed: boolean; reason?: string; errorCode?: number }> {
     try {
       const result = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
@@ -350,6 +384,9 @@ export class KinooWebSocketServer {
       }
 
       const isHost = room.hoteId === userId;
+      if (client) {
+        client.role = isHost ? 'HOTE' : 'PARTICIPANT';
+      }
 
       // 1. Vérification si la salle est verrouillée par son hôte
       if (room.estVerrouillee && !isHost) {
@@ -663,7 +700,7 @@ export class KinooWebSocketServer {
         const newRoomId = payload?.roomId;
         const codeAcces = payload?.codeAcces;
         if (newRoomId && newRoomId !== client.roomId) {
-          const canJoin = await this.canUserJoinRoom(newRoomId, client.userId, codeAcces);
+          const canJoin = await this.canUserJoinRoom(newRoomId, client.userId, codeAcces, client);
           if (!canJoin.allowed) {
             try {
               client.ws.send(
@@ -688,6 +725,7 @@ export class KinooWebSocketServer {
       }
 
       case 'PLAY': {
+        console.log('[DEBUG WS] 🎬 PLAY reçu pour salle:', client.roomId, 'userId:', client.userId);
         const canControl = await this.isClientAuthorizedForPlayback(client);
         if (!canControl) {
           try {
@@ -708,32 +746,86 @@ export class KinooWebSocketServer {
 
         const targetSec = typeof payload?.positionSec === 'number' ? payload.positionSec : 0;
         const now = Date.now();
-        // Point 5c: Départ synchronisé dans le futur (1.5 seconde)
-        const scheduledStartTime = now + 1500;
-        const maxWaitTimeoutSec = 2.5;
+        const minDelayMs = 300;   // Seuil minimum de temporisation adaptative (300 ms)
+        const maxDelayMs = 1500;  // Plafond maximum avant départ forcé (1 500 ms)
 
-        try {
-          await db
-            .update(rooms)
-            .set({
-              playbackState: 'LECTURE',
-              currentPositionSec: targetSec,
-              lastPlaybackUpdate: new Date(now),
-            })
-            .where(eq(rooms.id, client.roomId));
-        } catch {
-          // ignore
+        // Nettoyer toute négociation précédente en cours sur cette salle
+        const prevNeg = this.pendingPlayNegotiations.get(client.roomId);
+        if (prevNeg) {
+          clearTimeout(prevNeg.timeoutHandle);
+          this.pendingPlayNegotiations.delete(client.roomId);
         }
 
+        const roomClients = this.roomClients.get(client.roomId) || new Set();
+        const expectedUserIds = new Set<string>();
+        for (const c of roomClients) {
+          if (c.userId) expectedUserIds.add(c.userId);
+        }
+
+        const triggerPlayStart = async (extraDelayMs: number = 50, isAdaptive: boolean = false) => {
+          const neg = this.pendingPlayNegotiations.get(client.roomId);
+          if (!neg || neg.isStarted) return;
+          neg.isStarted = true;
+          clearTimeout(neg.timeoutHandle);
+          this.pendingPlayNegotiations.delete(client.roomId);
+
+          const startTimestamp = Date.now() + extraDelayMs;
+          try {
+            await db
+              .update(rooms)
+              .set({
+                playbackState: 'LECTURE',
+                currentPositionSec: targetSec,
+                lastPlaybackUpdate: new Date(),
+              })
+              .where(eq(rooms.id, client.roomId));
+          } catch {}
+
+          this.broadcastToRoom(client.roomId, {
+            type: 'PLAY',
+            payload: {
+              positionSec: targetSec,
+              scheduledStartTime: startTimestamp,
+              isAdaptive,
+              totalWaitMs: Date.now() - neg.requestedAt + extraDelayMs,
+              serverTimestamp: Date.now(),
+            },
+          });
+        };
+
+        // Timeout plafond à 1 500 ms si un client ne répond pas ou est lent
+        const timeoutHandle = setTimeout(() => {
+          triggerPlayStart(50, false);
+        }, maxDelayMs);
+
+        const negotiation = {
+          targetSec,
+          requestedAt: now,
+          minStartTime: now + minDelayMs,
+          maxStartTime: now + maxDelayMs,
+          expectedClients: expectedUserIds,
+          readyClients: new Set<string>([client.userId]), // L'hôte émetteur est réputé prêt
+          timeoutHandle,
+          isStarted: false,
+        };
+
+        this.pendingPlayNegotiations.set(client.roomId, negotiation);
+
+        // Diffuser PREPARE_PLAY à tous les clients pour qu'ils préchargent et renvoient CLIENT_READY
         this.broadcastToRoom(client.roomId, {
-          type: 'PLAY',
+          type: 'PREPARE_PLAY',
           payload: {
             positionSec: targetSec,
-            scheduledStartTime,
-            maxWaitTimeoutSec,
+            minDelayMs,
+            maxDelayMs,
             serverTimestamp: now,
           },
         });
+
+        // Si l'hôte est seul dans la salle, déclencher dès le délai minimal (300 ms)
+        if (expectedUserIds.size <= 1) {
+          setTimeout(() => triggerPlayStart(50, true), minDelayMs);
+        }
         break;
       }
       case 'PAUSE': {
@@ -910,7 +1002,6 @@ export class KinooWebSocketServer {
       }
 
       case 'CLIENT_READY': {
-        // Un participant signale que sa vidéo est cueillie et en mémoire tampon (Point 2)
         this.broadcastToRoom(client.roomId, {
           type: 'CLIENT_READY',
           payload: {
@@ -920,6 +1011,43 @@ export class KinooWebSocketServer {
             timestamp: Date.now(),
           },
         });
+
+        // Vérification de quorum adaptatif pour la lecture (Point 2b)
+        const neg = this.pendingPlayNegotiations.get(client.roomId);
+        if (neg && !neg.isStarted) {
+          neg.readyClients.add(client.userId);
+          let allReady = true;
+          for (const uid of neg.expectedClients) {
+            if (!neg.readyClients.has(uid)) {
+              allReady = false;
+              break;
+            }
+          }
+
+          if (allReady) {
+            const elapsed = Date.now() - neg.requestedAt;
+            const remainingMinDelay = Math.max(0, 300 - elapsed);
+            // Dès que tous les clients ont confirmé CLIENT_READY, départ adaptatif (minimum 300ms)
+            setTimeout(() => {
+              if (!neg.isStarted) {
+                neg.isStarted = true;
+                clearTimeout(neg.timeoutHandle);
+                this.pendingPlayNegotiations.delete(client.roomId);
+                const startTimestamp = Date.now() + 50;
+                this.broadcastToRoom(client.roomId, {
+                  type: 'PLAY',
+                  payload: {
+                    positionSec: neg.targetSec,
+                    scheduledStartTime: startTimestamp,
+                    isAdaptive: true,
+                    totalWaitMs: Date.now() - neg.requestedAt + 50,
+                    serverTimestamp: Date.now(),
+                  },
+                });
+              }
+            }, remainingMinDelay);
+          }
+        }
         break;
       }
 

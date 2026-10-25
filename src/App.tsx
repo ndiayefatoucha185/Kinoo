@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import { User, Room } from './types/kinoo';
 import { StorageService } from './services/storage';
@@ -131,7 +132,7 @@ export default function App() {
                 hoteId: r.hoteId,
                 hotePseudo: r.hotePseudo,
                 sourceContenuId: r.sourceContenu?.id || 'src-default',
-                sourceContenu: r.sourceContenu || {
+                sourceContenu: r.sourceContenu || { synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '', 
                   id: 'src-default',
                   titre: 'Vidéo',
                   typeSource: 'URL_WEB',
@@ -305,11 +306,13 @@ export default function App() {
   if (isSuperAdmin && currentView === 'superadmin') {
     return (
       <div className="min-h-screen bg-[#090A10] text-[#FAFAFA] flex flex-col font-['Poppins',sans-serif]">
-        <SuperAdminDashboard
-          currentUser={currentUser}
-          onLogout={handleLogout}
-          onToast={addToast}
-        />
+        <ErrorBoundary moduleName="Console Super Admin">
+          <SuperAdminDashboard
+            currentUser={currentUser}
+            onLogout={handleLogout}
+            onToast={addToast}
+          />
+        </ErrorBoundary>
         {/* Toast Notifications */}
         <ToastContainer toasts={toasts} onDismiss={removeToast} />
       </div>
@@ -341,6 +344,7 @@ export default function App() {
           <>
             {/* Authenticated Workspace: Watch Party, Pricing, or Dashboard */}
             {currentView === 'watchparty' && activeRoomId ? (
+              <ErrorBoundary moduleName="Salle de visionnage (Watch Party)">
               <WatchPartyView
                 roomId={activeRoomId}
                 currentUser={currentUser}
@@ -350,6 +354,7 @@ export default function App() {
                 }}
                 onToast={addToast}
               />
+              </ErrorBoundary>
             ) : currentView === 'pricing' ? (
               <PricingView
                 currentUser={currentUser}
@@ -396,6 +401,7 @@ export default function App() {
                 <ArchitectureView />
               </div>
             ) : currentView === 'dashboard' ? (
+              <ErrorBoundary moduleName="Tableau de bord utilisateur">
               <DashboardView
                 currentUser={currentUser}
                 onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
@@ -409,6 +415,7 @@ export default function App() {
                 onUpdateCurrentUser={(updated) => setCurrentUser(updated)}
                 onOpenRgpd={() => setIsRgpdModalOpen(true)}
               />
+              </ErrorBoundary>
             ) : (
               <NotFoundView
                 onNavigateHome={() => setCurrentView('dashboard')}

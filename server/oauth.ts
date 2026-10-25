@@ -42,11 +42,19 @@ setInterval(() => {
 }, 2 * 60 * 1000).unref();
 
 function getOAuthSecret(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.JWT_SECRET ||
-    'kinoo-oauth-csrf-protection-secret-key-production'
-  );
+  const secret = process.env.OAUTH_STATE_SECRET;
+  if (!secret || secret.trim().length < 32) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[FATAL] OAUTH_STATE_SECRET manquant ou trop court en production.');
+      throw new Error('FATAL: OAUTH_STATE_SECRET doit être défini avec au minimum 32 caractères en production.');
+    }
+    const globalStore = globalThis as any;
+    if (!globalStore.__kinoo_dev_oauth_secret) {
+      globalStore.__kinoo_dev_oauth_secret = crypto.randomBytes(48).toString('hex');
+    }
+    return globalStore.__kinoo_dev_oauth_secret;
+  }
+  return secret.trim();
 }
 
 /**

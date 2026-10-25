@@ -22,16 +22,25 @@ async function testDualContext() {
   const hostPseudo = 'MarcOrganisateur';
   const hostEmail = hostId + '@kinoo.test';
 
+  const bcrypt = require("bcryptjs");
+  const passwordHash = bcrypt.hashSync("Pass1234!", 10);
   await pool.query(
-    'INSERT INTO users (id, pseudo, email, password_hash, forfait, role, statut_compte) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [hostId, hostPseudo, hostEmail, 'hash_pwd', 'STANDARD', 'UTILISATEUR', 'ACTIF']
+    "INSERT INTO users (id, pseudo, email, password_hash, forfait, role, statut_compte) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    [hostId, hostPseudo, hostEmail, passwordHash, "STANDARD", "UTILISATEUR", "ACTIF"]
   );
+  const loginRes = await doRequest({
+    hostname: 'localhost',
+    port: 3000,
+    path: '/api/auth/login',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  }, {
+    email: hostEmail,
+    password: 'Pass1234!'
+  });
 
-  const hostToken = jwt.sign(
-    { id: hostId, email: hostEmail, pseudo: hostPseudo, role: 'UTILISATEUR', forfait: 'STANDARD' },
-    JWT_SECRET,
-    { expiresIn: '2h' }
-  );
+  console.log('   ↳ Login HTTP Status:', loginRes.status, 'Body:', loginRes.body);
+  const hostToken = loginRes.body.token;
 
   console.log('[Étape 1 : Hôte connecté]');
   console.log('   ↳ Compte :', hostPseudo, '(', hostEmail, ')');
@@ -134,7 +143,8 @@ async function testDualContext() {
     headers: { 'Content-Type': 'application/json' }
   }, {
     guestId,
-    guestPseudo
+    guestPseudo,
+    ageCertifie: true
   });
   console.log('   ↳ Réponse HTTP adhésion invité :', joinRes.status);
   console.log('   ↳ Participation invité enregistrée :', guestPseudo, '(', guestId, ')');
@@ -145,22 +155,19 @@ async function testDualContext() {
 
   // Étape 7 : Connexion simultanée WebSocket Hôte + Invité et Démarrage synchronisé
   console.log('\n[Étape 7 : Connexion WebSocket simultanée et Démarrage synchronisé]');
-  const wsHost = new WebSocket(`ws://localhost:3000/ws?roomId=${createdRoom.id}&userId=${hostId}&pseudo=${hostPseudo}&role=HOTE`);
-  const wsGuest = new WebSocket(`ws://localhost:3000/ws?roomId=${createdRoom.id}&userId=${guestId}&pseudo=${guestPseudo}&role=PARTICIPANT`);
+  const wsHost = new WebSocket(
+    `ws://localhost:3000/ws?roomId=${createdRoom.id}&token=${hostToken}&pseudo=${hostPseudo}&ageCertifie=true`,
+    { headers: { Cookie: `kinoo_token=${hostToken}` } }
+  );
+  const wsGuest = new WebSocket(`ws://localhost:3000/ws?roomId=${createdRoom.id}&pseudo=${guestPseudo}&ageCertifie=true`);
 
-  await Promise.all([
-    new Promise(res => wsHost.on('open', res)),
-    new Promise(res => wsGuest.on('open', res))
-  ]);
-  console.log('   ↳ Les deux sockets WebSocket (Hôte + Invité) sont connectés à la salle.');
-
-  // Promesses de réception du paquet PLAY
   let hostPlayPacket = null;
   let guestPlayPacket = null;
 
   wsHost.on('message', data => {
     try {
       const msg = JSON.parse(data.toString());
+      console.log('   [WS Hôte reçu] :', msg.type, msg.payload ? JSON.stringify(msg) : '');
       if (msg.type === 'PLAY') hostPlayPacket = msg;
     } catch {}
   });
@@ -168,9 +175,33 @@ async function testDualContext() {
   wsGuest.on('message', data => {
     try {
       const msg = JSON.parse(data.toString());
+      console.log('   [WS Invité reçu] :', msg.type, msg.payload ? JSON.stringify(msg) : '');
       if (msg.type === 'PLAY') guestPlayPacket = msg;
     } catch {}
   });
+
+  const waitForOpen = (ws) => new Promise(res => {
+    if (ws.readyState === WebSocket.OPEN) return res();
+    ws.once('open', res);
+  });
+  await Promise.all([waitForOpen(wsHost), waitForOpen(wsGuest)]);
+  console.log('   ↳ Les deux sockets WebSocket (Hôte + Invité) sont connectés à la salle.');
+
+  // Envoi obligatoire INIT_SESSION
+  wsHost.send(JSON.stringify({
+    type: 'INIT_SESSION',
+    payload: { roomId: createdRoom.id }
+  }));
+  wsGuest.send(JSON.stringify({
+    type: 'INIT_SESSION',
+    payload: {
+      roomId: createdRoom.id,
+      guestUserId: guestId,
+      guestReconnectSecret: joinRes.body.guestReconnectSecret
+    }
+  }));
+  await new Promise(r => setTimeout(r, 300));
+  console.log('   ↳ INIT_SESSION initialisé avec succès sur les deux connexions.');
 
   // Invité signale CLIENT_READY (warm-up terminé)
   wsGuest.send(JSON.stringify({
@@ -204,7 +235,19 @@ async function testDualContext() {
 
   wsHost.close();
   wsGuest.close();
-  await pool.end();
+      // Nettoyage systématique des comptes et données de test
+    if (typeof hostId !== 'undefined' && hostId) {
+      await pool.query("DELETE FROM participations WHERE user_id = $1", [hostId]).catch(() => {});
+      await pool.query("DELETE FROM messages WHERE user_id = $1", [hostId]).catch(() => {});
+      const rooms = await pool.query("SELECT id FROM rooms WHERE hote_id = $1", [hostId]).catch(() => ({ rows: [] }));
+      for (const r of rooms.rows) {
+        await pool.query("DELETE FROM participations WHERE room_id = $1", [r.id]).catch(() => {});
+        await pool.query("DELETE FROM messages WHERE room_id = $1", [r.id]).catch(() => {});
+        await pool.query("DELETE FROM rooms WHERE id = $1", [r.id]).catch(() => {});
+      }
+      await pool.query("DELETE FROM users WHERE id = $1", [hostId]).catch(() => {});
+    }
+    await pool.end();
 
   console.log('\n========================================================================');
   console.log('TOUTES LES ÉTAPES DU SCÉNARIO DOUBLE CONTEXTE ONT ÉTÉ VÉRIFIÉES AVEC SUCCÈS !');

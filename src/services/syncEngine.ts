@@ -1,6 +1,7 @@
 import { SessionSynchroState, UserRole } from '../types/kinoo';
 
 export type SyncEventType =
+  | 'PREPARE_PLAY'
   | 'PLAY'
   | 'PAUSE'
   | 'SEEK'
@@ -10,6 +11,7 @@ export type SyncEventType =
   | 'USER_KICKED'
   | 'ROOM_LOCKED'
   | 'ROOM_TERMINATED'
+  | 'CLIENT_READY'
   | 'CHAT_MESSAGE'
   | 'REACTION'
   | 'MEDIA_CHANGE'
@@ -302,6 +304,21 @@ class RoomSyncEngine {
         timestamp: serverTimestamp,
         sequenceNumber: ++this.sequence,
         payload: p,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'PREPARE_PLAY') {
+      const packet: SyncPacket = {
+        type: 'PREPARE_PLAY',
+        roomId: this.currentRoomId,
+        senderId: msg.senderId || 'server',
+        senderPseudo: 'Serveur Kinoo',
+        senderRole: 'HOTE',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
       };
       this.dispatchLocal(packet);
       return;

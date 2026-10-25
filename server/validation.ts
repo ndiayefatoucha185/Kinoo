@@ -37,7 +37,7 @@ export const createRoomSchema = z.object({
   titre: z.string().min(2, 'Le titre doit contenir au moins 2 caractères').max(100).trim(),
   estPrivee: z.boolean().optional().default(false),
   codeAcces: z.string().max(32).optional().nullable(),
-  sourceContenu: z.union([z.string(), z.record(z.any())]).optional().nullable(),
+  sourceContenu: z.any().optional().nullable(),
 });
 
 // 3. Signalements

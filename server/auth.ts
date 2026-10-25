@@ -1,3 +1,4 @@
+import { verifyCaptchaSolution, verifyTurnstileToken } from './captcha';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -76,12 +77,16 @@ export function verifyToken(token: string): any {
 
 // Cookie Configuration for JWT (HttpOnly + Secure + SameSite)
 export function setAuthCookie(res: Response, req: Request, token: string) {
+  const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
   const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers?.['x-forwarded-proto'] === 'https';
+  
   res.cookie('kinoo_token', token, {
     httpOnly: true,
     secure: isSecure,
-    sameSite: isSecure ? 'none' : 'lax', // 'none' is required for iframe embedded in Cloud Run / AI Studio
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    // En production réelle (hors iframe) : 'lax' pour une sécurité CSRF optimale.
+    // 'none' n'est activé que pour l'iframe de prévisualisation AI Studio.
+    sameSite: isAiStudioEnv ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
     path: '/',
   });
 }
@@ -131,7 +136,8 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
       return res.status(401).json({ error: 'Utilisateur introuvable.' });
     }
 
-    if (dbUser.statutCompte === 'SUSPENDU') {
+    // Sous le RGPD (art. 17), un utilisateur suspendu conserve son droit fondamental à l'effacement de ses données personnelles
+    if (dbUser.statutCompte === 'SUSPENDU' && req.path !== '/user/rgpd-delete-account') {
       return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.' });
     }
 
@@ -145,15 +151,20 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
         const isTimeExpired = dbUser.activeSessionExpiresAt && new Date(dbUser.activeSessionExpiresAt).getTime() < now.getTime();
         const lastActivityTime = dbUser.dernierAcces ? new Date(dbUser.dernierAcces).getTime() : 0;
         const isInactive = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 30 * 60 * 1000;
-        const isSessionExpired = isTimeExpired || isInactive;
+        // Signal de vie : expiration si aucun ping/requête n'a été reçu pendant plus de 3 minutes (180s)
+        const isHeartbeatExpired = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 3 * 60 * 1000;
+        const isSessionExpired = isTimeExpired || isInactive || isHeartbeatExpired;
         
         if (isSessionExpired) {
-          // La session précédente a expiré par inactivité
+          // La session précédente a expiré par inactivité ou rupture de signal de vie
           await db.update(users).set({
             activeSessionToken: null,
             activeSessionExpiresAt: null,
           }).where(eq(users.id, dbUser.id));
-          return res.status(401).json({ error: 'Votre session Super Admin a expiré suite à une période d\'inactivité. Veuillez vous reconnecter.' });
+          return res.status(401).json({
+            error: 'Session expirée, reconnectez-vous',
+            code: 'SESSION_TERMINATED',
+          });
         }
 
         // Vérifier si le token de la requête correspond à la session active courante
@@ -164,11 +175,8 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
           });
         }
 
-        // Prolonger l'expiration glissante : 60s pour les sessions de tests, 4h pour les sessions normales
-        const isTestToken = dbUser.activeSessionToken.startsWith('ses_adm_test_');
-        const rollingExpiry = isTestToken
-          ? new Date(Date.now() + 60 * 1000)
-          : new Date(Date.now() + 4 * 60 * 60 * 1000);
+        // Prolonger l'expiration glissante : 4 heures pour toutes les sessions Super Admin
+        const rollingExpiry = new Date(Date.now() + 4 * 60 * 60 * 1000);
         await db.update(users).set({
           activeSessionExpiresAt: rollingExpiry,
           dernierAcces: now,
@@ -252,48 +260,161 @@ interface RateLimitRecord {
   blockedUntil?: number;
 }
 
-const rateLimitStore = new Map<string, RateLimitRecord>();
-const MAX_ATTEMPTS = parseInt(process.env.RATE_LIMIT_MAX_ATTEMPTS || '5', 10);
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes window
-const BLOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes block
+// Compteur 1 : Limite globale par adresse IP (tolérante pour les réseaux mobiles CGNAT : 45 tentatives / 15 min)
+const ipRateLimitStore = new Map<string, RateLimitRecord>();
+const IP_MAX_ATTEMPTS = parseInt(process.env.RATE_LIMIT_IP_MAX_ATTEMPTS || '45', 10);
+const IP_WINDOW_MS = 15 * 60 * 1000;
+const IP_BLOCK_DURATION_MS = 15 * 60 * 1000;
 
-export function rateLimitAuth(req: Request, res: Response, next: NextFunction) {
+// Compteur 2 : Couple IP + Email avec ralentissement progressif (Backoff au lieu de blocage dur de compte)
+interface IpEmailAttempt {
+  attempts: number;
+  lastAttemptTime: number;
+  requiredDelayMs: number;
+}
+const ipEmailStore = new Map<string, IpEmailAttempt>();
+
+// Compteur 3 : Compteur global par compte (seuil très élevé de 20 échecs pour éviter le déni de service tiers)
+const globalAccountStore = new Map<string, RateLimitRecord>();
+const GLOBAL_ACCOUNT_MAX_ATTEMPTS = 20;
+
+export async function rateLimitAuth(req: Request, res: Response, next: NextFunction) {
   const clientIp = getClientIp(req);
   const now = Date.now();
 
-  const record = rateLimitStore.get(clientIp);
-
-  if (record) {
-    if (record.blockedUntil && record.blockedUntil > now) {
-      const remainingSec = Math.ceil((record.blockedUntil - now) / 1000);
+  // 1. Limite globale par IP (CGNAT tolérant)
+  const ipRecord = ipRateLimitStore.get(clientIp);
+  if (ipRecord) {
+    if (ipRecord.blockedUntil && ipRecord.blockedUntil > now) {
+      const remainingSec = Math.ceil((ipRecord.blockedUntil - now) / 1000);
       return res.status(429).json({
-        error: `Trop de tentatives. Votre adresse est temporairement restreinte. Réessayez dans ${remainingSec} secondes.`,
+        error: `Trop de requêtes depuis cette adresse réseau. Réessayez dans ${remainingSec} secondes.`,
       });
     }
+  }
 
-    if (now - record.firstAttemptTime > WINDOW_MS) {
-      rateLimitStore.set(clientIp, { attempts: 1, firstAttemptTime: now });
-    } else {
-      record.attempts += 1;
-      if (record.attempts > MAX_ATTEMPTS) {
-        record.blockedUntil = now + BLOCK_DURATION_MS;
+  // 2. Ralentissement progressif sur le couple IP + Email
+  const targetEmail = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : null;
+  if (targetEmail) {
+    const pairKey = `${clientIp}::${targetEmail}`;
+    const pairRecord = ipEmailStore.get(pairKey);
+    if (pairRecord) {
+      const elapsed = now - pairRecord.lastAttemptTime;
+      if (elapsed < pairRecord.requiredDelayMs) {
+        const waitSec = Math.ceil((pairRecord.requiredDelayMs - elapsed) / 1000);
         return res.status(429).json({
-          error: `Trop de tentatives de connexion échouées. Accès bloqué pendant 15 minutes par mesure de sécurité.`,
+          error: `Veuillez patienter ${waitSec} seconde(s) avant une nouvelle tentative.`,
+        });
+      }
+
+      // Pour le Super Admin : au-delà de 3 échecs depuis CETTE adresse IP, exiger un jeton captcha
+      const isSuperAdminEmail = targetEmail === 'kinoo.service@gmail.com' || (req.body as any)?.role === 'SUPER_ADMIN';
+      if (isSuperAdminEmail && pairRecord.attempts >= 3) {
+        const captchaToken = req.body?.captchaToken || req.headers['x-kinoo-captcha'];
+        if (!captchaToken) {
+          return res.status(403).json({
+            error: 'Vérification de sécurité requise suite à de multiples tentatives depuis cette adresse.',
+            requiresCaptcha: true,
+          });
+        }
+      }
+    }
+
+    // 3. Vérification du seuil par compte (au-delà de 20 échecs : CAPTCHA OBLIGATOIRE SANS AUCUN BLOCAGE DUR)
+    const accRecord = globalAccountStore.get(targetEmail);
+    const isSuperAdminEmail = targetEmail === 'kinoo.service@gmail.com' || (req.body as any)?.role === 'SUPER_ADMIN';
+    const mustVerifyCaptcha = (accRecord && accRecord.attempts >= 20) || (isSuperAdminEmail && (pairRecord?.attempts || 0) >= 3);
+
+    if (mustVerifyCaptcha) {
+      const turnstileToken = req.body?.turnstileToken;
+      const captchaId = req.body?.captchaId;
+      const captchaAnswer = req.body?.captchaAnswer;
+
+      let isValid = false;
+
+      // 1. Essai de vérification Cloudflare Turnstile si le jeton et la clé secrète existent
+      if (turnstileToken && process.env.TURNSTILE_SECRET_KEY) {
+        const turnstileRes = await verifyTurnstileToken(turnstileToken, clientIp);
+        if (turnstileRes.success) {
+          isValid = true;
+        } else if (turnstileRes.error === 'CLOUDFLARE_UNAVAILABLE' || turnstileRes.error === 'CLOUDFLARE_NETWORK_ERROR') {
+          // Repli sur le défi interne si Cloudflare est indisponible
+          isValid = verifyCaptchaSolution(captchaId, captchaAnswer);
+        }
+      } else {
+        // 2. Défi interne de temporisation / limitation de débit
+        isValid = verifyCaptchaSolution(captchaId, captchaAnswer);
+      }
+
+      if (!isValid) {
+        return res.status(403).json({
+          error: 'Ralentissement de sécurité requis suite à de multiples tentatives. Veuillez renseigner la vérification de temporisation.',
+          requiresCaptcha: true,
+          code: 'CAPTCHA_REQUIRED',
         });
       }
     }
-  } else {
-    rateLimitStore.set(clientIp, { attempts: 1, firstAttemptTime: now });
   }
 
   next();
 }
 
+export function recordFailedAuthAttempt(clientIp: string, email?: string) {
+  if (!email) return;
+  const cleanEmail = email.toLowerCase().trim();
+  const now = Date.now();
+
+  // Ralentissement progressif sur le couple IP + Email
+  const pairKey = `${clientIp}::${cleanEmail}`;
+  const pairRecord = ipEmailStore.get(pairKey);
+  if (pairRecord) {
+    pairRecord.attempts += 1;
+    pairRecord.lastAttemptTime = now;
+    // Délais croissants : 0s (1-3), 2s (4), 4s (5), 8s (6), 15s (7+)
+    if (pairRecord.attempts === 4) pairRecord.requiredDelayMs = 2000;
+    else if (pairRecord.attempts === 5) pairRecord.requiredDelayMs = 4000;
+    else if (pairRecord.attempts === 6) pairRecord.requiredDelayMs = 8000;
+    else if (pairRecord.attempts >= 7) pairRecord.requiredDelayMs = 15000;
+  } else {
+    ipEmailStore.set(pairKey, { attempts: 1, lastAttemptTime: now, requiredDelayMs: 0 });
+  }
+
+  // Compteur global de sécurité (seuil 20 échecs distribués : captcha obligatoire + alerte email, AUCUN BLOCAGE DUR)
+  const accRecord = globalAccountStore.get(cleanEmail);
+  if (accRecord) {
+    if (now - accRecord.firstAttemptTime > 15 * 60 * 1000) {
+      globalAccountStore.set(cleanEmail, { attempts: 1, firstAttemptTime: now });
+    } else {
+      accRecord.attempts += 1;
+      if (accRecord.attempts === GLOBAL_ACCOUNT_MAX_ATTEMPTS) {
+        // Envoi d'une alerte par email au titulaire (sans blocage du compte)
+        try {
+          EmailService.sendSecurityAlertEmail({
+            email: cleanEmail,
+            attempts: accRecord.attempts,
+            ip: clientIp,
+          }).catch(() => {});
+        } catch {}
+      }
+    }
+  } else {
+    globalAccountStore.set(cleanEmail, { attempts: 1, firstAttemptTime: now });
+  }
+}
+
+export function resetAccountRateLimit(clientIp: string, email?: string) {
+  if (!email) return;
+  const cleanEmail = email.toLowerCase().trim();
+  ipEmailStore.delete(`${clientIp}::${cleanEmail}`);
+  globalAccountStore.delete(cleanEmail);
+}
+
 export function resetRateLimit(ip: string) {
   const cleanIp = (ip || '').split(',')[0].trim();
-  rateLimitStore.delete(cleanIp);
-  rateLimitStore.delete(ip);
+  ipRateLimitStore.delete(cleanIp);
+  ipRateLimitStore.delete(ip);
 }
+
 
 // Rate limiting anti-spam pour les envois d'emails et invitations (5 req/min)
 const emailLimitStore = new Map<string, { count: number; windowStart: number }>();
@@ -320,16 +441,10 @@ export function rateLimitEmail(req: Request, res: Response, next: NextFunction) 
 export function verifyInvisibleCaptcha(req: Request, res: Response, next: NextFunction) {
   const { honeypot, captchaChallenge } = req.body;
 
-  // 1. Honeypot check: If the hidden honeypot input is filled, it's a bot
+  // 1. Contrôle Honeypot réel : Si le champ caché est rempli par un robot
   if (honeypot) {
     console.warn('[SECURITY] Bot détecté via champ honeypot invisible.');
     return res.status(400).json({ error: 'Validation antispam échouée.' });
-  }
-
-  // 2. Invisible client verification signature
-  const clientStamp = req.headers['x-kinoo-shield'];
-  if (!clientStamp && process.env.NODE_ENV === 'production') {
-    return res.status(400).json({ error: 'Échec du contrôle de sécurité invisible.' });
   }
 
   next();
@@ -341,35 +456,41 @@ const SPAM_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_SPAM_SUBMISSIONS = 15; // Max 15 submissions per 10 minutes
 
 // Extraction sécurisée de la véritable adresse IP cliente (protégée contre l'usurpation de X-Forwarded-For)
+// Extraction rigoureuse et sécurisée de l'adresse IP cliente réelle sur Google Cloud Run et proxys inverses
 export function getClientIp(req: Request): string {
-  // Dans l'infrastructure Google Cloud Run, GFE termine le flux TLS/TCP et accole systématiquement
-  // la véritable IP cliente à la fin de X-Forwarded-For, tout en injectant l'en-tête x-cloud-trace-context.
-  const hasTrustedCloudRunProxy = Boolean(
-    req.headers['x-cloud-trace-context'] || req.headers['x-appengine-user-ip']
-  );
+  // 1. En-tête X-Forwarded-For géré par le proxy inverse (Google Front End / Cloud Run)
   const rawFwd = req.headers['x-forwarded-for'];
-
-  if (hasTrustedCloudRunProxy && typeof rawFwd === 'string') {
+  if (typeof rawFwd === 'string' && rawFwd.trim()) {
     const parts = rawFwd.split(',').map((p) => p.trim()).filter(Boolean);
     if (parts.length > 0) {
-      // La dernière entrée ajoutée par Google Front End est l'IP vérifiée
-      const last = parts[parts.length - 1];
-      if ((last === '127.0.0.1' || last === '::1' || last.startsWith('169.254.') || last.startsWith('10.')) && parts.length >= 2) {
-        return parts[parts.length - 2];
+      // Sur Google Cloud Run : Google Front End termine la connexion client et accole
+      // l'IP réelle du client appelant à la fin de X-Forwarded-For.
+      // Les entrées de gauche peuvent avoir été injectées par un client malveillant.
+      // L'entrée la plus à droite (dernière entrée) est donc celle certifiée par l'infrastructure GCP.
+      let candidate = parts[parts.length - 1];
+
+      // Si la dernière entrée est une IP interne Google de rebond conteneur (169.254.x.x, 10.x.x.x, loopback)
+      // et qu'un saut client existe en amont, on retient le saut client :
+      if ((candidate.startsWith('169.254.') || candidate.startsWith('10.') || candidate === '127.0.0.1' || candidate === '::1') && parts.length >= 2) {
+        candidate = parts[parts.length - 2];
       }
-      return last;
+
+      return candidate.replace(/^::ffff:/, '');
     }
   }
 
-  // Connexion TCP directe (tests locaux, dev, ou requêtes sans proxy vérifié Cloud Run) :
-  // On n'accepte JAMAIS les en-têtes X-Forwarded-For forgés par le client !
-  // L'adresse de socket est l'unique source de vérité physique non falsifiable.
-  const socketAddr = req.socket?.remoteAddress;
-  if (socketAddr) {
-    return socketAddr.replace(/^.*:/, ''); // normalise ::ffff:127.0.0.1 -> 127.0.0.1
+  // 2. Si Express a résolu req.ip via trust proxy
+  if (req.ip) {
+    return req.ip.replace(/^::ffff:/, '');
   }
 
-  return req.ip || '127.0.0.1';
+  // 3. Repli socket TCP direct (développement local)
+  const socketAddr = req.socket?.remoteAddress;
+  if (socketAddr) {
+    return socketAddr.replace(/^::ffff:/, '');
+  }
+
+  return '127.0.0.1';
 }
 
 export function rateLimitAntiSpam(req: Request, res: Response, next: NextFunction) {
@@ -405,28 +526,43 @@ export function rateLimitAntiSpam(req: Request, res: Response, next: NextFunctio
 
 
 const roomSearchStore = new Map<string, { attempts: number; windowStart: number }>();
+
+export function resetRoomSearchRateLimit(ip: string) {
+  roomSearchStore.delete(ip);
+}
+
 export function rateLimitRoomSearch(req: Request, res: Response, next: NextFunction) {
   const clientIp = getClientIp(req);
   const now = Date.now();
   const windowMs = 60 * 1000; // 1 minute
-  const maxAttempts = 5; // Limite stricte : 5 tentatives par minute et par IP réelle
+  const maxFailedAttempts = 5; // Limite stricte : 5 mauvaises tentatives par minute et par IP réelle
   const record = roomSearchStore.get(clientIp);
 
   if (record) {
     if (now - record.windowStart > windowMs) {
-      roomSearchStore.set(clientIp, { attempts: 1, windowStart: now });
-    } else {
-      record.attempts += 1;
-      if (record.attempts > maxAttempts) {
-        console.warn(`[SECURITY] 🛡️ Limite de recherche de salle atteinte pour l'IP ${clientIp}`);
-        return res.status(429).json({
-          error: 'Trop de tentatives de recherche ou de saisie de code de salle. Veuillez patienter une minute.',
-          code: 'RATE_LIMIT_EXCEEDED'
-        });
+      roomSearchStore.delete(clientIp);
+    } else if (record.attempts >= maxFailedAttempts) {
+      console.warn('[SECURITY] Limite de mauvaises tentatives atteinte pour l IP ' + clientIp);
+      return res.status(429).json({
+        error: 'Trop de tentatives de recherche ou de saisie de code de salle. Veuillez patienter une minute.',
+        code: 'RATE_LIMIT_EXCEEDED'
+      });
+    }
+  }
+
+  // Hook pour comptabiliser uniquement les échecs (404)
+  const originalJson = res.json.bind(res);
+  res.json = function (body: any) {
+    if (res.statusCode === 404) {
+      const rec = roomSearchStore.get(clientIp);
+      if (rec && now - rec.windowStart <= windowMs) {
+        rec.attempts += 1;
+      } else {
+        roomSearchStore.set(clientIp, { attempts: 1, windowStart: now });
       }
     }
-  } else {
-    roomSearchStore.set(clientIp, { attempts: 1, windowStart: now });
-  }
+    return originalJson(body);
+  };
+
   next();
 }

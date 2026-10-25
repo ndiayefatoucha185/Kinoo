@@ -1,3 +1,6 @@
+import { getStoredToken } from '../services/api';
+import { APP_BUILD_TIMESTAMP } from '../version';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import React, { useState, useEffect } from 'react';
 import {
   User,
@@ -48,53 +51,146 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   const [currency, setCurrency] = useState<'EUR' | 'FCFA'>('EUR');
   const [globalSearchTerm, setGlobalSearchTerm] = useState('');
 
-  // Loaded data state from persistent StorageService
-  const [users, setUsers] = useState<User[]>(() => StorageService.getUsers());
-  const [rooms, setRooms] = useState<Room[]>(() => StorageService.getRooms());
-  const [participations, setParticipations] = useState<Participation[]>(() => StorageService.getParticipations());
-  const [transactions, setTransactions] = useState<PaymentTransaction[]>(() => StorageService.getTransactions());
-  const [reports, setReports] = useState<Signalement[]>(() => StorageService.getReports());
-  const [auditLogs, setAuditLogs] = useState<AuditLogEvent[]>(() => StorageService.getAuditLogs());
-  const [integrations, setIntegrations] = useState<ExternalIntegration[]>(() => StorageService.getIntegrations());
-  const [systemConfig, setSystemConfig] = useState<SystemConfig>(() => StorageService.getSystemConfig());
-  const [catalogCount, setCatalogCount] = useState<number>(() => StorageService.getCatalogItems().length);
-  const [adsCount, setAdsCount] = useState<number>(() => StorageService.getAds().length);
+  // Loaded real data state from PostgreSQL Backend Server (SUPER_ADMIN)
+  const [overviewMetrics, setOverviewMetrics] = useState<{
+    totalComptesInscrits: number;
+    comptesParForfait: {
+      GRATUIT: number;
+      STANDARD: number;
+      PREMIUM: number;
+    };
+    inscritsAujourdhui: number;
+    inscrits7Jours: number;
+    comptesConnectesEnCeMoment: number;
+    activeSocketsCount: number;
+    sallesCreeesTotal: number;
+    sallesActivesDirect: number;
+    seancesCreeesCeMois: number;
+    participantsTotal: number;
+    messagesTotal: number;
+    signalementsOuverts: number;
+    ticketsOuverts: number;
+    monthlyRecurringRevenue: number;
+    databaseEnv?: string;
+    databaseName?: string;
+    serverTime?: string;
+  } | null>(null);
+  const [metricsError, setMetricsError] = useState<boolean>(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [participations, setParticipations] = useState<Participation[]>([]);
+  const [transactions, setTransactions] = useState<PaymentTransaction[]>([]);
+  const [reports, setReports] = useState<Signalement[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEvent[]>([]);
+  const [integrations, setIntegrations] = useState<ExternalIntegration[]>([]);
+  const [systemConfig, setSystemConfig] = useState<SystemConfig>(() => ({
+    maintenanceMode: false,
+    inscriptionOuverte: true,
+    maxSalonsSimultanes: 250,
+    bitrateMaxKbps: 8000,
+    cleSecuriteActive: true
+  }));
+  const [catalogCount, setCatalogCount] = useState<number>(0);
+  const [adsCount, setAdsCount] = useState<number>(0);
   const [backendStatus, setBackendStatus] = useState<'checking' | 'verified' | 'blocked'>('checking');
   const [backendBlockReason, setBackendBlockReason] = useState<string>('');
 
-  // Validate Super Admin privileges strictly against backend PostgreSQL and fetch real data
+  // Fonction de récupération serveur des métriques d'agrégation réelles
+  const fetchAdminData = async (isBackground = false) => {
+    try {
+      const [metrics, backendUsers, backendRooms] = await Promise.all([
+        ApiClient.getAdminOverview(),
+        ApiClient.getAdminUsers().catch(() => null),
+        ApiClient.getAdminRooms().catch(() => null),
+      ]);
+      if (metrics) {
+        setOverviewMetrics(metrics);
+      }
+      if (backendUsers && Array.isArray(backendUsers)) {
+        setUsers(backendUsers);
+      }
+      if (backendRooms && Array.isArray(backendRooms)) {
+        setRooms(backendRooms);
+      }
+      setBackendStatus('verified');
+      setMetricsError(false);
+    } catch (err: any) {
+      console.warn('[ADMIN] Erreur récupération métriques serveur:', err.message);
+      const isAuthErr = err.message && (
+        err.message.includes('401') ||
+        err.message.includes('403') ||
+        err.message.includes('session') ||
+        err.message.includes('authentification') ||
+        err.message.includes('expiré')
+      );
+      if (isAuthErr) {
+        setBackendStatus('blocked');
+        setBackendBlockReason(err.message || 'Session expirée ou privilèges non autorisés');
+      } else {
+        // En cas d'erreur réseau ou temporaire, on active le bandeau d'indisponibilité
+        // mais ON CONSERVE les dernières valeurs connues : AUCUN compteur ne retombe à zéro !
+        setMetricsError(true);
+      }
+    }
+  };
+
+  // Chargement initial + rafraîchissement automatique toutes les 30 secondes sans clignotement
+    // Signal de vie automatique (Heartbeat toutes les 60s pour maintenir la session active)
+    // Surveillance du réveil après mise en veille ou onglet masqué (Point 7)
   useEffect(() => {
-    let isMounted = true;
-    
-    // 1. Fetch overview
-    ApiClient.getAdminOverview()
-      .then(() => {
-        if (isMounted) {
-          setBackendStatus('verified');
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const storedToken = getStoredToken();
+          console.log('[HEARTBEAT] Sending heartbeat...'); const pingRes = await fetch('/api/admin/heartbeat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
+            },
+            credentials: 'include',
+          });
+          console.log('[HEARTBEAT] Response status:', pingRes.status); if (pingRes.status === 401) {
+            setBackendStatus('blocked');
+            setBackendBlockReason('Session expirée, reconnectez-vous');
+          } else if (pingRes.ok) {
+            fetchAdminData(true);
+          }
+        } catch {
+          // Erreur réseau temporaire au réveil
         }
-      })
-      .catch((err) => {
-        console.warn('[SECURITY] Rejet accès admin par backend PostgreSQL:', err.message);
-        if (isMounted) {
-          setBackendStatus('blocked');
-          setBackendBlockReason(err.message || 'Privilèges non autorisés');
-        }
-      });
-
-    // 2. Fetch real users from PostgreSQL database
-    ApiClient.getAdminUsers()
-      .then((backendUsers) => {
-        if (isMounted && Array.isArray(backendUsers)) {
-          setUsers(backendUsers);
-        }
-      })
-      .catch((err) => {
-        console.warn('[ADMIN] Note chargement utilisateurs backend:', err.message);
-      });
-
-    return () => {
-      isMounted = false;
+      }
     };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    const sendPing = async () => {
+      try {
+        const storedToken = getStoredToken();
+        await fetch('/api/admin/heartbeat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
+          },
+          credentials: 'include',
+        });
+      } catch {}
+    };
+    const interval = setInterval(sendPing, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetchAdminData(false);
+
+    const interval = setInterval(() => {
+      fetchAdminData(true);
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [currentUser]);
 
   // Ensure view systematically scrolls to top whenever active tab changes
@@ -104,23 +200,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
 
   // Quick helper to refresh all datasets
   const refreshAll = async () => {
-    try {
-      const backendUsers = await ApiClient.getAdminUsers();
-      if (Array.isArray(backendUsers)) {
-        setUsers(backendUsers);
-      }
-    } catch {
-      setUsers(StorageService.getUsers());
-    }
-    setRooms(StorageService.getRooms());
-    setParticipations(StorageService.getParticipations());
-    setTransactions(StorageService.getTransactions());
-    setReports(StorageService.getReports());
-    setAuditLogs(StorageService.getAuditLogs());
-    setIntegrations(StorageService.getIntegrations());
-    setSystemConfig(StorageService.getSystemConfig());
-    setCatalogCount(StorageService.getCatalogItems().length);
-    if (onToast) onToast('Données synchronisées avec succès depuis la base de données.', 'success');
+    await fetchAdminData(false);
+    if (onToast) onToast('Données réelles synchronisées depuis la base PostgreSQL.', 'success');
   };
 
   // 1. User Management Actions
@@ -323,8 +404,8 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 <ShieldAlert className="w-8 h-8" />
               </div>
               <h2 className="text-2xl font-bold text-white mb-2">
-                {backendBlockReason.includes('401') || backendBlockReason.includes('Authentification') || backendBlockReason.includes('manquant') || backendBlockReason.includes('expiré')
-                  ? 'Session expirée ou non reconnue'
+                {backendBlockReason.toLowerCase().includes('session') || backendBlockReason.toLowerCase().includes('expir') || backendBlockReason.includes('401')
+                  ? 'Session expirée, reconnectez-vous'
                   : 'Accès Refusé : Privilèges Non Autorisés'}
               </h2>
               <p className="text-gray-300 text-sm mb-6 leading-relaxed">
@@ -335,7 +416,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                   onClick={onLogout}
                   className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-medium text-sm transition-colors shadow-lg shadow-red-600/20"
                 >
-                  Se déconnecter
+                  Se reconnecter
                 </button>
                 <button
                   onClick={() => window.location.reload()}
@@ -347,27 +428,55 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             </div>
           ) : (
             <>
-              {/* Backend Security & Cloud SQL Live Status Pill */}
+              {/* Backend Security & Cloud SQL Live Status Pill avec environnement lu */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-300 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="font-semibold uppercase tracking-wider">Fondation Backend & Cloud SQL</span>
                   <span className="text-emerald-400/60 hidden sm:inline">•</span>
-                  <span className="text-emerald-200/80 hidden sm:inline">Rôle SUPER_ADMIN authentifié côté serveur (PostgreSQL)</span>
+                  <span className="text-emerald-200/90 font-mono font-medium">
+                    {overviewMetrics?.databaseEnv || 'Base : production'} ({overviewMetrics?.databaseName || 'cloud_sql_development_database'})
+                  </span>
+                  <span className="text-emerald-400/60 hidden sm:inline">•</span>
+                  <span className="text-purple-300 font-mono text-[11px] bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded">
+                    version : {APP_BUILD_TIMESTAMP}
+                  </span>
+                  <span className="text-emerald-400/60 hidden sm:inline">•</span>
+                  <span className="text-gray-400 font-mono text-[11px] truncate max-w-[280px]">
+                    {typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-krq7sykcycqj6r3bv6f4yn-12235327622.europe-west2.run.app'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3 text-emerald-400/80">
                   <span className="flex items-center gap-1.5">
                     <Database className="w-3.5 h-3.5" /> europe-west2
                   </span>
                   <span className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Défense Anti-Escalade Active
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Rôle SUPER_ADMIN validé
                   </span>
                 </div>
               </div>
             </>
           )}
 
+          {/* Bandeau d'alerte données indisponibles (si erreur réseau tout en conservant les valeurs connues) */}
+          {metricsError && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs shadow-sm">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="font-semibold">Données indisponibles, nouvelle tentative dans quelques instants...</span>
+                <span className="text-amber-400/70 hidden sm:inline">(Les dernières valeurs réelles connues de la base sont maintenues affichées)</span>
+              </div>
+              <button
+                onClick={() => fetchAdminData(false)}
+                className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-medium transition-colors text-[11px]"
+              >
+                Réessayer
+              </button>
+            </div>
+          )}
+
           {backendStatus !== 'blocked' && activeTab === 'dashboard' && (
+            <ErrorBoundary moduleName="Vue d'ensemble" onReset={fetchAdminData}>
             <AdminOverviewWidget
               users={users}
               rooms={rooms}
@@ -377,58 +486,71 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               currency={currency}
               onToggleCurrency={() => setCurrency(currency === 'EUR' ? 'FCFA' : 'EUR')}
               onSelectTab={(tab) => setActiveTab(tab)}
+              overviewMetrics={overviewMetrics || undefined}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB: CATALOG MANAGEMENT */}
           {backendStatus !== 'blocked' && activeTab === 'catalog' && (
+            <ErrorBoundary moduleName="Catalogue VOD & Médias">
             <AdminCatalogWidget
               onToast={onToast}
               onCatalogCountChange={(count) => setCatalogCount(count)}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 2: USERS MANAGEMENT */}
           {backendStatus !== 'blocked' && activeTab === 'users' && (
+            <ErrorBoundary moduleName="Gestion des Utilisateurs">
             <AdminUsersWidget
               users={users}
               onUpdateStatus={handleUpdateUserStatus}
               onUpdatePlan={handleUpdateUserPlan}
               prefillSearch={globalSearchTerm}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 3: LIVE ROOMS & SESSIONS */}
           {backendStatus !== 'blocked' && activeTab === 'rooms' && (
+            <ErrorBoundary moduleName="Gestion des Salles & Séances">
             <AdminRoomsWidget
               rooms={rooms}
               participations={participations}
               onForceCloseRoom={handleForceCloseRoom}
               prefillSearch={globalSearchTerm}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 4: MODERATION & REPORTS */}
           {backendStatus !== 'blocked' && activeTab === 'moderation' && (
+            <ErrorBoundary moduleName="Modération & Signalements">
             <AdminModerationWidget
               reports={reports}
               onUpdateReportStatus={handleUpdateReportStatus}
               onDeleteReport={handleDeleteReport}
               onTakeSanction={handleTakeSanction}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 5: INTEGRATIONS & EXTERNAL APIS */}
           {backendStatus !== 'blocked' && activeTab === 'integrations' && (
+            <ErrorBoundary moduleName="Intégrations & APIs">
             <AdminIntegrationsWidget
               integrations={integrations}
               onTestIntegration={handleTestIntegration}
               onUpdateIntegration={handleUpdateIntegration}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB: GESTION DES PUBLICITÉS (FORMULE GRATUITE) */}
           {backendStatus !== 'blocked' && activeTab === 'ads' && (
+            <ErrorBoundary moduleName="Gestion des Publicités">
             <AdminAdsWidget
               onToast={onToast}
               onAdsCountChange={(cnt) => {
@@ -436,10 +558,12 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
                 refreshAll();
               }}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 6: BILLING & SUBSCRIPTIONS */}
           {backendStatus !== 'blocked' && activeTab === 'billing' && (
+            <ErrorBoundary moduleName="Facturation & Abonnements">
             <AdminBillingWidget
               transactions={transactions}
               users={users}
@@ -448,15 +572,19 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               onToggleCurrency={() => setCurrency(currency === 'EUR' ? 'FCFA' : 'EUR')}
               onSimulateNewPayment={handleSimulatePayment}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 7: USAGE ANALYTICS */}
           {backendStatus !== 'blocked' && activeTab === 'analytics' && (
+            <ErrorBoundary moduleName="Analyses d'Usage">
             <AdminAnalyticsWidget users={users} rooms={rooms} />
+            </ErrorBoundary>
           )}
 
           {/* TAB: ASSISTANT IA KINOO */}
           {backendStatus !== 'blocked' && activeTab === 'ai-assistant' && (
+            <ErrorBoundary moduleName="Assistant IA Super Admin">
             <AdminAiAssistantWidget
               users={users}
               rooms={rooms}
@@ -470,19 +598,24 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               onRefreshAll={refreshAll}
               onToast={onToast}
             />
+            </ErrorBoundary>
           )}
 
           {/* TAB 8: SECURITY & AUDIT LOG */}
           {backendStatus !== 'blocked' && activeTab === 'audit' && (
+            <ErrorBoundary moduleName="Journal d'Audit">
             <AdminAuditWidget auditLogs={auditLogs} />
+            </ErrorBoundary>
           )}
 
           {/* TAB 9: SYSTEM SETTINGS */}
           {backendStatus !== 'blocked' && activeTab === 'settings' && (
+            <ErrorBoundary moduleName="Paramètres Système">
             <AdminSettingsWidget
               config={systemConfig}
               onSaveConfig={handleSaveSystemConfig}
             />
+            </ErrorBoundary>
           )}
         </div>
       </div>

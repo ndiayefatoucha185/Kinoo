@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import express from 'express';
 import http from 'http';
 import path from 'path';
@@ -91,20 +92,66 @@ async function startServer() {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }
 
-    // Modern CSP with frame-ancestors permitting AI Studio container and self
+    // Nonce cryptographique aléatoire par requête (Point 2)
+    const nonce = crypto.randomBytes(16).toString('base64');
+    res.locals.nonce = nonce;
+
+    // CSP Durcie et Restreinte avec Nonce (Point 1 & Point 2)
+    const host = req.get('host') || 'localhost:3000';
+    const isProdMode = process.env.NODE_ENV === 'production';
+    
+    // Cloudflare Turnstile n'est autorisé dans la CSP QUE si les clés sont configurées (Point 1)
+    const isTurnstileConfigured = Boolean(process.env.TURNSTILE_SITE_KEY && process.env.TURNSTILE_SECRET_KEY);
+
+    const strictConnectSrc = [
+      "'self'",
+      // En production : restreint strictement au host de l'application. En dev : autorise le port HMR Vite
+      ...(isProdMode ? [`wss://${host}`, `ws://${host}`] : ['wss:', 'ws:']),
+      "https://www.youtube-nocookie.com",
+      "https://www.youtube.com",
+      "https://*.googlevideo.com",
+      "https://accounts.google.com",
+      "https://*.ingest.sentry.io",
+      "https://*.ingest.us.sentry.io",
+      "https://*.ingest.de.sentry.io",
+      ...(isTurnstileConfigured ? ["https://challenges.cloudflare.com"] : []),
+    ].join(' ');
+
+    const strictScriptSrc = [
+      "'self'",
+      `'nonce-${nonce}'`,
+      // En dev : autorise les outils d'inspection Vite. En production réelle : strict sans unsafe-inline
+      ...(isProdMode ? [] : ["'unsafe-inline'", "'unsafe-eval'"]),
+      "https://www.youtube-nocookie.com",
+      "https://www.youtube.com",
+      "https://s.ytimg.com",
+      "https://accounts.google.com/gsi/client",
+      "https://apis.google.com",
+      ...(isTurnstileConfigured ? ["https://challenges.cloudflare.com"] : []),
+    ].join(' ');
+
+    const strictFrameSrc = [
+      "'self'",
+      "https://www.youtube-nocookie.com",
+      "https://www.youtube.com",
+      "https://accounts.google.com",
+      ...(isTurnstileConfigured ? ["https://challenges.cloudflare.com"] : []),
+    ].join(' ');
+
     res.setHeader(
       'Content-Security-Policy',
       [
-        "default-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https: wss:;",
-        "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com;",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://s.ytimg.com;",
+        "default-src 'self';",
+        `frame-src ${strictFrameSrc};`,
+        `script-src ${strictScriptSrc};`,
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;",
+        "font-src 'self' https://fonts.gstatic.com data:;",
         "frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://kinoo.app;",
-        "img-src 'self' data: blob: https: https://i.ytimg.com https://*.ytimg.com;",
-        "media-src 'self' blob: data: https: https://*.googlevideo.com;",
-        "connect-src 'self' https: wss: ws: https://www.youtube-nocookie.com https://www.youtube.com;",
+        "img-src 'self' data: blob: https://i.ytimg.com https://*.ytimg.com https://lh3.googleusercontent.com;",
+        "media-src 'self' blob: data: https://*.googlevideo.com https://commondatastorage.googleapis.com;",
+        `connect-src ${strictConnectSrc};`,
       ].join(' ')
     );
-
     next();
   });
 
@@ -167,7 +214,7 @@ async function startServer() {
       <p id="status-text">Transmission à votre session Kinoo en cours...</p>
       <button id="close-btn" class="btn" onclick="window.close()" style="display:none;">Fermer cette fenêtre</button>
     </div>
-    <script>
+    <script nonce="${res.locals.nonce}">
       (function() {
         const payload = {
           type: 'KINOO_OAUTH_RESPONSE',
@@ -265,7 +312,7 @@ async function startServer() {
       if (sentryDsn && fs.existsSync(indexPath)) {
         let html = fs.readFileSync(indexPath, 'utf-8');
         const publicBaseUrl = process.env.PUBLIC_BASE_URL || process.env.APP_URL || '';
-        const runtimeScript = `<script id="kinoo-runtime-config">window.__KINOO_RUNTIME_CONFIG__ = ${JSON.stringify({ SENTRY_DSN: sentryDsn, PUBLIC_BASE_URL: publicBaseUrl })};</script>`;
+        const runtimeScript = `<script nonce="${res.locals.nonce}" id="kinoo-runtime-config">window.__KINOO_RUNTIME_CONFIG__ = ${JSON.stringify({ SENTRY_DSN: sentryDsn, PUBLIC_BASE_URL: publicBaseUrl })};</script>`;
         html = html.replace('</head>', `${runtimeScript}</head>`);
         return res.send(html);
       }

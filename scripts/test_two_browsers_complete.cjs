@@ -64,7 +64,7 @@ async function runTest() {
 
     // Étape 2 : Création de salle
     console.log('\n[Étape 2 : Création de la salle par l\'Hôte]');
-    const createBtn = pageHost.locator('button:has-text("Créer une séance"), button:has-text("Créer ma salle")').first();
+    const createBtn = pageHost.locator('button:has-text("Créer salle"), button:has-text("Créer une séance"), button:has-text("Créer ma salle")').first();
     await createBtn.click();
     await pageHost.waitForSelector('input[placeholder*="Soirée film"]');
     console.log('   ↳ Modal "Créer une séance" ouvert');

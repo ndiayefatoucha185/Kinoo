@@ -47,7 +47,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
               hoteId: r.hoteId,
               hotePseudo: r.hotePseudo,
               sourceContenuId: r.sourceContenu?.id || 'src-default',
-              sourceContenu: r.sourceContenu || {
+              sourceContenu: r.sourceContenu || { synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '', 
                 id: 'src-default',
                 titre: 'Vidéo',
                 typeSource: 'URL_WEB',
@@ -100,7 +100,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
           hoteId: r.hoteId,
           hotePseudo: r.hotePseudo,
           sourceContenuId: r.sourceContenu?.id || 'src-default',
-          sourceContenu: r.sourceContenu || {
+          sourceContenu: r.sourceContenu || { synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '', 
             id: 'src-default',
             titre: 'Vidéo',
             typeSource: 'URL_WEB',

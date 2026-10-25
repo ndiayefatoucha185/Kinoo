@@ -28,7 +28,6 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
   const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-kinoo-shield': 'valid_v2_shield_token',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...((options.headers as Record<string, string>) || {}),
   };
@@ -62,6 +61,8 @@ export const ApiClient = {
     });
     if (res.token) {
       setStoredToken(res.token);
+    } else {
+      setStoredToken(null);
     }
     return res;
   },
@@ -80,6 +81,8 @@ export const ApiClient = {
     });
     if (res.token) {
       setStoredToken(res.token);
+    } else {
+      setStoredToken(null);
     }
     return res;
   },
@@ -127,6 +130,8 @@ export const ApiClient = {
     });
     if (res.token) {
       setStoredToken(res.token);
+    } else {
+      setStoredToken(null);
     }
     return res;
   },
@@ -144,6 +149,8 @@ export const ApiClient = {
     });
     if (res.token) {
       setStoredToken(res.token);
+    } else {
+      setStoredToken(null);
     }
     return res;
   },
@@ -224,13 +231,37 @@ export const ApiClient = {
 
   // --- ADMIN (SUPER ADMIN ONLY) ---
   async getAdminOverview(): Promise<{
+    totalComptesInscrits: number;
+    comptesParForfait: {
+      GRATUIT: number;
+      STANDARD: number;
+      PREMIUM: number;
+    };
+    inscritsAujourdhui: number;
+    inscrits7Jours: number;
+    comptesConnectesEnCeMoment: number;
+    activeSocketsCount: number;
+    sallesCreeesTotal: number;
+    sallesActivesDirect: number;
+    seancesCreeesCeMois: number;
+    participantsTotal: number;
+    messagesTotal: number;
+    signalementsOuverts: number;
+    ticketsOuverts: number;
+    monthlyRecurringRevenue: number;
+    databaseEnv: string;
+    databaseName: string;
+    serverTime: string;
     totalUsers: number;
     activeRooms: number;
     openReports: number;
     openTickets: number;
-    monthlyRecurringRevenue: number;
   }> {
     return apiRequest('/api/admin/overview');
+  },
+
+  async getAdminRooms(): Promise<Room[]> {
+    return apiRequest<Room[]>('/api/admin/rooms');
   },
 
   async getAdminUsers(): Promise<User[]> {
