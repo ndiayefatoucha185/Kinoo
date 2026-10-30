@@ -47,6 +47,13 @@ export default function App() {
   });
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
 
+  // Le dossier technique (architecture, modèle de menaces) n'est visible que du Super Admin
+  useEffect(() => {
+    if (currentView === 'specs' && !isSuperAdmin) {
+      setCurrentView(currentUser ? 'dashboard' : 'home');
+    }
+  }, [currentView, isSuperAdmin, currentUser]);
+
   // Safety guard: if currentView is superadmin but user is not Super Admin, redirect immediately
   useEffect(() => {
     if (currentView === 'superadmin' && !isSuperAdmin) {
@@ -56,7 +63,8 @@ export default function App() {
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
+  const [authResetToken, setAuthResetToken] = useState<string>('');
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState<boolean>(false);
   const [isJoinRoomOpen, setIsJoinRoomOpen] = useState<boolean>(false);
   const [joinRoomInitialCode, setJoinRoomInitialCode] = useState<string>('');
@@ -83,6 +91,27 @@ export default function App() {
 
   // URL Invite or Room parameters parsing on first mount
   useEffect(() => {
+    // Liens reçus par e-mail : le jeton est dans le fragment d'URL (#reset-password=… / #verify-email=…),
+    // donc jamais envoyé au serveur dans la requête de page ni conservé dans les journaux.
+    const emailHash = window.location.hash;
+    const resetMatch = emailHash.match(/reset-password=([a-f0-9]{64})/);
+    const verifyMatch = emailHash.match(/verify-email=([a-f0-9]{64})/);
+    if (resetMatch) {
+      setAuthResetToken(resetMatch[1]);
+      setAuthMode('reset');
+      setIsAuthModalOpen(true);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } else if (verifyMatch) {
+      const verifyToken = verifyMatch[1];
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      ApiClient.request<{ message: string }>('/api/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ token: verifyToken }),
+      })
+        .then((res) => addToast(res.message || 'Adresse e-mail vérifiée avec succès.', 'success'))
+        .catch((err) => addToast(err?.message || 'Lien de vérification invalide ou expiré.', 'error'));
+    }
+
     // Vérification du token de déblocage d'urgence Super Admin dans le hash (#unlock-super-admin=token)
     if (window.location.hash.includes('unlock-super-admin=')) {
       const match = window.location.hash.match(/unlock-super-admin=([^&]+)/);
@@ -111,7 +140,7 @@ export default function App() {
     const viewParam = params.get('view');
 
     if (viewParam) {
-      const allowedViews = ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status', 'specs', 'dashboard'];
+      const allowedViews = ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status', 'dashboard'];
       if (allowedViews.includes(viewParam)) {
         setCurrentView(viewParam);
       }
@@ -532,7 +561,11 @@ export default function App() {
       <AuthModal
         isOpen={isAuthModalOpen}
         initialMode={authMode}
-        onClose={() => setIsAuthModalOpen(false)}
+        resetToken={authResetToken}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setAuthResetToken('');
+        }}
         onAuthSuccess={handleAuthSuccess}
         onOpenLegal={handleOpenLegal}
       />

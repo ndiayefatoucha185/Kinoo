@@ -2,8 +2,20 @@ import crypto from 'crypto';
 import { db } from '../src/db/index.js';
 import { users } from '../src/db/schema.js';
 import { eq } from 'drizzle-orm';
-import { generateToken, verifyToken, setAuthCookie } from './auth.js';
+import {
+  generateToken,
+  generateOnboardingToken,
+  verifyOnboardingToken,
+  setAuthCookie,
+  isBearerFallbackEnabled,
+  hasRealPassword,
+  isPrivilegedRole,
+  PASSWORD_MARKER_GOOGLE,
+  PASSWORD_MARKER_RESET_REQUIRED,
+} from './auth.js';
 import { EmailService } from './email.js';
+import { kvSet, kvConsume } from './kv.js';
+import { newId, sha256Hex, safeEqual, sanitizeAvatar, cleanText } from './security.js';
 import { Request, Response } from 'express';
 
 export interface OAuthUserInfo {
@@ -14,32 +26,36 @@ export interface OAuthUserInfo {
   provider: 'google';
 }
 
+export class GoogleAuthError extends Error {
+  status: number;
+  constructor(message: string, status = 401) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export function isGoogleOAuthConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
-// ----------------------------------------------------------------------------
-// GESTION DU STATE OAUTH CRYPTOGRAPHIQUE SIGNÉ (SANS DÉPENDANCE AUX COOKIES TIERS)
-// ----------------------------------------------------------------------------
-
-interface StoredOAuthState {
-  nonce: string;
-  expiresAt: number;
-  createdAt: number;
+/** Identifiants client Google acceptés comme « audience » d'un jeton d'identité (GOOGLE_ALLOWED_AUDIENCES, sinon GOOGLE_CLIENT_ID). */
+function googleAudiences(): string[] {
+  return (process.env.GOOGLE_ALLOWED_AUDIENCES || process.env.GOOGLE_CLIENT_ID || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
-// Registre mémoire des jetons state OAuth actifs (usage unique strict & limitation temporelle)
-const activeOAuthStates = new Map<string, StoredOAuthState>();
+const dicebear = (seed: string) => `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
 
-// Nettoyage régulier des states expirés toutes les 2 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [nonce, data] of activeOAuthStates.entries()) {
-    if (data.expiresAt < now) {
-      activeOAuthStates.delete(nonce);
-    }
-  }
-}, 2 * 60 * 1000).unref();
+// ----------------------------------------------------------------------------
+// ÉTAT OAUTH (anti-CSRF) : signé HMAC, à usage unique, stocké en base (multi-instances),
+// et LIÉ AU NAVIGATEUR qui a demandé la connexion par un cookie HttpOnly.
+// ----------------------------------------------------------------------------
+
+const STATE_TTL_SEC = 10 * 60;
+const BIND_COOKIE = 'kinoo_oauth_bind';
+const BIND_COOKIE_PATH = '/api/auth/oauth';
 
 function getOAuthSecret(): string {
   const secret = process.env.OAUTH_STATE_SECRET;
@@ -58,27 +74,36 @@ function getOAuthSecret(): string {
 }
 
 /**
- * Génère un jeton state cryptographique signé HMAC à usage unique
- * Format : `${nonce}.${expiresAt}.${signature}`
- * - nonce : 32 octets aléatoires CSPRNG (64 caractères hexadécimaux)
- * - expiresAt : timestamp ms d'expiration (10 minutes)
- * - signature : HMAC-SHA256(nonce.expiresAt, secretServeur)
- * Le nonce est conservé en registre serveur jusqu'à sa consommation.
+ * Génère un jeton state signé HMAC à usage unique. Format : `${nonce}.${expiresAt}.${signature}`.
+ * `bind` est un secret aléatoire à déposer dans un cookie HttpOnly : seul le navigateur initiateur pourra consommer le state.
  */
-export function generateSignedOAuthState(): string {
+export async function createOAuthState(): Promise<{ state: string; bind: string }> {
   const nonce = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 10 * 60 * 1000; // Valide 10 minutes
-  const dataToSign = `${nonce}.${expiresAt}`;
-  const signature = crypto.createHmac('sha256', getOAuthSecret()).update(dataToSign).digest('hex');
-  const signedState = `${nonce}.${expiresAt}.${signature}`;
+  const bind = crypto.randomBytes(24).toString('hex');
+  const expiresAt = Date.now() + STATE_TTL_SEC * 1000;
+  const signature = crypto.createHmac('sha256', getOAuthSecret()).update(`${nonce}.${expiresAt}`).digest('hex');
+  await kvSet(`oauth:state:${nonce}`, { bindHash: sha256Hex(bind) }, STATE_TTL_SEC);
+  return { state: `${nonce}.${expiresAt}.${signature}`, bind };
+}
 
-  activeOAuthStates.set(nonce, {
-    nonce,
-    expiresAt,
-    createdAt: Date.now(),
+export function setOAuthBindCookie(res: Response, req: Request, bind: string) {
+  const secure = process.env.NODE_ENV === 'production' || req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.cookie(BIND_COOKIE, bind, {
+    httpOnly: true,
+    secure,
+    sameSite: isBearerFallbackEnabled() ? 'none' : 'lax',
+    maxAge: STATE_TTL_SEC * 1000,
+    path: BIND_COOKIE_PATH,
   });
+}
 
-  return signedState;
+export function readOAuthBindCookie(req: Request): string | undefined {
+  const v = (req as any).cookies?.[BIND_COOKIE];
+  return typeof v === 'string' ? v : undefined;
+}
+
+export function clearOAuthBindCookie(res: Response) {
+  res.clearCookie(BIND_COOKIE, { path: BIND_COOKIE_PATH });
 }
 
 export type OAuthStateValidationResult =
@@ -90,56 +115,38 @@ export type OAuthStateValidationResult =
         | 'STATE_MALFORMED'
         | 'STATE_EXPIRED'
         | 'STATE_INVALID_SIGNATURE'
-        | 'STATE_ALREADY_USED_OR_UNKNOWN';
+        | 'STATE_ALREADY_USED_OR_UNKNOWN'
+        | 'STATE_BINDING_MISMATCH';
       message: string;
     };
 
 /**
- * Valide et consomme immédiatement le jeton state (usage unique strict).
- * Vérifie :
- * 1. Présence obligatoire
- * 2. Format exact (3 segments hexadécimaux/numériques)
- * 3. Non-expiration
- * 4. Signature cryptographique HMAC-SHA256 (comparaison en temps constant)
- * 5. Présence dans le registre des states actifs du serveur
- * 6. Consommation immédiate (suppression du registre pour contrer le rejeu)
+ * Valide et consomme immédiatement le jeton state (usage unique strict) :
+ * présence, format, expiration, signature HMAC (temps constant), enregistrement serveur, liaison au navigateur.
  */
-export function validateAndConsumeOAuthState(state: unknown): OAuthStateValidationResult {
+export async function validateAndConsumeOAuthState(state: unknown, bind: unknown): Promise<OAuthStateValidationResult> {
   if (!state || typeof state !== 'string' || state.trim() === '') {
     console.warn('[OAUTH CSRF 403] Refus : paramètre state manquant.');
-    return {
-      valid: false,
-      reason: 'STATE_MISSING',
-      message: 'Jeton de sécurité CSRF manquant.',
-    };
+    return { valid: false, reason: 'STATE_MISSING', message: 'Jeton de sécurité CSRF manquant.' };
   }
 
   const parts = state.trim().split('.');
   if (parts.length !== 3) {
     console.warn('[OAUTH CSRF 403] Refus : format de jeton state malformé.');
-    return {
-      valid: false,
-      reason: 'STATE_MALFORMED',
-      message: 'Format du jeton de sécurité invalide.',
-    };
+    return { valid: false, reason: 'STATE_MALFORMED', message: 'Format du jeton de sécurité invalide.' };
   }
 
   const [nonce, expiresAtStr, signature] = parts;
   const expiresAt = parseInt(expiresAtStr, 10);
 
-  if (!nonce || nonce.length !== 64 || isNaN(expiresAt) || !signature || signature.length !== 64) {
+  if (!/^[a-f0-9]{64}$/.test(nonce) || isNaN(expiresAt) || !/^[a-f0-9]{64}$/.test(signature)) {
     console.warn('[OAUTH CSRF 403] Refus : composantes du state invalides.');
-    return {
-      valid: false,
-      reason: 'STATE_MALFORMED',
-      message: 'Structure du jeton de sécurité invalide.',
-    };
+    return { valid: false, reason: 'STATE_MALFORMED', message: 'Structure du jeton de sécurité invalide.' };
   }
 
-  // Vérification de l'expiration
   if (Date.now() > expiresAt) {
     console.warn('[OAUTH CSRF 403] Refus : jeton state expiré.');
-    activeOAuthStates.delete(nonce);
+    await kvConsume(`oauth:state:${nonce}`).catch(() => null);
     return {
       valid: false,
       reason: 'STATE_EXPIRED',
@@ -147,16 +154,11 @@ export function validateAndConsumeOAuthState(state: unknown): OAuthStateValidati
     };
   }
 
-  // Vérification de la signature HMAC-SHA256 avec comparaison en temps constant
   const expectedSignature = crypto
     .createHmac('sha256', getOAuthSecret())
     .update(`${nonce}.${expiresAtStr}`)
     .digest('hex');
-
-  const sigBuffer = Buffer.from(signature, 'hex');
-  const expBuffer = Buffer.from(expectedSignature, 'hex');
-
-  if (sigBuffer.length !== expBuffer.length || !crypto.timingSafeEqual(sigBuffer, expBuffer)) {
+  if (!crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expectedSignature, 'hex'))) {
     console.warn('[OAUTH CSRF 403] Refus : signature HMAC du jeton state invalide (altération détectée).');
     return {
       valid: false,
@@ -165,8 +167,9 @@ export function validateAndConsumeOAuthState(state: unknown): OAuthStateValidati
     };
   }
 
-  // Vérification de l'usage unique et de l'enregistrement préalable côté serveur
-  if (!activeOAuthStates.has(nonce)) {
+  // CONSOMMATION ATOMIQUE : usage unique garanti, même avec plusieurs instances
+  const record = await kvConsume<{ bindHash: string }>(`oauth:state:${nonce}`);
+  if (!record) {
     console.warn('[OAUTH CSRF 403] Refus : jeton state déjà utilisé ou inconnu (tentative de rejeu prévenue).');
     return {
       valid: false,
@@ -175,8 +178,15 @@ export function validateAndConsumeOAuthState(state: unknown): OAuthStateValidati
     };
   }
 
-  // CONSOMMATION IMMÉDIATE : usage unique garanti
-  activeOAuthStates.delete(nonce);
+  // Liaison au navigateur : le cookie HttpOnly posé lors de la demande d'URL doit correspondre
+  if (typeof bind !== 'string' || !bind || !safeEqual(sha256Hex(bind), String(record.bindHash || ''))) {
+    console.warn('[OAUTH CSRF 403] Refus : le state n’est pas lié à ce navigateur.');
+    return {
+      valid: false,
+      reason: 'STATE_BINDING_MISMATCH',
+      message: 'Cette connexion n’a pas été initiée depuis ce navigateur. Veuillez recommencer.',
+    };
+  }
 
   return { valid: true };
 }
@@ -189,7 +199,6 @@ export function getGoogleAuthUrl(redirectUri: string, state?: string): string {
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid email profile', // Scopes stricts de base uniquement : aucun scope sensible
-    access_type: 'offline',
     prompt: 'select_account',
     ...(state ? { state } : {}),
   });
@@ -201,7 +210,10 @@ export async function exchangeGoogleCode(code: string, redirectUri: string): Pro
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET || '';
 
   if (!clientId || !clientSecret) {
-    throw new Error('Google OAuth n’est pas configuré sur le serveur (GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET manquant).');
+    throw new GoogleAuthError('Google OAuth n’est pas configuré sur le serveur.', 503);
+  }
+  if (typeof code !== 'string' || code.length === 0 || code.length > 2048) {
+    throw new GoogleAuthError('Code d’autorisation Google invalide.', 400);
   }
 
   // 1. Échange du code d'autorisation contre un access token auprès des serveurs Google
@@ -215,135 +227,258 @@ export async function exchangeGoogleCode(code: string, redirectUri: string): Pro
       redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }).toString(),
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
-    console.error('[OAUTH GOOGLE] Erreur token exchange:', errText);
-    throw new Error('Échec de la validation du code d’autorisation Google.');
+    console.error('[OAUTH GOOGLE] Erreur token exchange:', errText.slice(0, 300));
+    throw new GoogleAuthError('Échec de la validation du code d’autorisation Google.', 400);
   }
 
-  const tokenData = await tokenRes.json();
+  const tokenData: any = await tokenRes.json();
   const accessToken = tokenData.access_token;
+  if (typeof accessToken !== 'string' || !accessToken) {
+    throw new GoogleAuthError('Réponse Google invalide.', 400);
+  }
 
   // 2. Récupération sécurisée du profil utilisateur depuis le endpoint officiel Google UserInfo
   const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!userRes.ok) {
-    throw new Error('Impossible de récupérer le profil Google vérifié.');
+    throw new GoogleAuthError('Impossible de récupérer le profil Google vérifié.', 400);
   }
 
-  const profile = await userRes.json();
-  if (!profile.email) {
-    throw new Error('Aucune adresse e-mail vérifiée associée à ce compte Google.');
+  const profile: any = await userRes.json();
+  if (!profile.email || typeof profile.email !== 'string' || typeof profile.sub !== 'string') {
+    throw new GoogleAuthError('Aucune adresse e-mail vérifiée associée à ce compte Google.', 400);
   }
 
-  // Vérification stricte que Google certifie l'email comme vérifié (anti-usurpation / anti pre-hijacking)
+  // Google doit certifier l'e-mail comme vérifié (anti-usurpation / anti pre-hijacking)
   if (profile.email_verified !== true && profile.email_verified !== 'true') {
-    throw new Error('Cette adresse e-mail Google n’a pas été vérifiée par Google. Connexion refusée.');
+    throw new GoogleAuthError('Cette adresse e-mail Google n’a pas été vérifiée par Google. Connexion refusée.', 403);
   }
 
   return {
     id: profile.sub,
     email: profile.email.toLowerCase().trim(),
-    pseudo: profile.name || profile.given_name || profile.email.split('@')[0],
-    avatar: profile.picture || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(profile.email)}`,
+    pseudo: cleanText(profile.name || profile.given_name || profile.email.split('@')[0], 50),
+    avatar: sanitizeAvatar(profile.picture) || dicebear(profile.email),
     provider: 'google',
   };
 }
 
-export async function authenticateOAuthUser(
+/**
+ * Vérifie un jeton d'identité Google (Google Identity Services, « credential ») auprès de Google :
+ * signature (par Google), audience = nos identifiants client, émetteur, expiration, e-mail vérifié.
+ * Aucun contournement : si Google refuse le jeton, la connexion est refusée.
+ */
+export async function verifyGoogleIdToken(credential: unknown): Promise<OAuthUserInfo> {
+  if (typeof credential !== 'string' || credential.length < 20 || credential.length > 4096) {
+    throw new GoogleAuthError('Jeton Google invalide.', 401);
+  }
+  const audiences = googleAudiences();
+  if (audiences.length === 0) {
+    throw new GoogleAuthError('La connexion Google n’est pas configurée sur le serveur (GOOGLE_CLIENT_ID).', 503);
+  }
+
+  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, {
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => null);
+  if (!res) {
+    throw new GoogleAuthError('Impossible de contacter Google pour vérifier le jeton.', 502);
+  }
+  if (!res.ok) {
+    throw new GoogleAuthError('Jeton Google invalide ou expiré.', 401);
+  }
+
+  const data: any = await res.json();
+  const issuerOk = data.iss === 'accounts.google.com' || data.iss === 'https://accounts.google.com';
+  const notExpired = Number(data.exp) * 1000 > Date.now();
+  const emailVerified = data.email_verified === true || data.email_verified === 'true';
+
+  if (
+    !audiences.includes(String(data.aud)) ||
+    !issuerOk ||
+    !notExpired ||
+    !emailVerified ||
+    typeof data.email !== 'string' ||
+    typeof data.sub !== 'string'
+  ) {
+    console.warn('[AUTH-GOOGLE] Jeton rejeté (audience, émetteur, expiration ou e-mail non vérifié).');
+    throw new GoogleAuthError('Jeton Google invalide.', 401);
+  }
+
+  const email = data.email.toLowerCase().trim();
+  return {
+    id: data.sub,
+    email,
+    pseudo: cleanText(data.name || data.given_name || email.split('@')[0], 50),
+    avatar: sanitizeAvatar(data.picture) || dicebear(email),
+    provider: 'google',
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Réponses communes
+// ----------------------------------------------------------------------------
+
+function publicUser(u: typeof users.$inferSelect) {
+  return {
+    id: u.id,
+    pseudo: u.pseudo,
+    email: u.email,
+    role: u.role,
+    forfait: u.forfait,
+    statutCompte: u.statutCompte,
+    avatar: u.avatar,
+  };
+}
+
+/** Ouvre la session d'un compte existant après authentification Google. */
+async function loginExistingUser(
+  existing: typeof users.$inferSelect,
   userInfo: OAuthUserInfo,
-  options: { ageCertifie?: boolean; conditionsAcceptees?: boolean; forfait?: string },
   req: Request,
   res: Response
 ) {
-  const cleanEmail = userInfo.email.toLowerCase().trim();
+  if (existing.statutCompte === 'SUSPENDU') {
+    console.warn('[OAUTH SECURITY 403] Refus d’authentification Google - Raison : COMPTE_SUSPENDU.');
+    return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.', code: 'ACCOUNT_SUSPENDED' });
+  }
 
-  // Recherche d'un compte existant avec la même adresse e-mail dans PostgreSQL
+  // Les comptes à privilèges (Super Admin, Admin, Modérateur) ne s'authentifient JAMAIS via Google :
+  // mot de passe + règles de session unique uniquement.
+  if (isPrivilegedRole(existing.role)) {
+    console.warn(`[OAUTH SECURITY 403] Refus Google pour un compte à privilèges (${existing.role}).`);
+    return res.status(403).json({
+      error: 'Les comptes administrateur doivent se connecter avec leur e-mail et leur mot de passe.',
+      code: 'GOOGLE_LOGIN_NOT_ALLOWED',
+    });
+  }
+
+  const updates: Partial<typeof users.$inferInsert> = { dernierAcces: new Date() };
+  let tokenVersion = existing.tokenVersion ?? 0;
+
+  // Protection contre le pré-détournement de compte : si l'adresse e-mail n'avait JAMAIS été vérifiée,
+  // la personne qui a créé le compte par mot de passe n'est peut-être pas le propriétaire de la boîte.
+  // Google vient de prouver la propriété de l'adresse : on invalide le mot de passe local éventuel et on révoque les sessions.
+  // Si l'adresse était déjà vérifiée, le compte (et son mot de passe) est conservé tel quel.
+  if (!existing.emailVerifiedAt) {
+    updates.emailVerifiedAt = new Date();
+    if (hasRealPassword(existing.passwordHash)) {
+      updates.passwordHash = PASSWORD_MARKER_RESET_REQUIRED;
+      tokenVersion += 1;
+      updates.tokenVersion = tokenVersion;
+      console.warn(`[SECURITY] Compte ${existing.email} rattaché à Google : mot de passe non vérifié invalidé, sessions révoquées.`);
+    }
+  }
+
+  // Mise à jour de l'avatar Google si le compte n'a pas d'avatar personnalisé
+  const safeAvatar = sanitizeAvatar(userInfo.avatar);
+  let avatar = existing.avatar;
+  if (safeAvatar && (!existing.avatar || existing.avatar.includes('dicebear'))) {
+    updates.avatar = safeAvatar;
+    avatar = safeAvatar;
+  }
+  await db.update(users).set(updates).where(eq(users.id, existing.id));
+
+  const token = generateToken({
+    id: existing.id,
+    email: existing.email,
+    pseudo: existing.pseudo,
+    role: existing.role as any,
+    forfait: existing.forfait as any,
+    statutCompte: existing.statutCompte as any,
+    tokenVersion,
+  });
+  setAuthCookie(res, req, token);
+
+  const body: Record<string, any> = {
+    user: publicUser({ ...existing, avatar }),
+    isNewUser: false,
+  };
+  if (isBearerFallbackEnabled()) body.token = token;
+  return res.json(body);
+}
+
+/** Crée un compte GRATUIT pour un utilisateur Google (le forfait payant ne s'active jamais sans paiement confirmé). */
+async function createGoogleUser(
+  profile: { email: string; pseudo?: string; avatar?: string },
+  req: Request,
+  res: Response
+) {
+  const email = profile.email.toLowerCase().trim();
+  let pseudo = cleanText(profile.pseudo || '', 50);
+  if (pseudo.length < 2) pseudo = cleanText(email.split('@')[0], 50) || 'Participant';
+  const avatar = sanitizeAvatar(profile.avatar) || dicebear(email);
+
+  let newUser: typeof users.$inferSelect;
+  try {
+    [newUser] = await db
+      .insert(users)
+      .values({
+        id: newId('usr'),
+        pseudo,
+        email,
+        passwordHash: PASSWORD_MARKER_GOOGLE,
+        forfait: 'GRATUIT',
+        role: 'UTILISATEUR',
+        statutCompte: 'ACTIF',
+        emailVerifiedAt: new Date(), // adresse certifiée par Google
+        avatar,
+      })
+      .returning();
+  } catch (err: any) {
+    if (err?.code === '23505') {
+      return res.status(409).json({ error: 'Un compte existe déjà pour cette adresse e-mail.' });
+    }
+    throw err;
+  }
+
+  EmailService.sendWelcomeEmail({ email: newUser.email, pseudo: newUser.pseudo }).catch((err) =>
+    console.info('[EMAIL] Note bienvenue OAuth Google:', err.message)
+  );
+
+  const token = generateToken({
+    id: newUser.id,
+    email: newUser.email,
+    pseudo: newUser.pseudo,
+    role: newUser.role as any,
+    forfait: newUser.forfait as any,
+    statutCompte: newUser.statutCompte as any,
+    tokenVersion: newUser.tokenVersion ?? 0,
+  });
+  setAuthCookie(res, req, token);
+
+  const body: Record<string, any> = { user: publicUser(newUser), isNewUser: true };
+  if (isBearerFallbackEnabled()) body.token = token;
+  return res.status(201).json(body);
+}
+
+// ----------------------------------------------------------------------------
+// Parcours
+// ----------------------------------------------------------------------------
+
+/** Flux OAuth « code » : compte existant -> connexion ; nouveau -> jeton d'onboarding (aucun accès API). */
+export async function authenticateOAuthUser(userInfo: OAuthUserInfo, req: Request, res: Response) {
+  const cleanEmail = userInfo.email.toLowerCase().trim();
   const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
   const existingUser = existingUsers[0];
 
   if (existingUser) {
-    // ------------------------------------------------------------------------
-    // UTILISATEUR DÉJÀ INSCRIT : Connexion directe sans choix de forfait
-    // ------------------------------------------------------------------------
-    if (existingUser.statutCompte === 'SUSPENDU') {
-      console.warn('[OAUTH SECURITY 403] Refus d’authentification Google - Raison : COMPTE_SUSPENDU.');
-      return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.', code: 'ACCOUNT_SUSPENDED' });
-    }
-
-    // Protection contre le pré-détournement de compte (Account Pre-Hijacking) :
-    // Si le compte avait été créé par email/mot de passe classique (non-OAuth),
-    // l'attaquant potentiel connaissait ce mot de passe.
-    // Lors de la première connexion légitime par Google OAuth :
-    // 1. On invalide définitivement l'ancien mot de passe pour neutraliser l'attaquant.
-    // 2. On révoque toutes les sessions actives existantes de ce compte.
-    const updates: Record<string, any> = {
-      dernierAcces: new Date(),
-      activeSessionToken: null, // Révocation immédiate des sessions existantes
-    };
-
-    const hadClassicPassword =
-      existingUser.passwordHash &&
-      existingUser.passwordHash !== 'OAUTH_GOOGLE' &&
-      existingUser.passwordHash !== 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED';
-
-    if (hadClassicPassword) {
-      updates.passwordHash = 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED';
-      console.warn(
-        `[SECURITY] Compte ${cleanEmail} rattaché via Google OAuth. Ancien mot de passe classique invalidé pour contrer tout risque de pré-détournement.`
-      );
-    }
-
-    // Mise à jour de l'avatar Google si pertinent
-    if (userInfo.avatar && (!existingUser.avatar || existingUser.avatar.includes('dicebear'))) {
-      updates.avatar = userInfo.avatar;
-      existingUser.avatar = userInfo.avatar;
-    }
-    await db.update(users).set(updates).where(eq(users.id, existingUser.id));
-
-    // Émission du jeton de session JWT
-    const token = generateToken({
-      id: existingUser.id,
-      email: existingUser.email,
-      pseudo: existingUser.pseudo,
-      role: existingUser.role as any,
-      forfait: existingUser.forfait as any,
-      statutCompte: existingUser.statutCompte as any,
-    });
-
-    setAuthCookie(res, req, token);
-
-    return res.json({
-      user: {
-        id: existingUser.id,
-        pseudo: existingUser.pseudo,
-        email: existingUser.email,
-        role: existingUser.role,
-        forfait: existingUser.forfait,
-        statutCompte: existingUser.statutCompte,
-        avatar: existingUser.avatar,
-      },
-      isNewUser: false,
-      token,
-    });
+    return loginExistingUser(existingUser, userInfo, req, res);
   }
 
-  // --------------------------------------------------------------------------
-  // NOUVEL UTILISATEUR : Toujours renvoyer les données pour l'écran de finalisation
-  // (personnalisation pseudo/photo, certification 16+, CGU et choix du forfait)
-  // --------------------------------------------------------------------------
-  const onboardingToken = generateToken({
-    id: 'onboarding-temp',
+  // NOUVEL UTILISATEUR : on renvoie les données pour l'écran de finalisation
+  // (personnalisation pseudo/photo, certification 16+, CGU). Le jeton d'onboarding n'ouvre aucune session.
+  const onboardingToken = generateOnboardingToken({
     email: cleanEmail,
     pseudo: userInfo.pseudo,
     avatar: userInfo.avatar,
-    role: 'UTILISATEUR',
-    forfait: 'GRATUIT',
-    statutCompte: 'ACTIF',
   });
 
   return res.json({
@@ -357,127 +492,67 @@ export async function authenticateOAuthUser(
   });
 }
 
-// Finalisation de l'onboarding pour un nouvel utilisateur Google
+/** Finalisation de l'onboarding d'un nouvel utilisateur Google (certification 16+ obligatoire, compte GRATUIT). */
 export async function completeGoogleOnboarding(
-  data: { onboardingToken: string; ageCertifie: boolean; forfait?: string; pseudo?: string; avatar?: string },
+  data: { onboardingToken: unknown; ageCertifie: unknown; pseudo?: unknown; avatar?: unknown },
   req: Request,
   res: Response
 ) {
-  const { onboardingToken, ageCertifie, forfait, pseudo, avatar } = data;
+  const { onboardingToken, ageCertifie, pseudo, avatar } = data;
 
-  if (!onboardingToken) {
+  if (typeof onboardingToken !== 'string' || !onboardingToken) {
     return res.status(400).json({ error: 'Jeton d’onboarding manquant.' });
   }
 
-  const payload = verifyToken(onboardingToken);
-  if (!payload || !payload.email) {
+  const payload = verifyOnboardingToken(onboardingToken);
+  if (!payload) {
     return res.status(401).json({ error: 'Session d’onboarding expirée ou invalide. Veuillez recommencer.' });
   }
 
-  if (!ageCertifie) {
+  if (ageCertifie !== true) {
     return res.status(400).json({ error: 'La certification d’âge 16 ans révolus est obligatoire pour créer votre compte.' });
   }
 
   const cleanEmail = payload.email.toLowerCase().trim();
-  const finalPseudo = (pseudo || payload.pseudo || cleanEmail.split('@')[0]).trim().substring(0, 30);
-  const finalAvatar = avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanEmail)}`;
 
-  // Vérifier si le compte existe déjà
+  // Le compte a pu être créé entre-temps
   const existingUsers = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
   if (existingUsers.length > 0) {
-    const existing = existingUsers[0];
-    if (existing.statutCompte === 'SUSPENDU') {
-      console.warn('[OAUTH SECURITY 403] Refus de finalisation Google - Raison : COMPTE_SUSPENDU.');
-      return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.', code: 'ACCOUNT_SUSPENDED' });
-    }
-
-    const updates: Record<string, any> = {
-      dernierAcces: new Date(),
-      activeSessionToken: null, // Révocation des sessions existantes
-    };
-    if (
-      existing.passwordHash &&
-      existing.passwordHash !== 'OAUTH_GOOGLE' &&
-      existing.passwordHash !== 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED'
-    ) {
-      updates.passwordHash = 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED';
-      console.warn(
-        `[SECURITY] Compte ${cleanEmail} rattaché via Google Onboarding. Ancien mot de passe classique invalidé pour contrer tout risque de pré-détournement.`
-      );
-    }
-    if (finalAvatar && (!existing.avatar || existing.avatar.includes('dicebear'))) {
-      updates.avatar = finalAvatar;
-      existing.avatar = finalAvatar;
-    }
-    await db.update(users).set(updates).where(eq(users.id, existing.id));
-
-    const token = generateToken({
-      id: existing.id,
-      email: existing.email,
-      pseudo: existing.pseudo,
-      role: existing.role as any,
-      forfait: existing.forfait as any,
-      statutCompte: existing.statutCompte as any,
-    });
-    setAuthCookie(res, req, token);
-    return res.json({
-      user: {
-        id: existing.id,
-        pseudo: existing.pseudo,
-        email: existing.email,
-        role: existing.role,
-        forfait: existing.forfait,
-        statutCompte: existing.statutCompte,
-        avatar: existing.avatar,
-      },
-      isNewUser: false,
-      token,
-    });
+    return loginExistingUser(
+      existingUsers[0],
+      { id: '', email: cleanEmail, pseudo: payload.pseudo || '', avatar: payload.avatar || '', provider: 'google' },
+      req,
+      res
+    );
   }
 
-  const validForfait = ['STANDARD', 'PREMIUM'].includes(forfait || '') ? forfait! : 'GRATUIT';
-  const userId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-
-  const [newUser] = await db
-    .insert(users)
-    .values({
-      id: userId,
-      pseudo: finalPseudo,
+  return createGoogleUser(
+    {
       email: cleanEmail,
-      passwordHash: 'OAUTH_GOOGLE',
-      forfait: validForfait,
-      role: 'UTILISATEUR',
-      statutCompte: 'ACTIF',
-      avatar: finalAvatar,
-    })
-    .returning();
-
-  EmailService.sendWelcomeEmail({ email: newUser.email, pseudo: newUser.pseudo }).catch((err) =>
-    console.info('[EMAIL] Note bienvenue OAuth Google:', err.message)
-  );
-
-  const token = generateToken({
-    id: newUser.id,
-    email: newUser.email,
-    pseudo: newUser.pseudo,
-    role: newUser.role as any,
-    forfait: newUser.forfait as any,
-    statutCompte: newUser.statutCompte as any,
-  });
-
-  setAuthCookie(res, req, token);
-
-  return res.json({
-    user: {
-      id: newUser.id,
-      pseudo: newUser.pseudo,
-      email: newUser.email,
-      role: newUser.role,
-      forfait: newUser.forfait,
-      statutCompte: newUser.statutCompte,
-      avatar: newUser.avatar,
+      pseudo: typeof pseudo === 'string' && pseudo.trim() ? pseudo : payload.pseudo,
+      avatar: sanitizeAvatar(avatar) || payload.avatar,
     },
-    isNewUser: true,
-    token,
-  });
+    req,
+    res
+  );
+}
+
+/** Connexion / inscription par jeton d'identité Google (Google Identity Services). */
+export async function googleIdTokenSignIn(
+  credential: unknown,
+  ageCertifie: unknown,
+  req: Request,
+  res: Response
+) {
+  const userInfo = await verifyGoogleIdToken(credential);
+
+  const existingUsers = await db.select().from(users).where(eq(users.email, userInfo.email)).limit(1);
+  if (existingUsers[0]) {
+    return loginExistingUser(existingUsers[0], userInfo, req, res);
+  }
+
+  if (ageCertifie !== true) {
+    return res.status(403).json({ error: "La certification d'âge 16+ est obligatoire pour utiliser Kinoo." });
+  }
+  return createGoogleUser({ email: userInfo.email, pseudo: userInfo.pseudo, avatar: userInfo.avatar }, req, res);
 }

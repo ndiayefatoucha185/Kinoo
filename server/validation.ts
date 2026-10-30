@@ -26,7 +26,7 @@ export const loginSchema = z.object({
 export const registerSchema = z.object({
   pseudo: z.string().min(2, 'Le pseudo doit contenir au moins 2 caractères').max(50).trim(),
   email: z.string().email('Adresse e-mail invalide').max(255).trim(),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères').max(200),
+  password: z.string().min(10, 'Le mot de passe doit contenir au moins 10 caractères').max(200),
   avatar: z.string().optional().nullable(),
   forfait: z.enum(['GRATUIT', 'STANDARD', 'PREMIUM']).optional().default('GRATUIT'),
   honeypot: z.string().optional(),

@@ -1,47 +1,31 @@
 import crypto from 'crypto';
-
-interface CaptchaEntry {
-  id: string;
-  solution: string;
-  question: string;
-  expiresAt: number;
-}
-
-const captchaStore = new Map<string, CaptchaEntry>();
-
-// Nettoyage régulier des calculs de limitation de débit expirés
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, entry] of captchaStore.entries()) {
-    if (entry.expiresAt < now) {
-      captchaStore.delete(id);
-    }
-  }
-}, 60000);
+import { kvSet, kvConsume } from './kv.js';
+import { safeEqual } from './security.js';
 
 /**
  * Défi interne de temporisation / calcul arithmétique.
  * Présenté honnêtement comme une limitation de débit (ralentissement humain),
- * jamais comme une protection anti-robot avancée.
+ * jamais comme une protection anti-robot avancée : un script le résout trivialement.
+ * Pour une vraie protection anti-bot, configurer Cloudflare Turnstile (TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY).
+ *
+ * Les défis sont stockés dans PostgreSQL (partagés entre instances, survivent aux redémarrages)
+ * et sont à usage unique : une tentative, correcte ou non, consomme le défi.
  */
-export function generateCaptchaChallenge(): { challengeId: string; question: string; visualHint: string } {
-  const num1 = Math.floor(Math.random() * 12) + 1;
-  const num2 = Math.floor(Math.random() * 12) + 1;
-  const isAddition = Math.random() > 0.3;
+
+const CAPTCHA_TTL_SEC = 5 * 60;
+
+export async function generateCaptchaChallenge(): Promise<{ challengeId: string; question: string; visualHint: string }> {
+  const num1 = crypto.randomInt(1, 13);
+  const num2 = crypto.randomInt(1, 13);
+  const isAddition = crypto.randomInt(0, 10) >= 3;
 
   const solution = isAddition ? String(num1 + num2) : String(Math.max(num1, num2) - Math.min(num1, num2));
   const question = isAddition
     ? `Combien font ${num1} + ${num2} ?`
     : `Combien font ${Math.max(num1, num2)} - ${Math.min(num1, num2)} ?`;
 
-  const challengeId = `cpt_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
-  
-  captchaStore.set(challengeId, {
-    id: challengeId,
-    solution: solution.trim(),
-    question,
-    expiresAt: Date.now() + 5 * 60 * 1000, // Valide 5 minutes
-  });
+  const challengeId = `cpt_${crypto.randomBytes(16).toString('hex')}`;
+  await kvSet(`captcha:${challengeId}`, { solution }, CAPTCHA_TTL_SEC);
 
   return {
     challengeId,
@@ -50,24 +34,14 @@ export function generateCaptchaChallenge(): { challengeId: string; question: str
   };
 }
 
-export function verifyCaptchaSolution(challengeId?: string, answer?: string): boolean {
-  if (!challengeId || typeof answer !== 'string') {
-    return false;
-  }
-  const cleanAnswer = answer.trim();
-  const entry = captchaStore.get(challengeId);
-  if (!entry) {
-    return false;
-  }
-  if (Date.now() > entry.expiresAt) {
-    captchaStore.delete(challengeId);
-    return false;
-  }
-  const isCorrect = entry.solution === cleanAnswer;
-  if (isCorrect) {
-    captchaStore.delete(challengeId); // Usage unique (anti-rejeu)
-  }
-  return isCorrect;
+export async function verifyCaptchaSolution(challengeId?: unknown, answer?: unknown): Promise<boolean> {
+  if (typeof challengeId !== 'string' || challengeId.length === 0 || challengeId.length > 100) return false;
+  if (typeof answer !== 'string' || answer.length > 20) return false;
+
+  // Lecture + suppression atomiques : impossible d'essayer plusieurs réponses sur le même défi
+  const entry = await kvConsume<{ solution: string }>(`captcha:${challengeId}`);
+  if (!entry || typeof entry.solution !== 'string') return false;
+  return safeEqual(entry.solution, answer.trim());
 }
 
 /**
@@ -80,7 +54,7 @@ export async function verifyTurnstileToken(token?: string, remoteIp?: string): P
     return { success: false, error: 'TURNSTILE_NOT_CONFIGURED' };
   }
 
-  if (!token) {
+  if (!token || typeof token !== 'string' || token.length > 2048) {
     return { success: false, error: 'TOKEN_MISSING' };
   }
 
@@ -98,6 +72,7 @@ export async function verifyTurnstileToken(token?: string, remoteIp?: string): P
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!res.ok) {

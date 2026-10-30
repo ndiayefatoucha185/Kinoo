@@ -1,3 +1,4 @@
+import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { AuthService, SignupData, LoginData } from '../services/auth';
 import { StorageService } from '../services/storage';
@@ -196,13 +197,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     // Ne réinitialiser le mode et l'onboarding que lors d'une NOUVELLE ouverture de la modale
     if (isOpen && !prevIsOpenRef.current) {
       setMode(initialMode);
+      if (resetToken) setTokenInput(resetToken);
       setSignupStep('account');
       setGoogleOnboardingData(null);
       setErrorMessage(null);
       setSuccessMessage(null);
     }
     prevIsOpenRef.current = isOpen;
-  }, [initialMode, isOpen]);
+  }, [initialMode, isOpen, resetToken]);
 
   if (!isOpen) return null;
 
@@ -213,13 +215,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setSelectedAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setSelectedAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
   const handleOnboardingImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,13 +227,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setOnboardingAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setOnboardingAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
     const fetchCaptcha = async () => {
@@ -368,7 +362,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (apiErr: any) {
       const res = AuthService.signup(payload);
       if (res.success && res.user) {
-        res.user.forfait = selectedForfait;
+        // Un forfait payant ne s'active jamais sans paiement confirmé côté serveur
+        res.user.forfait = 'GRATUIT';
         StorageService.setCurrentUser(res.user);
         onAuthSuccess(res.user);
         onClose();
