@@ -157,10 +157,18 @@ class RoomSyncEngine {
     const storedGuestSecret = typeof window !== 'undefined' ? sessionStorage.getItem('kinoo_guest_reconnect_secret') : null;
     const currentGuestSecret = this.guestReconnectSecret || storedGuestSecret;
 
-    // L'adresse de connexion WebSocket ne contient plus AUCUN secret (Point 4)
-    const wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(
-      roomId
-    )}&pseudo=${encodeURIComponent(user.pseudo)}&ageCertifie=${encodeURIComponent(
+    // Code d'accès de la salle (mot de passe) : jamais dans l'URL, transmis dans INIT_SESSION.
+    // Il est déposé par l'écran de connexion à la salle : sessionStorage['kinoo_room_access_<roomId>'].
+    let roomAccessCode: string | undefined;
+    try {
+      roomAccessCode =
+        (typeof window !== 'undefined' ? sessionStorage.getItem(`kinoo_room_access_${roomId}`) : null) || undefined;
+    } catch {
+      roomAccessCode = undefined;
+    }
+
+    // L'adresse de connexion WebSocket ne contient plus AUCUN secret ni pseudo (Point 4)
+    const wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(roomId)}&ageCertifie=${encodeURIComponent(
       ageVerified ? 'true' : 'false'
     )}`;
 
@@ -186,6 +194,8 @@ class RoomSyncEngine {
             type: 'INIT_SESSION',
             payload: {
               roomId,
+              pseudo: user.pseudo,
+              codeAcces: roomAccessCode,
               isRollover,
               rolloverToken: tokenToPresent || undefined,
               guestUserId: user.id && user.id.startsWith('guest-') ? user.id : undefined,
@@ -230,6 +240,14 @@ class RoomSyncEngine {
       newWs.onclose = (event) => {
         // Si cette socket fermée n'est plus la socket courante (déjà remplacée par un rollover), ne rien faire
         if (this.ws && this.ws !== newWs) {
+          return;
+        }
+
+        // Refus définitifs du serveur (session révoquée, accès refusé, salle introuvable/terminée/verrouillée/pleine) :
+        // inutile de reboucler toutes les 2 secondes.
+        const FATAL_CLOSE_CODES = [4400, 4401, 4403, 4404, 4410, 4423, 4429];
+        if (FATAL_CLOSE_CODES.includes(event.code)) {
+          console.warn('[SYNC-ENGINE] Connexion refusée par le serveur, pas de reconnexion automatique.', event.code, event.reason);
           return;
         }
 
@@ -389,6 +407,57 @@ class RoomSyncEngine {
         payload: msg.payload,
       };
       this.dispatchLocal(packet);
+      return;
+    }
+
+    // Actions d'hôte et signalisation validées et diffusées par le serveur (format identique aux paquets locaux)
+    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED') {
+      const packet: SyncPacket = {
+        type: msg.type,
+        roomId: this.currentRoomId,
+        senderId: msg.senderId || 'server',
+        senderPseudo: msg.senderPseudo || 'Hôte',
+        senderRole: 'HOTE',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'WEBRTC_SIGNAL' || msg.type === 'WEBRTC_SPEAKING') {
+      const packet: SyncPacket = {
+        type: msg.type,
+        roomId: this.currentRoomId,
+        senderId: msg.type === 'WEBRTC_SPEAKING' ? msg.payload?.userId || msg.senderId : msg.senderId,
+        senderPseudo: msg.senderPseudo || 'Participant',
+        senderRole: 'PARTICIPANT',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'PARTICIPANT_STATE_CHANGED') {
+      const packet: SyncPacket = {
+        type: 'PARTICIPANT_AUDIO_VIDEO',
+        roomId: this.currentRoomId,
+        senderId: msg.payload?.userId || msg.senderId,
+        senderPseudo: 'Participant',
+        senderRole: 'PARTICIPANT',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'ERROR') {
+      console.warn('[SYNC-ENGINE] Erreur serveur:', msg.payload?.code, msg.payload?.message);
       return;
     }
 

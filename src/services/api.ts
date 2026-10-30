@@ -171,11 +171,12 @@ export const ApiClient = {
     }
   },
 
-  async logout(userEmail?: string, userId?: string): Promise<void> {
+  async logout(_userEmail?: string, _userId?: string): Promise<void> {
     try {
+      // Le serveur identifie l'utilisateur par sa session : aucun identifiant n'est envoyé
       await apiRequest('/api/auth/logout', {
         method: 'POST',
-        body: JSON.stringify({ email: userEmail, userId }),
+        body: JSON.stringify({}),
       });
     } catch (err) {
       console.warn('[ApiClient] Erreur lors de la déconnexion distante:', err);

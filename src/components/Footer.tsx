@@ -197,10 +197,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenLegal, onOpenR
         <div className="pt-6 border-t border-[#232326] flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-gray-400">
           <p>© {new Date().getFullYear()} KINOO — « Même à distance, ensemble. » Tous droits réservés.</p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <button onClick={() => onNavigate('specs')} className="text-[#7C3AED] hover:underline">
-              Dossier Technique
-            </button>
-            <span>•</span>
             <span className="flex items-center gap-1">
               Fait avec rigueur <Heart className="w-3 h-3 text-[#EC4899]" />
             </span>

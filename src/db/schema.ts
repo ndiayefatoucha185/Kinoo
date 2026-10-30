@@ -19,6 +19,9 @@ export const users = pgTable('users', {
   activeSessionExpiresAt: timestamp('active_session_expires_at', { withTimezone: true }),
   sessionUnlockToken: varchar('session_unlock_token', { length: 128 }),
   sessionUnlockExpiresAt: timestamp('session_unlock_expires_at', { withTimezone: true }),
+  // Incrémenté pour révoquer tous les jetons JWT existants (changement de mot de passe, suspension, déconnexion globale)
+  tokenVersion: integer('token_version').notNull().default(0),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
 });
 
 export const rooms = pgTable('rooms', {
@@ -31,6 +34,8 @@ export const rooms = pgTable('rooms', {
   statut: varchar('statut', { length: 20 }).notNull().default('EN_COURS'), // PROGRAMMEE, EN_COURS, TERMINEE
   estPrivee: boolean('est_privee').notNull().default(false),
   codeAcces: varchar('code_acces', { length: 50 }),
+  // Empreinte scrypt du mot de passe de salle (le champ codeAcces en clair n'est plus alimenté)
+  codeAccesHash: text('code_acces_hash'),
   estVerrouillee: boolean('est_verrouillee').notNull().default(false),
   sourceContenu: jsonb('source_contenu'),
   playbackState: varchar('playback_state', { length: 20 }).notNull().default('PAUSE'),
@@ -197,4 +202,12 @@ export const moderationArchives = pgTable('moderation_archives', {
   dateSanction: timestamp('date_sanction', { withTimezone: true }).notNull().defaultNow(),
   dateArchivage: timestamp('date_archivage', { withTimezone: true }).notNull().defaultNow(),
   dateExpiration: timestamp('date_expiration', { withTimezone: true }).notNull(),
+});
+
+// Stockage clé/valeur partagé (jetons à usage unique, captcha, state OAuth, compteurs de limitation de débit)
+export const kvStore = pgTable('kv_store', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull().default({}),
+  counter: integer('counter').notNull().default(0),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });

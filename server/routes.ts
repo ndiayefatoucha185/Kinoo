@@ -1,4 +1,4 @@
-import { generateCaptchaChallenge } from './captcha';
+import { generateCaptchaChallenge } from './captcha.js';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { db } from '../src/db/index.js';
@@ -13,9 +13,14 @@ import {
   rateLimitAntiSpam,
   rateLimitEmail,
   rateLimitRoomSearch,
+  rateLimitKv,
   verifyInvisibleCaptcha,
   hashPassword,
   comparePassword,
+  burnPasswordCheck,
+  hasRealPassword,
+  bumpTokenVersion,
+  isBearerFallbackEnabled,
   generateToken,
   verifyToken,
   extractToken,
@@ -43,9 +48,44 @@ import {
   exchangeGoogleCode,
   authenticateOAuthUser,
   completeGoogleOnboarding,
-  generateSignedOAuthState,
+  googleIdTokenSignIn,
+  GoogleAuthError,
+  createOAuthState,
+  setOAuthBindCookie,
+  readOAuthBindCookie,
+  clearOAuthBindCookie,
   validateAndConsumeOAuthState,
 } from './oauth.js';
+import {
+  newId,
+  generateRoomCode,
+  sha256Hex,
+  safeEqual,
+  hashRoomPassword,
+  verifyRoomPassword,
+  validatePasswordStrength,
+  escapeIcsText,
+  cleanText,
+  isSafeHttpUrl,
+  getPublicBaseUrl,
+  isAllowedRedirectUri,
+  sanitizeAvatar,
+  sanitizeSourceContenu,
+  sanitizePositionSec,
+} from './security.js';
+
+/** Représentation publique d'un utilisateur (jamais de hash, de jeton ou de champ interne). */
+function publicUser(u: any) {
+  return {
+    id: u.id,
+    pseudo: u.pseudo,
+    email: u.email,
+    forfait: u.forfait,
+    role: u.role,
+    statutCompte: u.statutCompte,
+    avatar: u.avatar,
+  };
+}
 
 // HMAC non réversible pour l'archivage anonymisé des sanctions RGPD (Point 8)
 export function generateUserHmac(identifier: string): string {
@@ -72,6 +112,37 @@ export async function purgeExpiredModerationArchives(): Promise<number> {
 
 export const apiRouter = Router();
 
+// Limiteurs spécifiques (par IP ou par adresse e-mail ciblée)
+const rateLimitForgotPassword = rateLimitKv('forgot', {
+  max: 3,
+  windowSec: 60 * 60,
+  message: 'Trop de demandes de réinitialisation pour cette adresse. Réessayez dans une heure.',
+  keyFn: (req) => (typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim().slice(0, 255) : null),
+});
+const rateLimitVerifyEmail = rateLimitKv('verify', { max: 20, windowSec: 15 * 60 });
+const rateLimitJoin = rateLimitKv('join', { max: 60, windowSec: 60 });
+const rateLimitSetPassword = rateLimitKv('setpw', {
+  max: 10,
+  windowSec: 15 * 60,
+  keyFn: (req) => (req as AuthenticatedRequest).user?.id || getClientIp(req),
+});
+const rateLimitAdSignal = rateLimitKv('adsig', {
+  max: 3,
+  windowSec: 60 * 60,
+  keyFn: (req) => `${getClientIp(req)}:${req.params.id}`,
+});
+const rateLimitAccountDeletion = rateLimitKv('rgpddel', {
+  max: 5,
+  windowSec: 60 * 60,
+  keyFn: (req) => (req as AuthenticatedRequest).user?.id || getClientIp(req),
+});
+const rateLimitInviteUser = rateLimitKv('invuser', {
+  max: 20,
+  windowSec: 60 * 60,
+  message: "Limite d'invitations atteinte pour aujourd'hui. Réessayez plus tard.",
+  keyFn: (req) => (req as AuthenticatedRequest).user?.id || getClientIp(req),
+});
+
 // ============================================================================
 // 1. AUTHENTICATION & PROFILES
 // ============================================================================
@@ -84,10 +155,20 @@ apiRouter.post(
   validateBody(registerSchema),
   async (req: Request, res: Response) => {
     try {
-      const { pseudo, email, password, avatar, forfait } = req.body;
+      const { pseudo, email, password, avatar } = req.body;
 
       if (!pseudo || !email || !password) {
         return res.status(400).json({ error: 'Pseudo, email et mot de passe requis.' });
+      }
+
+      const passwordError = validatePasswordStrength(password);
+      if (passwordError) {
+        return res.status(400).json({ error: passwordError });
+      }
+
+      const cleanPseudo = cleanText(pseudo, 50);
+      if (cleanPseudo.length < 2) {
+        return res.status(400).json({ error: 'Le pseudo doit contenir au moins 2 caractères.' });
       }
 
       const cleanEmail = email.toLowerCase().trim();
@@ -98,28 +179,35 @@ apiRouter.post(
       }
 
       const passwordHash = await hashPassword(password);
-      const userId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const userId = newId('usr');
 
-      // Le forfait choisi dès l'inscription est validé (GRATUIT, STANDARD ou PREMIUM)
-      const validForfait = ['STANDARD', 'PREMIUM'].includes(forfait) ? forfait : 'GRATUIT';
-      const initialAvatar = avatar && avatar.trim()
-        ? avatar.trim()
-        : `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(pseudo)}`;
+      // SÉCURITÉ : tout compte démarre en GRATUIT. Un forfait payant ne s'active qu'après un paiement confirmé
+      // (ou par un administrateur), jamais sur simple déclaration du client.
+      const initialAvatar =
+        sanitizeAvatar(avatar) || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanPseudo)}`;
 
-      // Rôle par défaut strictement UTILISATEUR
-      const [newUser] = await db
-        .insert(users)
-        .values({
-          id: userId,
-          pseudo: pseudo.trim(),
-          email: cleanEmail,
-          passwordHash,
-          forfait: validForfait,
-          role: 'UTILISATEUR',
-          statutCompte: 'ACTIF',
-          avatar: initialAvatar,
-        })
-        .returning();
+      let newUser: typeof users.$inferSelect;
+      try {
+        // Rôle par défaut strictement UTILISATEUR
+        [newUser] = await db
+          .insert(users)
+          .values({
+            id: userId,
+            pseudo: cleanPseudo,
+            email: cleanEmail,
+            passwordHash,
+            forfait: 'GRATUIT',
+            role: 'UTILISATEUR',
+            statutCompte: 'ACTIF',
+            avatar: initialAvatar,
+          })
+          .returning();
+      } catch (insertErr: any) {
+        if (insertErr?.code === '23505') {
+          return res.status(409).json({ error: 'Cet email est déjà associé à un compte Kinoo.' });
+        }
+        throw insertErr;
+      }
 
       const token = generateToken({
         id: newUser.id,
@@ -128,6 +216,7 @@ apiRouter.post(
         role: newUser.role as any,
         forfait: newUser.forfait as any,
         statutCompte: newUser.statutCompte as any,
+        tokenVersion: newUser.tokenVersion ?? 0,
       });
 
       // Set secure HttpOnly cookie inaccessible to browser JS
@@ -141,19 +230,8 @@ apiRouter.post(
         console.info('[EMAIL] Note envoi email vérification:', err.message)
       );
 
-      const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
-      const registerPayload: Record<string, any> = {
-        user: {
-          id: newUser.id,
-          pseudo: newUser.pseudo,
-          email: newUser.email,
-          forfait: newUser.forfait,
-          role: newUser.role,
-          statutCompte: newUser.statutCompte,
-          avatar: newUser.avatar,
-        },
-      };
-      if (isAiStudioEnv) {
+      const registerPayload: Record<string, any> = { user: publicUser(newUser) };
+      if (isBearerFallbackEnabled()) {
         registerPayload.token = token;
       }
       res.status(201).json(registerPayload);
@@ -164,11 +242,11 @@ apiRouter.post(
   }
 );
 
-// Demande de réinitialisation de mot de passe (Lien sécurisé à durée de vie 15 min)
-apiRouter.post('/auth/forgot-password', rateLimitAuth, async (req: Request, res: Response) => {
+// Demande de réinitialisation de mot de passe (Lien sécurisé à durée de vie 15 min, usage unique)
+apiRouter.post('/auth/forgot-password', rateLimitAuth, rateLimitForgotPassword, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-    if (!email) {
+    if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Adresse email requise.' });
     }
 
@@ -176,9 +254,11 @@ apiRouter.post('/auth/forgot-password', rateLimitAuth, async (req: Request, res:
     const result = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
     const user = result[0];
 
-    // Security practice: Always respond positively even if email doesn't exist (prevent email enumeration)
+    // Envoi en arrière-plan : le temps de réponse ne révèle pas si l'adresse existe (anti-énumération)
     if (user) {
-      await EmailService.sendPasswordResetEmail(user.email, user.pseudo);
+      EmailService.sendPasswordResetEmail(user.email, user.pseudo).catch((err) =>
+        console.info('[EMAIL] Note envoi reset:', err.message)
+      );
     }
 
     res.json({
@@ -191,26 +271,44 @@ apiRouter.post('/auth/forgot-password', rateLimitAuth, async (req: Request, res:
   }
 });
 
-// Réinitialisation effective du mot de passe (Validation stricte de validité 15 minutes)
+// Réinitialisation effective du mot de passe (jeton à usage unique, 15 minutes)
 apiRouter.post('/auth/reset-password', rateLimitAuth, async (req: Request, res: Response) => {
   try {
     const { token, newPassword } = req.body;
 
-    if (!token || !newPassword || newPassword.length < 8) {
-      return res.status(400).json({ error: 'Token et nouveau mot de passe (min. 8 caractères) requis.' });
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: 'Lien de réinitialisation requis.' });
+    }
+    // Politique validée AVANT de consommer le jeton : une faute de frappe ne brûle pas le lien
+    const passwordError = validatePasswordStrength(newPassword);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
 
-    // Validate token against 15-minute expiration
-    const validation = EmailService.validateResetToken(token);
+    const validation = await EmailService.consumeResetToken(token);
     if (!validation.valid || !validation.email) {
       return res.status(400).json({ error: validation.error || 'Lien de réinitialisation invalide ou expiré (15 min).' });
     }
 
     const passwordHash = await hashPassword(newPassword);
-    await db.update(users).set({ passwordHash }).where(eq(users.email, validation.email));
+    const [updated] = await db
+      .update(users)
+      .set({
+        passwordHash,
+        // Preuve de possession de l'adresse e-mail
+        emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, NOW())`,
+        // Libère une éventuelle session Super Admin figée
+        activeSessionToken: null,
+        activeSessionExpiresAt: null,
+      })
+      .where(eq(users.email, validation.email))
+      .returning({ id: users.id });
 
-    // Invalidate the used token
-    EmailService.consumeResetToken(token);
+    if (updated) {
+      // Révoque tous les jetons de session déjà émis (un attaquant connecté perd l'accès)
+      await bumpTokenVersion(updated.id);
+      globalWsServer?.disconnectUser(updated.id);
+    }
 
     res.json({
       success: true,
@@ -222,23 +320,27 @@ apiRouter.post('/auth/reset-password', rateLimitAuth, async (req: Request, res: 
   }
 });
 
-// Confirmation de vérification d'adresse e-mail
-apiRouter.post('/auth/verify-email', async (req: Request, res: Response) => {
+// Confirmation de vérification d'adresse e-mail (jeton à usage unique)
+apiRouter.post('/auth/verify-email', rateLimitVerifyEmail, async (req: Request, res: Response) => {
   try {
     const { token } = req.body;
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: 'Token de vérification requis.' });
     }
 
-    const validation = EmailService.validateVerificationToken(token);
+    const validation = await EmailService.consumeVerificationToken(token);
     if (!validation.valid || !validation.email) {
       return res.status(400).json({ error: validation.error || 'Token de vérification invalide.' });
     }
 
+    await db
+      .update(users)
+      .set({ emailVerifiedAt: sql`COALESCE(${users.emailVerifiedAt}, NOW())` })
+      .where(eq(users.email, validation.email));
+
     res.json({
       success: true,
       message: 'Votre adresse e-mail a été vérifiée avec succès !',
-      email: validation.email,
     });
   } catch (error) {
     console.error('[API] Erreur verify-email:', error);
@@ -262,94 +364,144 @@ apiRouter.get('/auth/oauth/config', (_req: Request, res: Response) => {
   });
 });
 
-// Récupération de l'URL d'autorisation Google OAuth (Popup directe vers Google avec CSRF state signé HMAC)
-apiRouter.get('/auth/oauth/google/url', (req: Request, res: Response) => {
-  const redirectUri = (req.query.redirectUri as string) || `${req.protocol}://${req.get('host')}/auth/callback`;
+// URL d'autorisation Google OAuth : state signé, à usage unique, lié au navigateur par un cookie HttpOnly
+apiRouter.get('/auth/oauth/google/url', rateLimitAuth, async (req: Request, res: Response) => {
+  try {
+    if (!isGoogleOAuthConfigured()) {
+      return res.json({
+        configured: false,
+        error: 'La connexion Google n’est pas configurée sur ce serveur.',
+      });
+    }
 
-  if (!isGoogleOAuthConfigured()) {
-    return res.json({
-      configured: false,
-      error: 'GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET non configuré dans les variables d’environnement.',
-    });
+    const requested = typeof req.query.redirectUri === 'string' ? req.query.redirectUri : '';
+    const redirectUri = requested || `${getPublicBaseUrl(req)}/auth/callback`;
+    if (!isAllowedRedirectUri(redirectUri)) {
+      return res.status(400).json({ error: 'URI de redirection non autorisée.' });
+    }
+
+    const { state, bind } = await createOAuthState();
+    setOAuthBindCookie(res, req, bind);
+
+    const url = getGoogleAuthUrl(redirectUri, state);
+    return res.json({ configured: true, url, state });
+  } catch (error) {
+    console.error('[API OAUTH GOOGLE] Erreur génération URL:', error);
+    return res.status(500).json({ error: 'Impossible de démarrer la connexion Google.' });
   }
-
-  // Génération d'un state aléatoire cryptographique signé HMAC à usage unique (protection anti-CSRF)
-  const state = generateSignedOAuthState();
-
-  const url = getGoogleAuthUrl(redirectUri, state);
-  return res.json({ configured: true, url, state });
 });
 
 // Validation et échange cryptographique du code d'autorisation Google OAuth côté serveur
 apiRouter.post('/auth/oauth/verify', rateLimitAuth, async (req: Request, res: Response) => {
   try {
-    const { code, state, redirectUri, ageCertifie, conditionsAcceptees, forfait } = req.body;
+    const { code, state, redirectUri } = req.body;
 
-    if (!code || !redirectUri) {
+    if (!code || typeof code !== 'string' || !redirectUri) {
       return res.status(400).json({ error: 'Paramètres Google OAuth incomplets (code et redirectUri requis).' });
     }
+    if (!isAllowedRedirectUri(redirectUri)) {
+      return res.status(400).json({ error: 'URI de redirection non autorisée.' });
+    }
 
-    // Protection anti-CSRF : validation stricte et OBLIGATOIRE du jeton state signé HMAC à usage unique
-    const stateCheck = validateAndConsumeOAuthState(state);
+    // Protection anti-CSRF : state signé HMAC, à usage unique, lié au cookie du navigateur initiateur
+    const stateCheck = await validateAndConsumeOAuthState(state, readOAuthBindCookie(req));
+    clearOAuthBindCookie(res);
     if (!stateCheck.valid) {
       const failure = stateCheck as { valid: false; reason: string; message: string };
       console.warn(`[OAUTH SECURITY 403] Refus /api/auth/oauth/verify - Raison : ${failure.reason}`);
       return res.status(403).json({
-        error: `Erreur 403 : Échec de validation de sécurité CSRF (${failure.message})`,
+        error: `Échec de validation de sécurité CSRF (${failure.message})`,
         code: failure.reason,
       });
     }
 
     const userInfo = await exchangeGoogleCode(code, redirectUri);
-    return await authenticateOAuthUser(userInfo, { ageCertifie, conditionsAcceptees, forfait }, req, res);
+    return await authenticateOAuthUser(userInfo, req, res);
   } catch (error: any) {
     console.error('[API OAUTH GOOGLE] Erreur authentification:', error);
-    return res.status(400).json({ error: error.message || 'Échec de l’authentification Google.' });
+    const status = error instanceof GoogleAuthError ? error.status : 400;
+    return res.status(status).json({
+      error: error instanceof GoogleAuthError ? error.message : 'Échec de l’authentification Google.',
+    });
   }
 });
 
-// Définir un mot de passe local pour un utilisateur connecté (ex: compte Google souhaitant un mot de passe)
-apiRouter.post('/user/set-password', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+// Définir / changer le mot de passe local d'un utilisateur connecté
+apiRouter.post('/user/set-password', authenticate, rateLimitSetPassword, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { newPassword } = req.body;
+    const { newPassword, currentPassword } = req.body;
     const userId = req.user?.id;
 
     if (!userId) {
       return res.status(401).json({ error: 'Session non authentifiée.' });
     }
 
-    if (!newPassword || newPassword.length < 10 || !/[A-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-      return res.status(400).json({ error: 'Le mot de passe doit comporter au moins 10 caractères, 1 majuscule et 1 chiffre.' });
+    const passwordError = validatePasswordStrength(newPassword);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    const [dbUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!dbUser) {
+      return res.status(404).json({ error: 'Utilisateur introuvable.' });
+    }
+
+    // Un compte qui possède déjà un mot de passe doit prouver qu'il le connaît (un cookie volé ne suffit pas)
+    if (hasRealPassword(dbUser.passwordHash)) {
+      if (typeof currentPassword !== 'string' || !(await comparePassword(currentPassword, dbUser.passwordHash))) {
+        return res.status(403).json({ error: 'Mot de passe actuel incorrect.', code: 'CURRENT_PASSWORD_INVALID' });
+      }
     }
 
     const passwordHash = await hashPassword(newPassword);
-    await db.update(users).set({ passwordHash }).where(eq(users.id, userId));
+    const [updated] = await db
+      .update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, userId))
+      .returning();
 
-    res.json({
+    // Révoque les autres sessions, puis réémet un cookie valide pour la session courante
+    await bumpTokenVersion(userId);
+    const [fresh] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const newToken = generateToken(
+      {
+        id: updated.id,
+        email: updated.email,
+        pseudo: updated.pseudo,
+        role: updated.role as any,
+        forfait: updated.forfait as any,
+        statutCompte: updated.statutCompte as any,
+        tokenVersion: fresh?.tokenVersion ?? 0,
+      },
+      req.user?.sessionToken
+    );
+    setAuthCookie(res, req, newToken);
+
+    const body: Record<string, any> = {
       success: true,
-      message: 'Votre mot de passe Kinoo a été configuré avec succès. Vous pouvez désormais vous connecter par Google ou par mot de passe.',
-    });
+      message: 'Votre mot de passe Kinoo a été configuré avec succès.',
+    };
+    if (isBearerFallbackEnabled()) body.token = newToken;
+    res.json(body);
   } catch (error) {
     console.error('[API] Erreur set-password:', error);
     res.status(500).json({ error: 'Erreur lors de la définition du mot de passe.' });
   }
 });
 
-// Finalisation de l'onboarding pour un nouvel utilisateur Google (Certification 16+ et choix du forfait)
-apiRouter.post('/auth/oauth/google/complete', async (req: Request, res: Response) => {
+// Finalisation de l'onboarding pour un nouvel utilisateur Google (certification 16+, compte GRATUIT)
+apiRouter.post('/auth/oauth/google/complete', rateLimitAuth, async (req: Request, res: Response) => {
   try {
-    const { onboardingToken, ageCertifie, forfait, pseudo, avatar } = req.body;
-    return await completeGoogleOnboarding({ onboardingToken, ageCertifie, forfait, pseudo, avatar }, req, res);
+    const { onboardingToken, ageCertifie, pseudo, avatar } = req.body;
+    return await completeGoogleOnboarding({ onboardingToken, ageCertifie, pseudo, avatar }, req, res);
   } catch (error: any) {
     console.error('[API OAUTH GOOGLE] Erreur finalisation onboarding:', error);
-    return res.status(400).json({ error: error.message || 'Échec de la finalisation du compte Google.' });
+    return res.status(400).json({ error: 'Échec de la finalisation du compte Google.' });
   }
 });
 
-// Connexion sécurisée (Rate limit + Hash Bcrypt + Zod validation)
-// Génération d'un défi captcha interactif
 // Configuration publique du captcha (Turnstile ou défi interne)
-apiRouter.get('/auth/captcha-config', (req: Request, res: Response) => {
+apiRouter.get('/auth/captcha-config', (_req: Request, res: Response) => {
   const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY;
   const turnstileSecretKey = process.env.TURNSTILE_SECRET_KEY;
   const isTurnstileConfigured = Boolean(turnstileSiteKey && turnstileSecretKey);
@@ -360,11 +512,18 @@ apiRouter.get('/auth/captcha-config', (req: Request, res: Response) => {
   });
 });
 
-apiRouter.get('/auth/captcha-challenge', (req: Request, res: Response) => {
-  const challenge = generateCaptchaChallenge();
-  res.json(challenge);
+// Génération d'un défi captcha interactif (stocké côté serveur, usage unique)
+apiRouter.get('/auth/captcha-challenge', rateLimitAntiSpam, async (_req: Request, res: Response) => {
+  try {
+    const challenge = await generateCaptchaChallenge();
+    res.json(challenge);
+  } catch (error) {
+    console.error('[API] Erreur captcha-challenge:', error);
+    res.status(500).json({ error: 'Impossible de générer le défi.' });
+  }
 });
 
+// Connexion sécurisée (Rate limit + Hash Bcrypt + Zod validation)
 apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -374,22 +533,15 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
     }
 
     const cleanEmail = email.toLowerCase().trim();
+    const clientIp = getClientIp(req);
     const result = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
     const user = result[0];
 
-    // Sécurité : Refus si le compte n'a pas de hash ou si le hash a été invalidé par Google OAuth (anti pre-hijacking)
-    if (
-      !user ||
-      !user.passwordHash ||
-      user.passwordHash === 'OAUTH_GOOGLE' ||
-      user.passwordHash === 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED'
-    ) {
-      const reqIp = getClientIp(req); recordFailedAuthAttempt(reqIp, cleanEmail);
+    // Compte inconnu ou sans mot de passe local (Google) : même temps de réponse et même message que pour un mauvais mot de passe
+    if (!user || !hasRealPassword(user.passwordHash)) {
+      await burnPasswordCheck(password);
+      await recordFailedAuthAttempt(clientIp, cleanEmail);
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
-    }
-
-    if (user.statutCompte === 'SUSPENDU') {
-      return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.' });
     }
 
     let match = await comparePassword(password, user.passwordHash);
@@ -397,18 +549,21 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
       match = await comparePassword(password.trim(), user.passwordHash);
     }
     if (!match) {
-      const reqIp = getClientIp(req); recordFailedAuthAttempt(reqIp, cleanEmail);
+      await recordFailedAuthAttempt(clientIp, cleanEmail);
       return res.status(401).json({ error: 'Email ou mot de passe incorrect.' });
     }
 
+    // Statut vérifié APRÈS le mot de passe : un tiers ne peut pas savoir quels comptes sont suspendus
+    if (user.statutCompte === 'SUSPENDU') {
+      return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.' });
+    }
+
     // Reset rate limiter on successful login
-    const clientIp = getClientIp(req);
     resetRateLimit(clientIp);
-    resetAccountRateLimit(clientIp, cleanEmail);
+    await resetAccountRateLimit(clientIp, cleanEmail);
 
     // ========================================================================
     // RÈGLE DE SESSION UNIQUE STRICTE : UNIQUEMENT LE COMPTE SUPER ADMIN
-    // CONDITIONNÉ STRICTEMENT AU RÔLE SERVEUR SUPER_ADMIN
     // ========================================================================
     let sessionToken: string | undefined = undefined;
 
@@ -449,19 +604,16 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
           if (!isSameActiveSession) {
             const autoReleaseEpoch = (lastActivityTime || now.getTime()) + 3 * 60 * 1000;
             const autoReleaseDate = new Date(autoReleaseEpoch);
-            const hours = String(autoReleaseDate.getHours()).padStart(2, '0');
-            const minutes = String(autoReleaseDate.getMinutes()).padStart(2, '0');
-            const formattedTime = `${hours}:${minutes}`;
+            const hours = String(autoReleaseDate.getUTCHours()).padStart(2, '0');
+            const minutes = String(autoReleaseDate.getUTCMinutes()).padStart(2, '0');
+            const formattedTime = `${hours}:${minutes} UTC`;
 
             return res.status(409).json({
               error: `Une session est déjà active sur un autre appareil. En l'absence d'activité, elle se libérera automatiquement vers ${formattedTime}.`,
               code: 'SUPER_ADMIN_SESSION_ACTIVE',
               details: {
-                activeSince: user.dernierAcces,
-                expiresAt: user.activeSessionExpiresAt,
                 autoReleaseAt: autoReleaseDate.toISOString(),
                 formattedAutoReleaseTime: formattedTime,
-                supportEmail: user.email,
               },
             });
           }
@@ -477,7 +629,7 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
         }
       }
 
-      // Génération exclusive du jeton de session Super Admin (aucun chemin de test, verrou strict unifié)
+      // Génération exclusive du jeton de session Super Admin
       sessionToken = `ses_adm_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
       const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000);
       await db
@@ -489,8 +641,7 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
         })
         .where(eq(users.id, user.id));
     } else {
-      // UTILISATEURS NORMAUX (Gratuit, Standard, Premium) :
-      // Connexions simultanées multi-appareils 100% libres et autorisées sans aucune restriction ni token de session unique
+      // UTILISATEURS NORMAUX : connexions multi-appareils libres
       await db.update(users).set({ dernierAcces: new Date() }).where(eq(users.id, user.id));
     }
 
@@ -502,6 +653,7 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
         role: user.role as any,
         forfait: user.forfait as any,
         statutCompte: user.statutCompte as any,
+        tokenVersion: user.tokenVersion ?? 0,
       },
       sessionToken
     );
@@ -509,19 +661,8 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
     // Set secure HttpOnly cookie inaccessible to browser JS
     setAuthCookie(res, req, token);
 
-    const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
-    const loginPayload: Record<string, any> = {
-      user: {
-        id: user.id,
-        pseudo: user.pseudo,
-        email: user.email,
-        forfait: user.forfait,
-        role: user.role,
-        statutCompte: user.statutCompte,
-        avatar: user.avatar,
-      },
-    };
-    if (isAiStudioEnv) {
+    const loginPayload: Record<string, any> = { user: publicUser(user) };
+    if (isBearerFallbackEnabled()) {
       loginPayload.token = token;
     }
     res.json(loginPayload);
@@ -531,167 +672,45 @@ apiRouter.post('/auth/login', rateLimitAuth, validateBody(loginSchema), async (r
   }
 });
 
-// Connexion & Inscription via Google OAuth (Validation stricte côté serveur avec oauth2.googleapis.com)
+// Connexion & Inscription via Google Identity Services (jeton d'identité vérifié côté serveur : audience, émetteur, expiration, e-mail vérifié)
 apiRouter.post('/auth/google', rateLimitAuth, async (req: Request, res: Response) => {
   try {
-    const { credential, ageCertifie, forfait } = req.body;
-
-    if (!ageCertifie) {
-      return res.status(403).json({ error: "La certification d'âge 16+ est obligatoire pour utiliser Kinoo." });
+    const { credential, ageCertifie } = req.body;
+    return await googleIdTokenSignIn(credential, ageCertifie, req, res);
+  } catch (error: any) {
+    if (error instanceof GoogleAuthError) {
+      return res.status(error.status).json({ error: error.message });
     }
-
-    if (!credential) {
-      return res.status(400).json({ error: 'Token Google manquant.' });
-    }
-
-    let googleEmail: string | null = null;
-    let googleName: string | null = null;
-    let googlePicture: string | null = null;
-
-    // Validation réelle auprès de Google API
-    try {
-      const gRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
-      if (gRes.ok) {
-        const gData: any = await gRes.json();
-        googleEmail = gData.email || null;
-        googleName = gData.name || gData.given_name || null;
-        googlePicture = gData.picture || null;
-      } else {
-        // En mode bac à sable / test : si le token est un mock test payload
-        try {
-          const rawPayload = credential.includes('.') ? credential.split('.')[1] : credential;
-          const parsed = JSON.parse(Buffer.from(rawPayload, 'base64').toString('utf8'));
-          if (parsed && parsed.email) {
-            googleEmail = parsed.email;
-            googleName = parsed.name || parsed.pseudo || null;
-            googlePicture = parsed.picture || parsed.avatar || null;
-          }
-        } catch {
-          // invalid token
-        }
-      }
-    } catch (e: any) {
-      console.warn('[AUTH-GOOGLE] Note contact service Google:', e.message);
-    }
-
-    if (!googleEmail) {
-      return res.status(401).json({ error: 'Token Google invalide ou expiré.' });
-    }
-
-    const cleanEmail = googleEmail.toLowerCase().trim();
-    let [dbUser] = await db.select().from(users).where(eq(users.email, cleanEmail)).limit(1);
-
-    const validForfait = ['STANDARD', 'PREMIUM'].includes(forfait) ? forfait : 'GRATUIT';
-
-    if (!dbUser) {
-      const newUserId = `usr-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-      const cleanPseudo = (googleName || cleanEmail.split('@')[0]).slice(0, 50);
-
-      [dbUser] = await db.insert(users).values({
-        id: newUserId,
-        pseudo: cleanPseudo,
-        email: cleanEmail,
-        passwordHash: null,
-        forfait: validForfait,
-        role: 'UTILISATEUR',
-        statutCompte: 'ACTIF',
-        avatar: googlePicture || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanPseudo)}`,
-      }).returning();
-    } else {
-      if (dbUser.statutCompte === 'SUSPENDU') {
-        return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.' });
-      }
-      if (googlePicture && (!dbUser.avatar || dbUser.avatar.includes('dicebear'))) {
-        await db.update(users).set({ avatar: googlePicture }).where(eq(users.id, dbUser.id));
-        dbUser.avatar = googlePicture;
-      }
-    }
-
-    const token = generateToken({
-      id: dbUser.id,
-      email: dbUser.email,
-      pseudo: dbUser.pseudo,
-      role: dbUser.role as any,
-      forfait: dbUser.forfait as any,
-      statutCompte: dbUser.statutCompte as any,
-    });
-
-    setAuthCookie(res, req, token);
-
-    res.json({
-      user: {
-        id: dbUser.id,
-        pseudo: dbUser.pseudo,
-        email: dbUser.email,
-        forfait: dbUser.forfait,
-        role: dbUser.role,
-        statutCompte: dbUser.statutCompte,
-        avatar: dbUser.avatar,
-      },
-    });
-  } catch (error) {
     console.error('[API] Erreur auth Google:', error);
     res.status(500).json({ error: 'Erreur serveur lors de la connexion Google.' });
   }
 });
 
-// Déconnexion sécurisée : Révocation du cookie HttpOnly et libération immédiate de la session active
+// Déconnexion : libère la session Super Admin de l'utilisateur AUTHENTIFIÉ uniquement (jamais d'identifiant fourni par le client)
 apiRouter.post('/auth/logout', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    let emailToClear = req.user?.email || (req.body && req.body.email ? req.body.email.toLowerCase().trim() : null);
-    let userIdToClear = req.user?.id || (req.body && req.body.userId ? req.body.userId : null);
-
-    // Fallback : extraire l'utilisateur du header Authorization si absent de req.user
-    if (!userIdToClear && !emailToClear) {
-      const token = extractToken(req);
-      if (token) {
-        try {
-          const payload = verifyToken(token);
-          if (payload?.id) {
-            userIdToClear = payload.id;
-          } else if (payload?.email) {
-            emailToClear = payload.email.toLowerCase().trim();
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    if (userIdToClear) {
+    if (req.user?.id) {
       await db
         .update(users)
         .set({
           activeSessionToken: null,
           activeSessionExpiresAt: null,
-          sessionUnlockToken: null,
-          sessionUnlockExpiresAt: null,
         })
-        .where(eq(users.id, userIdToClear));
-    } else if (emailToClear) {
-      await db
-        .update(users)
-        .set({
-          activeSessionToken: null,
-          activeSessionExpiresAt: null,
-          sessionUnlockToken: null,
-          sessionUnlockExpiresAt: null,
-        })
-        .where(eq(users.email, emailToClear));
+        .where(eq(users.id, req.user.id));
     }
   } catch (err) {
     console.warn('[API] Erreur libération session lors du logout:', err);
   }
 
   clearAuthCookie(res, req);
-  res.json({ success: true, message: 'Session terminée et libérée avec succès.' });
+  res.json({ success: true, message: 'Session terminée avec succès.' });
 });
 
 // Demande d'envoi du lien de déblocage d'urgence par email pour le Super Admin
 apiRouter.post('/auth/super-admin/request-unlock', rateLimitAuth, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-    if (!email) {
+    if (!email || typeof email !== 'string') {
       return res.status(400).json({ error: 'Adresse e-mail requise.' });
     }
 
@@ -701,31 +720,31 @@ apiRouter.post('/auth/super-admin/request-unlock', rateLimitAuth, async (req: Re
 
     // Vérification de sécurité : l'utilisateur doit être SUPER_ADMIN
     if (user && user.role === 'SUPER_ADMIN') {
-      const unlockToken = `unl_${Date.now()}_${crypto.randomBytes(24).toString('hex')}`;
+      const unlockToken = `unl_${crypto.randomBytes(32).toString('hex')}`;
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // Valide 15 minutes
 
       await db
         .update(users)
         .set({
-          sessionUnlockToken: unlockToken,
+          // Seule l'empreinte est conservée en base : une fuite de la table ne donne pas de lien exploitable
+          sessionUnlockToken: sha256Hex(unlockToken),
           sessionUnlockExpiresAt: expiresAt,
         })
         .where(eq(users.id, user.id));
 
-      const host = req.get('host') || 'kinoo.app';
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-      const unlockUrl = `${protocol}://${host}/#unlock-super-admin=${unlockToken}`;
+      // URL construite depuis la configuration, jamais depuis l'en-tête Host fourni par le client
+      const unlockUrl = `${getPublicBaseUrl()}/#unlock-super-admin=${unlockToken}`;
 
       const targetRecipient = process.env.SUPER_ADMIN_UNLOCK_EMAIL || user.email;
-      await EmailService.sendSuperAdminUnlockEmail({
+      EmailService.sendSuperAdminUnlockEmail({
         email: targetRecipient,
         pseudo: user.pseudo,
         unlockToken,
         unlockUrl,
-      });
+      }).catch((err) => console.info('[EMAIL] Note envoi unlock:', err.message));
     }
 
-    // Réponse positive générique pour des raisons de sécurité (token strictement envoyé par email)
+    // Réponse positive générique pour des raisons de sécurité
     res.json({
       success: true,
       message: 'Si ce compte Super Admin est enregistré, un lien de déblocage d’urgence (valable 15 minutes) a été envoyé à son adresse e-mail.',
@@ -740,11 +759,15 @@ apiRouter.post('/auth/super-admin/request-unlock', rateLimitAuth, async (req: Re
 apiRouter.post('/auth/super-admin/confirm-unlock', rateLimitAuth, async (req: Request, res: Response) => {
   try {
     const { token } = req.body;
-    if (!token) {
+    if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: 'Jeton de déblocage requis.' });
     }
 
-    const result = await db.select().from(users).where(eq(users.sessionUnlockToken, token)).limit(1);
+    const result = await db
+      .select()
+      .from(users)
+      .where(eq(users.sessionUnlockToken, sha256Hex(token)))
+      .limit(1);
     const user = result[0];
 
     if (!user) {
@@ -756,7 +779,7 @@ apiRouter.post('/auth/super-admin/confirm-unlock', rateLimitAuth, async (req: Re
       return res.status(400).json({ error: 'Ce lien de déblocage a expiré (durée de validité 15 min dépassée).' });
     }
 
-    // Forcer la révocation immédiate de la session Super Admin active
+    // Révocation immédiate de la session Super Admin active + usage unique du lien
     await db
       .update(users)
       .set({
@@ -767,9 +790,13 @@ apiRouter.post('/auth/super-admin/confirm-unlock', rateLimitAuth, async (req: Re
       })
       .where(eq(users.id, user.id));
 
+    // Invalide aussi tous les JWT déjà émis (ils ne dépendent plus uniquement du jeton de session)
+    await bumpTokenVersion(user.id);
+    globalWsServer?.disconnectUser(user.id);
+
     // Audit log
     await db.insert(auditLogs).values({
-      id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: newId('audit'),
       action: 'SUPER_ADMIN_SESSION_FORCED_UNLOCK',
       cible: user.email,
       adminId: user.id,
@@ -799,16 +826,11 @@ apiRouter.get('/auth/me', authenticate, async (req: AuthenticatedRequest, res: R
 
     res.json({
       user: {
-        id: dbUser.id,
-        pseudo: dbUser.pseudo,
-        email: dbUser.email,
-        forfait: dbUser.forfait,
-        role: dbUser.role,
-        statutCompte: dbUser.statutCompte,
-        avatar: dbUser.avatar,
+        ...publicUser(dbUser),
         dateInscription: dbUser.dateInscription,
         dernierAcces: dbUser.dernierAcces,
-        hasPassword: Boolean(dbUser.passwordHash),
+        hasPassword: hasRealPassword(dbUser.passwordHash),
+        emailVerified: Boolean(dbUser.emailVerifiedAt),
       },
     });
   } catch (error: any) {
@@ -824,28 +846,34 @@ apiRouter.patch('/auth/profile', authenticate, async (req: AuthenticatedRequest,
     const userId = req.user!.id;
 
     // Reject any unauthorized attempt to self-promote role or change plan through profile patch
-    if ('role' in req.body || 'statutCompte' in req.body) {
+    if ('role' in req.body || 'statutCompte' in req.body || 'forfait' in req.body) {
       console.warn(`[SECURITY] Tentative de falsification de rôle par l'utilisateur ${userId}`);
-      return res.status(403).json({ error: "Interdiction de modifier le rôle utilisateur via l'API de profil." });
+      return res.status(403).json({ error: "Interdiction de modifier le rôle ou le forfait via l'API de profil." });
     }
 
     const updates: Partial<{ pseudo: string; avatar: string }> = {};
-    if (pseudo) updates.pseudo = pseudo.trim();
-    if (avatar) updates.avatar = avatar;
+    if (pseudo !== undefined && pseudo !== null && pseudo !== '') {
+      const cleanPseudo = cleanText(pseudo, 50);
+      if (cleanPseudo.length < 2) {
+        return res.status(400).json({ error: 'Le pseudo doit contenir au moins 2 caractères.' });
+      }
+      updates.pseudo = cleanPseudo;
+    }
+    if (avatar !== undefined && avatar !== null && avatar !== '') {
+      const safeAvatar = sanitizeAvatar(avatar);
+      if (!safeAvatar) {
+        return res.status(400).json({ error: 'Avatar invalide (image PNG/JPEG/WebP de 200 Ko maximum ou URL https).' });
+      }
+      updates.avatar = safeAvatar;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Aucune modification fournie.' });
+    }
 
     const [updatedUser] = await db.update(users).set(updates).where(eq(users.id, userId)).returning();
 
-    res.json({
-      user: {
-        id: updatedUser.id,
-        pseudo: updatedUser.pseudo,
-        email: updatedUser.email,
-        forfait: updatedUser.forfait,
-        role: updatedUser.role,
-        statutCompte: updatedUser.statutCompte,
-        avatar: updatedUser.avatar,
-      },
-    });
+    res.json({ user: publicUser(updatedUser) });
   } catch (error) {
     console.error('[API] Erreur mise à jour profil:', error);
     res.status(500).json({ error: 'Erreur lors de la mise à jour du profil.' });
@@ -856,11 +884,52 @@ apiRouter.patch('/auth/profile', authenticate, async (req: AuthenticatedRequest,
 // 2. ROOMS & SYNCHRONISATION
 // ============================================================================
 
-// Lister les salons actifs
-apiRouter.get('/rooms', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+/** Salle exposée aux clients : jamais d'empreinte ni de mot de passe, avec l'indicateur « mot de passe requis ». */
+function toPublicRoom(room: any) {
+  const { codeAcces, codeAccesHash, ...rest } = room;
+  return { ...rest, requiresPassword: Boolean(room.estPrivee && (codeAccesHash || codeAcces)) };
+}
+
+/** Résout une salle par identifiant ou code court (avec ou sans préfixe KN-). */
+async function findRoomByIdOrCode(raw: string) {
+  const upper = raw.toUpperCase();
+  const stripped = upper.replace(/^KN-/, '');
+  const result = await db
+    .select()
+    .from(rooms)
+    .where(
+      or(
+        eq(rooms.id, raw),
+        eq(rooms.id, raw.toLowerCase()),
+        eq(rooms.code, upper),
+        eq(rooms.code, stripped),
+        eq(rooms.code, `KN-${stripped}`)
+      )
+    )
+    .limit(1);
+  return result[0];
+}
+
+// Lister les salons publics actifs (jamais les salons privés, jamais de mot de passe ni d'empreinte)
+apiRouter.get('/rooms', optionalAuth, async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const allRooms = await db.select().from(rooms).orderBy(desc(rooms.dateCreation)).limit(50);
-    res.json(allRooms);
+    const publicRooms = await db
+      .select({
+        id: rooms.id,
+        titre: rooms.titre,
+        code: rooms.code,
+        hotePseudo: rooms.hotePseudo,
+        maxParticipants: rooms.maxParticipants,
+        statut: rooms.statut,
+        estPrivee: rooms.estPrivee,
+        estVerrouillee: rooms.estVerrouillee,
+        dateCreation: rooms.dateCreation,
+      })
+      .from(rooms)
+      .where(and(eq(rooms.estPrivee, false), eq(rooms.statut, 'EN_COURS')))
+      .orderBy(desc(rooms.dateCreation))
+      .limit(50);
+    res.json(publicRooms.map((r) => ({ ...r, requiresPassword: false })));
   } catch (error) {
     console.error('[API] Erreur listage salons:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération des salons.' });
@@ -870,58 +939,60 @@ apiRouter.get('/rooms', optionalAuth, async (req: AuthenticatedRequest, res: Res
 // Récupérer un salon par son code ou ID
 apiRouter.get('/rooms/:idOrCode', rateLimitRoomSearch, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const raw = (req.params.idOrCode || '').trim();
+    const raw = (req.params.idOrCode || '').trim().slice(0, 100);
     if (!raw) {
       return res.status(400).json({ error: 'Code ou identifiant de salon requis.' });
     }
-    const upper = raw.toUpperCase();
-    const stripped = upper.replace(/^KN-/, '');
 
-    const result = await db
-      .select()
-      .from(rooms)
-      .where(
-        or(
-          eq(rooms.id, raw),
-          eq(rooms.id, raw.toLowerCase()),
-          eq(rooms.code, upper),
-          eq(rooms.code, stripped),
-          eq(rooms.code, `KN-${stripped}`)
-        )
-      )
-      .limit(1);
-
-    const room = result[0];
+    const room = await findRoomByIdOrCode(raw);
     if (!room || room.statut === 'TERMINEE') {
-      console.warn(`[RoomAccess] 🚫 Refus: Salle introuvable ou séance clôturée (code: "${raw.substring(0, 10)}")`);
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
     if (room.estVerrouillee) {
-      console.warn(`[RoomAccess] 🔒 Refus: Salle verrouillée par l'hôte (roomId: ${room.id})`);
       return res.status(423).json({ error: "Salle verrouillée par l'hôte", isLocked: true });
     }
 
-    if (room.estPrivee && room.codeAcces) {
-      const providedPass = (req.query.password as string) || (req.headers['x-room-password'] as string);
-      const isHost = req.user && req.user.id === room.hoteId;
-      if (!isHost && (!providedPass || providedPass !== room.codeAcces)) {
-        console.warn(`[RoomAccess] 🔑 Refus: Mot de passe de salle requis (roomId: ${room.id})`);
-        return res.status(403).json({
-          error: "Mot de passe de salle requis",
-          requiresPassword: true,
-          roomSummary: {
-            id: room.id,
-            titre: room.titre,
-            hotePseudo: room.hotePseudo,
-            estPrivee: true,
-          },
-        });
+    const secret = room.codeAccesHash || room.codeAcces;
+    if (room.estPrivee && secret) {
+      const headerPass = req.headers['x-room-password'];
+      const providedPass =
+        (typeof headerPass === 'string' ? headerPass : undefined) ||
+        (typeof req.query.password === 'string' ? req.query.password : undefined);
+      const isHost = Boolean(req.user && req.user.id === room.hoteId);
+      if (!isHost) {
+        const ok = providedPass ? await verifyRoomPassword(providedPass, secret) : false;
+        if (!ok) {
+          return res.status(403).json({
+            error: 'Mot de passe de salle requis',
+            // Seules les tentatives réellement fausses sont comptées par le limiteur
+            code: providedPass ? 'ROOM_PASSWORD_INVALID' : 'ROOM_PASSWORD_REQUIRED',
+            requiresPassword: true,
+            roomSummary: {
+              id: room.id,
+              titre: room.titre,
+              hotePseudo: room.hotePseudo,
+              estPrivee: true,
+            },
+          });
+        }
       }
     }
 
     const parts = await db.select().from(participations).where(eq(participations.roomId, room.id));
-    res.json({ room, participations: parts });
+    res.json({
+      room: toPublicRoom(room),
+      participations: parts.map((p) => ({
+        id: p.id,
+        roomId: p.roomId,
+        userId: p.userId,
+        pseudo: p.pseudo,
+        role: p.role,
+        audioActif: p.audioActif,
+        videoActive: p.videoActive,
+        estEnLigne: p.estEnLigne,
+      })),
+    });
   } catch (error) {
     console.error('[API] Erreur récupération salon:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération du salon.' });
@@ -933,10 +1004,10 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
   try {
     const user = req.user!;
     const planConfig = getPlanConfig(user.forfait);
-    // Vérification inaltérable du quota mensuel de séances créées par l'hôte selon son forfait
+    // Vérification du quota mensuel de séances créées par l'hôte selon son forfait
     if (Number.isFinite(planConfig.maxMonthlyRooms)) {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
       const creationsThisMonth = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(monthlyRoomCreations)
@@ -958,38 +1029,66 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
       }
     }
 
-    const { titre, estPrivee, codeAcces, sourceContenu } = req.body;
+    const { estPrivee, codeAcces, sourceContenu } = req.body;
+    const titre = cleanText(req.body.titre, 100);
 
-    if (!titre) {
-      return res.status(400).json({ error: 'Le titre du salon est requis.' });
+    if (titre.length < 2) {
+      return res.status(400).json({ error: 'Le titre du salon est requis (2 caractères minimum).' });
     }
 
-    // Generate unique 6-character room code
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const roomId = `room-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    // Mot de passe de salle : 4 caractères minimum, stocké uniquement sous forme d'empreinte scrypt
+    let codeAccesHash: string | null = null;
+    if (typeof codeAcces === 'string' && codeAcces.trim()) {
+      if (codeAcces.trim().length < 4) {
+        return res.status(400).json({ error: 'Le mot de passe de salle doit comporter au moins 4 caractères.' });
+      }
+      codeAccesHash = await hashRoomPassword(codeAcces.trim());
+    }
 
-    const [newRoom] = await db
-      .insert(rooms)
-      .values({
-        id: roomId,
-        titre: titre.trim(),
-        code,
-        hoteId: user.id,
-        hotePseudo: user.pseudo,
-        maxParticipants: planConfig.maxParticipants,
-        statut: 'EN_COURS',
-        estPrivee: Boolean(estPrivee),
-        codeAcces: codeAcces ? codeAcces.trim() : null,
-        estVerrouillee: false,
-        sourceContenu: sourceContenu || null,
-        playbackState: 'PAUSE',
-        currentPositionSec: 0,
-      })
-      .returning();
+    // Source vidéo : champs connus uniquement, URLs http(s) valides, taille bornée
+    let source: Record<string, unknown> | null = null;
+    if (sourceContenu !== undefined && sourceContenu !== null) {
+      source = sanitizeSourceContenu(sourceContenu);
+      if (!source) {
+        return res.status(400).json({ error: 'Source vidéo invalide (URL http(s) attendue).' });
+      }
+    }
 
-    // Enregistrement inaltérable de la création de séance pour le compteur mensuel
+    const roomId = newId('room');
+    let newRoom: typeof rooms.$inferSelect | undefined;
+    // Code court cryptographiquement aléatoire ; nouvel essai en cas de collision (contrainte d'unicité)
+    for (let attempt = 0; attempt < 5 && !newRoom; attempt++) {
+      try {
+        [newRoom] = await db
+          .insert(rooms)
+          .values({
+            id: roomId,
+            titre,
+            code: generateRoomCode(8),
+            hoteId: user.id,
+            hotePseudo: user.pseudo,
+            maxParticipants: planConfig.maxParticipants,
+            statut: 'EN_COURS',
+            estPrivee: Boolean(estPrivee) || Boolean(codeAccesHash),
+            codeAcces: null,
+            codeAccesHash,
+            estVerrouillee: false,
+            sourceContenu: source,
+            playbackState: 'PAUSE',
+            currentPositionSec: 0,
+          })
+          .returning();
+      } catch (insertErr: any) {
+        if (insertErr?.code !== '23505') throw insertErr;
+      }
+    }
+    if (!newRoom) {
+      return res.status(503).json({ error: 'Impossible de générer un code de salle unique. Réessayez.' });
+    }
+
+    // Enregistrement de la création de séance pour le compteur mensuel
     await db.insert(monthlyRoomCreations).values({
-      id: `mrc-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: newId('mrc'),
       userId: user.id,
       roomId: newRoom.id,
       creeLe: new Date(),
@@ -997,17 +1096,17 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
 
     // Host participation record
     await db.insert(participations).values({
-      id: `part-${Date.now()}-${user.id}`,
+      id: newId('part'),
       roomId: newRoom.id,
       userId: user.id,
       pseudo: user.pseudo,
       role: 'HOTE',
       audioActif: false,
       videoActive: false,
-      estEnLigne: true,
+      estEnLigne: false,
     });
 
-    res.status(201).json(newRoom);
+    res.status(201).json(toPublicRoom(newRoom));
   } catch (error) {
     console.error('[API] Erreur création salon:', error);
     res.status(500).json({ error: 'Erreur lors de la création du salon.' });
@@ -1015,11 +1114,9 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
 });
 
 // Rejoindre un salon (Contrôle des quotas et du code d'accès)
-apiRouter.post('/rooms/:id/join', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/rooms/:id/join', rateLimitJoin, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const raw = (req.params.id || '').trim();
-    const upper = raw.toUpperCase();
-    const stripped = upper.replace(/^KN-/, '');
+    const raw = (req.params.id || '').trim().slice(0, 100);
     const { codeAcces, guestPseudo, guestId, ageCertifie } = req.body;
 
     // Protection des mineurs : les invités non connectés doivent obligatoirement certifier avoir 16 ans ou plus
@@ -1029,43 +1126,31 @@ apiRouter.post('/rooms/:id/join', optionalAuth, async (req: AuthenticatedRequest
       });
     }
 
-    const result = await db
-      .select()
-      .from(rooms)
-      .where(
-        or(
-          eq(rooms.id, raw),
-          eq(rooms.id, raw.toLowerCase()),
-          eq(rooms.code, upper),
-          eq(rooms.code, stripped),
-          eq(rooms.code, `KN-${stripped}`)
-        )
-      )
-      .limit(1);
-
-    const room = result[0];
+    const room = await findRoomByIdOrCode(raw);
     if (!room || room.statut === 'TERMINEE') {
-      console.warn(`[RoomAccess] 🚫 Join refusé: Salle introuvable ou clôturée ("${raw.substring(0, 10)}")`);
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
     if (room.estVerrouillee) {
-      console.warn(`[RoomAccess] 🔒 Join refusé: Salle verrouillée par l'hôte (${room.id})`);
       return res.status(423).json({ error: "Salle verrouillée par l'hôte" });
     }
 
-    if (room.estPrivee && room.codeAcces && room.codeAcces !== (codeAcces || '').trim()) {
-      console.warn(`[RoomAccess] 🔑 Join refusé: Mot de passe incorrect (${room.id})`);
-      return res.status(403).json({ error: "Mot de passe de salle requis" });
+    const secret = room.codeAccesHash || room.codeAcces;
+    const isHostUser = Boolean(req.user && req.user.id === room.hoteId);
+    if (room.estPrivee && secret && !isHostUser) {
+      const ok = await verifyRoomPassword(typeof codeAcces === 'string' ? codeAcces : '', secret);
+      if (!ok) {
+        return res.status(403).json({
+          error: 'Mot de passe de salle requis',
+          code: codeAcces ? 'ROOM_PASSWORD_INVALID' : 'ROOM_PASSWORD_REQUIRED',
+        });
+      }
     }
 
-    // Check participant count
     const parts = await db.select().from(participations).where(eq(participations.roomId, room.id));
-    if (parts.length >= room.maxParticipants) {
-      return res.status(403).json({
-        error: `Ce salon a atteint sa jauge maximale (${room.maxParticipants} participants autorisés par le forfait de l'hôte).`,
-      });
-    }
+
+    // La jauge ne compte que les personnes réellement présentes
+    const onlineCount = parts.filter((p) => p.estEnLigne).length;
 
     let userId: string;
     let pseudo: string;
@@ -1073,34 +1158,40 @@ apiRouter.post('/rooms/:id/join', optionalAuth, async (req: AuthenticatedRequest
       userId = req.user.id;
       pseudo = req.user.pseudo;
     } else {
-      // Pour les invités non authentifiés, empêcher l'usurpation d'un identifiant de compte membre/admin
+      // Invités : identifiant au format strict, jamais celui d'un compte membre/admin
       userId =
-        guestId && typeof guestId === 'string' && (guestId.startsWith('guest-') || guestId.startsWith('usr-anon-'))
+        typeof guestId === 'string' && /^(?:guest|usr-anon)-[A-Za-z0-9_-]{4,40}$/.test(guestId)
           ? guestId
-          : `guest-${crypto.randomBytes(4).toString('hex')}`;
-      pseudo = guestPseudo && typeof guestPseudo === 'string' ? guestPseudo.trim().substring(0, 50) : 'Invité';
+          : `guest-${crypto.randomBytes(6).toString('hex')}`;
+      pseudo = cleanText(guestPseudo, 50) || 'Invité';
     }
     const isHost = room.hoteId === userId;
-
-    // Protection anti-usurpation : empêcher deux participants simultanés avec le même userId
     const existingPart = parts.find((p) => p.userId === userId);
+
+    if (!existingPart && onlineCount >= room.maxParticipants) {
+      return res.status(403).json({
+        error: `Ce salon a atteint sa jauge maximale (${room.maxParticipants} participants autorisés par le forfait de l'hôte).`,
+      });
+    }
+
+    // Protection anti-usurpation : empêcher deux participants simultanés avec le même userId invité
     if (existingPart && existingPart.estEnLigne && !req.user) {
       return res.status(409).json({ error: 'Un participant avec cet identifiant est déjà connecté dans ce salon.' });
     }
 
-    // Upsert participation
+    // Upsert participation (la présence en ligne est ensuite gérée par le WebSocket)
     if (!existingPart) {
       await db.insert(participations).values({
-        id: `part-${Date.now()}-${userId}`,
+        id: newId('part'),
         roomId: room.id,
         userId,
         pseudo,
         role: isHost ? 'HOTE' : 'PARTICIPANT',
-        estEnLigne: true,
+        estEnLigne: false,
       });
     }
 
-    res.json({ success: true, room, role: isHost ? 'HOTE' : 'PARTICIPANT' });
+    res.json({ success: true, room: toPublicRoom(room), role: isHost ? 'HOTE' : 'PARTICIPANT', guestId: req.user ? undefined : userId });
   } catch (error) {
     console.error('[API] Erreur adhésion salon:', error);
     res.status(500).json({ error: 'Erreur lors de la connexion au salon.' });
@@ -1121,7 +1212,8 @@ apiRouter.delete('/rooms/:id', authenticate, async (req: AuthenticatedRequest, r
       return res.status(403).json({ error: 'Action non autorisée : seul l’hôte peut clôturer la salle.' });
     }
     await db.update(rooms).set({ statut: 'TERMINEE' }).where(eq(rooms.id, raw));
-    console.log(`[ROOM] Salle ${raw} clôturée par hôte ${user.id}`);
+    // Déconnecte immédiatement les participants encore présents
+    globalWsServer?.terminateRoom(raw, "L'hôte a mis fin à la séance.");
     res.json({ success: true, message: 'Séance clôturée avec succès.' });
   } catch (error) {
     console.error('[API] Erreur clôture salon:', error);
@@ -1141,7 +1233,7 @@ apiRouter.get('/rooms/:id/messages', optionalAuth, async (req: AuthenticatedRequ
 
     const user = req.user;
     // Si salon privé ou avec code d'accès, vérifier l'autorisation d'accès
-    if (room.estPrivee || room.codeAcces) {
+    if (room.estPrivee || room.codeAccesHash || room.codeAcces) {
       if (!user) {
         return res.status(401).json({ error: 'Authentification requise pour accéder aux messages de ce salon privé.' });
       }
@@ -1189,22 +1281,21 @@ apiRouter.post(
         return res.status(400).json({ error: 'Motif et cible de signalement obligatoires.' });
       }
 
-      const repId = `rep-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const [report] = await db
         .insert(reports)
         .values({
-          id: repId,
+          id: newId('rep'),
           roomId: id,
           auteurId: req.user?.id || 'anonyme',
-          auteurPseudo: req.user?.pseudo || auteurPseudo || 'Anonyme',
+          auteurPseudo: req.user?.pseudo || cleanText(auteurPseudo, 60) || 'Anonyme',
           cibleType,
-          cibleId: String(cibleId),
-          motif,
+          cibleId: cleanText(String(cibleId), 128),
+          motif: cleanText(motif, 1000),
           statut: 'OUVERT',
         })
         .returning();
 
-      res.status(201).json({ success: true, report });
+      res.status(201).json({ success: true, report: { id: report.id, statut: report.statut } });
     } catch (error) {
       console.error('[API] Erreur signalement:', error);
       res.status(500).json({ error: 'Erreur lors de la soumission du signalement.' });
@@ -1228,18 +1319,17 @@ apiRouter.post(
         return res.status(400).json({ error: 'Email et message obligatoires.' });
       }
 
-      const tktId = `tkt-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
       const [ticket] = await db
         .insert(tickets)
         .values({
-          id: tktId,
-          userEmail: emailToUse.trim().toLowerCase(),
-          message: message.trim(),
+          id: newId('tkt'),
+          userEmail: String(emailToUse).trim().toLowerCase(),
+          message: cleanText(message, 3000),
           statut: 'NOUVEAU',
         })
         .returning();
 
-      res.status(201).json({ success: true, ticket });
+      res.status(201).json({ success: true, ticket: { id: ticket.id, statut: ticket.statut } });
     } catch (error) {
       console.error('[API] Erreur ticket support:', error);
       res.status(500).json({ error: "Erreur lors de l'enregistrement du ticket." });
@@ -1250,6 +1340,17 @@ apiRouter.post(
 // ============================================================================
 // 3. ADMINISTRATION (Stricte validation serveur : SUPER_ADMIN)
 // ============================================================================
+
+const ADMIN_PAGE_MAX = 200;
+function parsePage(req: Request, defaultLimit = 100) {
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? ''), 10) || defaultLimit, 1), ADMIN_PAGE_MAX);
+  const offset = Math.max(parseInt(String(req.query.offset ?? ''), 10) || 0, 0);
+  return { limit, offset };
+}
+
+async function writeAudit(adminId: string, action: string, cible: string) {
+  await db.insert(auditLogs).values({ id: newId('audit'), adminId, action: action.slice(0, 250), cible: cible.slice(0, 250) });
+}
 
 // Signal de vie régulier de la console Super Admin (toutes les 60s)
 apiRouter.post(
@@ -1268,31 +1369,40 @@ apiRouter.post(
 );
 
 // Tâche de purge des archives de modération échues (> 12 mois)
-// Accessible exclusivement par le Super Admin ou via une tâche interne / Cloud Scheduler avec secret d'en-tête (Point 3a)
+// Accessible exclusivement par le Super Admin ou via une tâche interne / Cloud Scheduler avec secret d'en-tête
 apiRouter.post('/admin/purge-moderation-archives', async (req: Request, res: Response) => {
   try {
     const internalSecret = process.env.INTERNAL_CRON_SECRET;
     const providedKey = req.headers['x-internal-purge-key'] || req.headers['x-internal-cron-key'];
     let isAuthorized = false;
 
+    // Comparaison en temps constant, sans exception si les longueurs diffèrent
     if (
       internalSecret &&
+      internalSecret.length >= 16 &&
       typeof providedKey === 'string' &&
-      providedKey.length >= 16 &&
-      crypto.timingSafeEqual(Buffer.from(providedKey), Buffer.from(internalSecret))
+      safeEqual(providedKey, internalSecret)
     ) {
       isAuthorized = true;
     } else {
-      const token = extractToken(req);
-      if (token) {
-        const payload = verifyToken(token);
-        if (payload?.id) {
-          const user = await db.select().from(users).where(eq(users.id, payload.id)).limit(1);
-          if (user[0]?.role === 'SUPER_ADMIN') {
-            isAuthorized = true;
+      // Passe par le middleware complet (révocation, suspension, session Super Admin) et non par un simple décodage du JWT
+      isAuthorized = await new Promise<boolean>((resolve) => {
+        const fakeRes: any = new Proxy(
+          {},
+          {
+            get: (_t, prop) =>
+              prop === 'json' || prop === 'send' || prop === 'end'
+                ? () => {
+                    resolve(false);
+                    return fakeRes;
+                  }
+                : () => fakeRes,
           }
-        }
-      }
+        );
+        authenticate(req as AuthenticatedRequest, fakeRes as Response, () => {
+          resolve((req as AuthenticatedRequest).user?.role === 'SUPER_ADMIN');
+        }).catch(() => resolve(false));
+      });
     }
 
     if (!isAuthorized) {
@@ -1313,7 +1423,7 @@ apiRouter.get(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      // Exécution de la purge des archives à chaque appel de l'overview (Point 3b : compense min-instances 0)
+      // Exécution de la purge des archives à chaque appel de l'overview (compense min-instances 0)
       purgeExpiredModerationArchives().catch((err) => console.warn('[OVERVIEW] Erreur purge archives:', err));
 
       const [
@@ -1340,8 +1450,8 @@ apiRouter.get(
         db.select({ count: sql<number>`count(*)::int` }).from(rooms).where(sql`date_creation >= date_trunc('month', CURRENT_DATE)`),
         db.select({ count: sql<number>`count(*)::int` }).from(participations),
         db.select({ count: sql<number>`count(*)::int` }).from(messages),
-        db.select({ count: sql<number>`count(*)::int` }).from(reports).where(sql`statut IN ('OUVERT', 'EN_ATTENTE')`),
-        db.select({ count: sql<number>`count(*)::int` }).from(tickets).where(sql`statut IN ('OUVERT', 'EN_ATTENTE')`),
+        db.select({ count: sql<number>`count(*)::int` }).from(reports).where(sql`statut IN ('OUVERT', 'EN_COURS', 'EN_ATTENTE')`),
+        db.select({ count: sql<number>`count(*)::int` }).from(tickets).where(sql`statut IN ('NOUVEAU', 'OUVERT', 'EN_COURS', 'EN_ATTENTE')`),
       ]);
 
       const wsStats = globalWsServer?.getActiveConnectionsCount() || { totalConnectedSockets: 0, uniqueConnectedUsers: 0, activeRoomsCount: 0 };
@@ -1405,19 +1515,21 @@ apiRouter.get(
   }
 );
 
-// Liste des salles réelles de la base pour Super Admin
+// Liste des salles réelles de la base pour Super Admin (sans mots de passe ni empreintes)
 apiRouter.get(
   '/admin/rooms',
   authenticate,
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const { limit, offset } = parsePage(req);
       const roomList = await db
         .select()
         .from(rooms)
         .orderBy(desc(rooms.dateCreation))
-        .limit(100);
-      res.json(roomList);
+        .limit(limit)
+        .offset(offset);
+      res.json(roomList.map(toPublicRoom));
     } catch (error) {
       console.error('[API] Erreur liste salles admin:', error);
       res.status(500).json({ error: 'Erreur lors de la récupération des salles.' });
@@ -1425,13 +1537,14 @@ apiRouter.get(
   }
 );
 
-// Liste des utilisateurs
+// Liste des utilisateurs (paginée)
 apiRouter.get(
   '/admin/users',
   authenticate,
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const { limit, offset } = parsePage(req, 200);
       const userList = await db
         .select({
           id: users.id,
@@ -1445,7 +1558,9 @@ apiRouter.get(
           dernierAcces: users.dernierAcces,
         })
         .from(users)
-        .orderBy(desc(users.dateInscription));
+        .orderBy(desc(users.dateInscription))
+        .limit(limit)
+        .offset(offset);
 
       res.json(userList);
     } catch (error) {
@@ -1468,15 +1583,22 @@ apiRouter.patch(
       if (!['ACTIF', 'SUSPENDU'].includes(statutCompte)) {
         return res.status(400).json({ error: 'Statut invalide.' });
       }
+      if (id === req.user!.id) {
+        return res.status(400).json({ error: 'Vous ne pouvez pas modifier le statut de votre propre compte.' });
+      }
 
-      await db.update(users).set({ statutCompte }).where(eq(users.id, id));
+      const [updated] = await db.update(users).set({ statutCompte }).where(eq(users.id, id)).returning({ id: users.id });
+      if (!updated) {
+        return res.status(404).json({ error: 'Compte introuvable.' });
+      }
 
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}`,
-        adminId: req.user!.id,
-        action: `STATUT_MODIFIE_${statutCompte}`,
-        cible: `Compte utilisateur ${id}`,
-      });
+      if (statutCompte === 'SUSPENDU') {
+        // Coupe immédiatement les sessions HTTP (jetons révoqués) et les connexions temps réel
+        await bumpTokenVersion(id);
+        globalWsServer?.disconnectUser(id, 'Compte suspendu');
+      }
+
+      await writeAudit(req.user!.id, `STATUT_MODIFIE_${statutCompte}`, `Compte utilisateur ${id}`);
 
       res.json({ success: true, id, statutCompte });
     } catch (error) {
@@ -1499,15 +1621,20 @@ apiRouter.patch(
       if (!['UTILISATEUR', 'ADMIN', 'MODERATEUR', 'SUPER_ADMIN'].includes(role)) {
         return res.status(400).json({ error: 'Rôle invalide.' });
       }
+      if (id === req.user!.id) {
+        return res.status(400).json({ error: 'Vous ne pouvez pas modifier votre propre rôle.' });
+      }
 
-      await db.update(users).set({ role }).where(eq(users.id, id));
+      const [updated] = await db.update(users).set({ role }).where(eq(users.id, id)).returning({ id: users.id });
+      if (!updated) {
+        return res.status(404).json({ error: 'Compte introuvable.' });
+      }
 
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}`,
-        adminId: req.user!.id,
-        action: `ROLE_MODIFIE_${role}`,
-        cible: `Compte utilisateur ${id}`,
-      });
+      // Les jetons émis avec l'ancien rôle sont invalidés
+      await bumpTokenVersion(id);
+      globalWsServer?.disconnectUser(id, 'Rôle modifié');
+
+      await writeAudit(req.user!.id, `ROLE_MODIFIE_${role}`, `Compte utilisateur ${id}`);
 
       res.json({ success: true, id, role });
     } catch (error) {
@@ -1531,14 +1658,12 @@ apiRouter.patch(
         return res.status(400).json({ error: 'Forfait invalide.' });
       }
 
-      await db.update(users).set({ forfait }).where(eq(users.id, id));
+      const [updated] = await db.update(users).set({ forfait }).where(eq(users.id, id)).returning({ id: users.id });
+      if (!updated) {
+        return res.status(404).json({ error: 'Compte introuvable.' });
+      }
 
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}`,
-        adminId: req.user!.id,
-        action: `FORFAIT_MODIFIE_${forfait}`,
-        cible: `Compte utilisateur ${id}`,
-      });
+      await writeAudit(req.user!.id, `FORFAIT_MODIFIE_${forfait}`, `Compte utilisateur ${id}`);
 
       res.json({ success: true, id, forfait });
     } catch (error) {
@@ -1555,7 +1680,8 @@ apiRouter.get(
   requireRole(['SUPER_ADMIN', 'MODERATEUR']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const allReports = await db.select().from(reports).orderBy(desc(reports.dateCreation));
+      const { limit, offset } = parsePage(req);
+      const allReports = await db.select().from(reports).orderBy(desc(reports.dateCreation)).limit(limit).offset(offset);
       res.json(allReports);
     } catch (error) {
       console.error('[API] Erreur signalements admin:', error);
@@ -1573,14 +1699,23 @@ apiRouter.patch(
       const { id } = req.params;
       const { statut } = req.body;
 
-      await db
+      if (!['OUVERT', 'EN_COURS', 'TRAITE', 'REJETE'].includes(statut)) {
+        return res.status(400).json({ error: 'Statut de signalement invalide.' });
+      }
+
+      const [updated] = await db
         .update(reports)
         .set({
           statut,
           traitePar: req.user!.id,
           dateTraitement: new Date(),
         })
-        .where(eq(reports.id, id));
+        .where(eq(reports.id, id))
+        .returning({ id: reports.id });
+
+      if (!updated) {
+        return res.status(404).json({ error: 'Signalement introuvable.' });
+      }
 
       res.json({ success: true, id, statut });
     } catch (error) {
@@ -1597,7 +1732,8 @@ apiRouter.get(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const allTickets = await db.select().from(tickets).orderBy(desc(tickets.dateCreation));
+      const { limit, offset } = parsePage(req);
+      const allTickets = await db.select().from(tickets).orderBy(desc(tickets.dateCreation)).limit(limit).offset(offset);
       res.json(allTickets);
     } catch (error) {
       console.error('[API] Erreur tickets support:', error);
@@ -1613,7 +1749,8 @@ apiRouter.get(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp)).limit(100);
+      const { limit, offset } = parsePage(req);
+      const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.timestamp)).limit(limit).offset(offset);
       res.json(logs);
     } catch (error) {
       console.error('[API] Erreur journaux audit:', error);
@@ -1626,11 +1763,27 @@ apiRouter.get(
 // CATALOGUE DE FILMS & SÉRIES (GESTION ADMIN & ACCÈS UTILISATEURS)
 // ============================================================================
 
+const CATALOG_SOURCE_TYPES = ['YOUTUBE', 'HLS', 'MP4', 'TWITCH', 'AUTRE'];
+
+function detectSourceType(url: string, fallback: string): string {
+  const u = url.toLowerCase();
+  if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YOUTUBE';
+  if (u.split('?')[0].endsWith('.m3u8')) return 'HLS';
+  if (u.split('?')[0].endsWith('.mp4') || u.split('?')[0].endsWith('.webm')) return 'MP4';
+  if (u.includes('twitch.tv')) return 'TWITCH';
+  return CATALOG_SOURCE_TYPES.includes(fallback) ? fallback : 'AUTRE';
+}
+
+function parseYear(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  return Number.isInteger(n) && n >= 1888 && n <= 2100 ? n : null;
+}
+
 // 1. Liste publique / utilisateurs du catalogue officiel
 apiRouter.get('/catalog', async (req: Request, res: Response) => {
   try {
-    const items = await db.select().from(catalogItems).orderBy(desc(catalogItems.creeLe));
-    res.json(items);
+    const items = await db.select().from(catalogItems).orderBy(desc(catalogItems.creeLe)).limit(500);
+    res.json(items.filter((i) => isSafeHttpUrl(i.sourceUrl) && isSafeHttpUrl(i.coverUrl)));
   } catch (error) {
     console.error('[API] Erreur récupération catalogue:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération du catalogue.' });
@@ -1644,49 +1797,34 @@ apiRouter.post(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { titre, sourceUrl, coverUrl, categorie, synopsis, dureeFormat, anneeSortie, sourceType } = req.body;
+      const { sourceUrl, coverUrl, categorie, synopsis, dureeFormat, anneeSortie, sourceType } = req.body;
+      const titre = cleanText(req.body.titre, 200);
 
       if (!titre || !sourceUrl || !coverUrl) {
         return res.status(400).json({ error: 'Le titre, le lien source et l’image de couverture sont obligatoires.' });
       }
-
-      // Auto-detect source type if not specified
-      let detectedType = sourceType || 'AUTRE';
-      const sUrl = (sourceUrl || '').trim().toLowerCase();
-      if (sUrl.includes('youtube.com') || sUrl.includes('youtu.be')) {
-        detectedType = 'YOUTUBE';
-      } else if (sUrl.endsWith('.m3u8')) {
-        detectedType = 'HLS';
-      } else if (sUrl.endsWith('.mp4') || sUrl.endsWith('.webm')) {
-        detectedType = 'MP4';
-      } else if (sUrl.includes('twitch.tv')) {
-        detectedType = 'TWITCH';
+      if (!isSafeHttpUrl(sourceUrl) || !isSafeHttpUrl(coverUrl)) {
+        return res.status(400).json({ error: 'Les liens source et couverture doivent être des URL https valides.' });
       }
 
-      const id = `cat-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const id = newId('cat');
       const [newItem] = await db
         .insert(catalogItems)
         .values({
           id,
-          titre: titre.trim(),
+          titre,
           sourceUrl: sourceUrl.trim(),
-          sourceType: detectedType,
+          sourceType: detectSourceType(sourceUrl.trim(), typeof sourceType === 'string' ? sourceType.toUpperCase() : 'AUTRE'),
           coverUrl: coverUrl.trim(),
-          categorie: (categorie || 'FILM').toUpperCase(),
-          synopsis: synopsis ? synopsis.trim() : null,
-          dureeFormat: dureeFormat ? dureeFormat.trim() : null,
-          anneeSortie: anneeSortie ? parseInt(anneeSortie, 10) : null,
+          categorie: cleanText(categorie || 'FILM', 30).toUpperCase() || 'FILM',
+          synopsis: synopsis ? cleanText(synopsis, 2000) : null,
+          dureeFormat: dureeFormat ? cleanText(dureeFormat, 50) : null,
+          anneeSortie: parseYear(anneeSortie),
           creePar: req.user?.email || 'admin',
         })
         .returning();
 
-      // Log in audit logs
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `AJOUT_CATALOGUE: "${newItem.titre}" (${newItem.categorie})`,
-        cible: newItem.id,
-      });
+      await writeAudit(req.user?.id || 'admin', `AJOUT_CATALOGUE: "${newItem.titre}" (${newItem.categorie})`, newItem.id);
 
       res.status(201).json(newItem);
     } catch (error) {
@@ -1704,45 +1842,48 @@ apiRouter.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const { titre, sourceUrl, coverUrl, categorie, synopsis, dureeFormat, anneeSortie, sourceType } = req.body;
+      const { sourceUrl, coverUrl, categorie, synopsis, dureeFormat, anneeSortie, sourceType } = req.body;
 
       const existing = await db.select().from(catalogItems).where(eq(catalogItems.id, id)).limit(1);
       if (existing.length === 0) {
         return res.status(404).json({ error: 'Élément de catalogue introuvable.' });
       }
 
-      let detectedType = sourceType || existing[0].sourceType;
-      if (sourceUrl) {
-        const sUrl = sourceUrl.trim().toLowerCase();
-        if (sUrl.includes('youtube.com') || sUrl.includes('youtu.be')) detectedType = 'YOUTUBE';
-        else if (sUrl.endsWith('.m3u8')) detectedType = 'HLS';
-        else if (sUrl.endsWith('.mp4') || sUrl.endsWith('.webm')) detectedType = 'MP4';
-        else if (sUrl.includes('twitch.tv')) detectedType = 'TWITCH';
+      if (sourceUrl !== undefined && !isSafeHttpUrl(typeof sourceUrl === 'string' ? sourceUrl.trim() : sourceUrl)) {
+        return res.status(400).json({ error: 'Le lien source doit être une URL https valide.' });
+      }
+      if (coverUrl !== undefined && !isSafeHttpUrl(typeof coverUrl === 'string' ? coverUrl.trim() : coverUrl)) {
+        return res.status(400).json({ error: 'Le lien de couverture doit être une URL https valide.' });
+      }
+
+      const newSourceUrl = sourceUrl !== undefined ? sourceUrl.trim() : existing[0].sourceUrl;
+      const detectedType = detectSourceType(
+        newSourceUrl,
+        typeof sourceType === 'string' ? sourceType.toUpperCase() : existing[0].sourceType
+      );
+
+      const newTitre = req.body.titre !== undefined ? cleanText(req.body.titre, 200) : existing[0].titre;
+      if (!newTitre) {
+        return res.status(400).json({ error: 'Le titre ne peut pas être vide.' });
       }
 
       const [updatedItem] = await db
         .update(catalogItems)
         .set({
-          titre: titre !== undefined ? titre.trim() : existing[0].titre,
-          sourceUrl: sourceUrl !== undefined ? sourceUrl.trim() : existing[0].sourceUrl,
+          titre: newTitre,
+          sourceUrl: newSourceUrl,
           sourceType: detectedType,
           coverUrl: coverUrl !== undefined ? coverUrl.trim() : existing[0].coverUrl,
-          categorie: categorie !== undefined ? categorie.toUpperCase() : existing[0].categorie,
-          synopsis: synopsis !== undefined ? synopsis : existing[0].synopsis,
-          dureeFormat: dureeFormat !== undefined ? dureeFormat : existing[0].dureeFormat,
-          anneeSortie: anneeSortie !== undefined ? parseInt(anneeSortie, 10) : existing[0].anneeSortie,
+          categorie: categorie !== undefined ? cleanText(categorie, 30).toUpperCase() : existing[0].categorie,
+          synopsis: synopsis !== undefined ? (synopsis ? cleanText(synopsis, 2000) : null) : existing[0].synopsis,
+          dureeFormat: dureeFormat !== undefined ? (dureeFormat ? cleanText(dureeFormat, 50) : null) : existing[0].dureeFormat,
+          anneeSortie: anneeSortie !== undefined ? parseYear(anneeSortie) : existing[0].anneeSortie,
           misAJourLe: new Date(),
         })
         .where(eq(catalogItems.id, id))
         .returning();
 
-      // Log in audit logs
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `MODIF_CATALOGUE: "${updatedItem.titre}"`,
-        cible: updatedItem.id,
-      });
+      await writeAudit(req.user?.id || 'admin', `MODIF_CATALOGUE: "${updatedItem.titre}"`, updatedItem.id);
 
       res.json(updatedItem);
     } catch (error) {
@@ -1768,13 +1909,7 @@ apiRouter.delete(
       const itemTitre = existing[0].titre;
       await db.delete(catalogItems).where(eq(catalogItems.id, id));
 
-      // Log in audit logs
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `SUPPR_CATALOGUE: "${itemTitre}"`,
-        cible: id,
-      });
+      await writeAudit(req.user?.id || 'admin', `SUPPR_CATALOGUE: "${itemTitre}"`, id);
 
       res.json({ success: true, message: `"${itemTitre}" a été retiré du catalogue.` });
     } catch (error) {
@@ -1787,6 +1922,12 @@ apiRouter.delete(
 // ============================================================================
 // GESTION DES PUBLICITÉS (RÉSERVÉES FORMULE GRATUITE)
 // ============================================================================
+
+function parseOptionalDate(value: unknown): Date | null | 'invalid' {
+  if (value === undefined || value === null || value === '') return null;
+  const d = new Date(value as string);
+  return Number.isNaN(d.getTime()) ? 'invalid' : d;
+}
 
 // 1. Liste des publicités actives (Consommée par l'interface des comptes GRATUIT)
 apiRouter.get('/ads', async (req: Request, res: Response) => {
@@ -1809,17 +1950,19 @@ apiRouter.get('/ads', async (req: Request, res: Response) => {
       .select()
       .from(advertisements)
       .where(and(...conditions))
-      .orderBy(desc(advertisements.creeLe));
+      .orderBy(desc(advertisements.creeLe))
+      .limit(50);
 
-    res.json(ads);
+    // Défense en profondeur : une publicité dont l'URL n'est pas http(s) (ex. javascript:) n'est jamais servie
+    res.json(ads.filter((a) => isSafeHttpUrl(a.lienRedirection) && isSafeHttpUrl(a.imageUrl)));
   } catch (error) {
     console.error('[API] Erreur récupération publicités:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération des publicités.' });
   }
 });
 
-// 2. Enregistrement d'un clic publicitaire
-apiRouter.post('/ads/click/:id', async (req: Request, res: Response) => {
+// 2. Enregistrement d'un clic publicitaire (limité par IP et par publicité, publicités actives uniquement)
+apiRouter.post('/ads/click/:id', rateLimitAdSignal, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await db
@@ -1827,7 +1970,7 @@ apiRouter.post('/ads/click/:id', async (req: Request, res: Response) => {
       .set({
         clicsCount: sql`${advertisements.clicsCount} + 1`,
       })
-      .where(eq(advertisements.id, id));
+      .where(and(eq(advertisements.id, id), eq(advertisements.statut, 'ACTIF')));
 
     res.json({ success: true });
   } catch (error) {
@@ -1836,7 +1979,7 @@ apiRouter.post('/ads/click/:id', async (req: Request, res: Response) => {
 });
 
 // 3. Enregistrement d'une impression publicitaire
-apiRouter.post('/ads/impression/:id', async (req: Request, res: Response) => {
+apiRouter.post('/ads/impression/:id', rateLimitAdSignal, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     await db
@@ -1844,7 +1987,7 @@ apiRouter.post('/ads/impression/:id', async (req: Request, res: Response) => {
       .set({
         impressionsCount: sql`${advertisements.impressionsCount} + 1`,
       })
-      .where(eq(advertisements.id, id));
+      .where(and(eq(advertisements.id, id), eq(advertisements.statut, 'ACTIF')));
 
     res.json({ success: true });
   } catch (error) {
@@ -1859,10 +2002,13 @@ apiRouter.get(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const { limit, offset } = parsePage(req);
       const allAds = await db
         .select()
         .from(advertisements)
-        .orderBy(desc(advertisements.creeLe));
+        .orderBy(desc(advertisements.creeLe))
+        .limit(limit)
+        .offset(offset);
 
       res.json(allAds);
     } catch (error) {
@@ -1879,16 +2025,8 @@ apiRouter.post(
   requireRole(['SUPER_ADMIN']),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const {
-        titre,
-        description,
-        imageUrl,
-        lienRedirection,
-        statut,
-        emplacement,
-        dateDebut,
-        dateFin,
-      } = req.body;
+      const { description, imageUrl, lienRedirection, statut, emplacement, dateDebut, dateFin } = req.body;
+      const titre = cleanText(req.body.titre, 200);
 
       if (!titre || !imageUrl || !lienRedirection) {
         return res.status(400).json({
@@ -1896,41 +2034,41 @@ apiRouter.post(
         });
       }
 
-      // Validate URL format for external redirection
-      try {
-        new URL(lienRedirection);
-      } catch {
+      // Seules les URL https sont acceptées (refuse javascript:, data:, etc.)
+      if (!isSafeHttpUrl(typeof lienRedirection === 'string' ? lienRedirection.trim() : lienRedirection)) {
         return res.status(400).json({
-          error: 'Le lien de redirection doit être une URL valide (ex: https://...).',
+          error: 'Le lien de redirection doit être une URL https valide (ex: https://...).',
         });
       }
+      if (!isSafeHttpUrl(typeof imageUrl === 'string' ? imageUrl.trim() : imageUrl)) {
+        return res.status(400).json({ error: 'L’image doit être une URL https valide.' });
+      }
 
-      const id = `ad-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const debut = parseOptionalDate(dateDebut);
+      const fin = parseOptionalDate(dateFin);
+      if (debut === 'invalid' || fin === 'invalid') {
+        return res.status(400).json({ error: 'Date de début ou de fin invalide.' });
+      }
+
       const [newAd] = await db
         .insert(advertisements)
         .values({
-          id,
-          titre: titre.trim(),
-          description: description ? description.trim() : null,
+          id: newId('ad'),
+          titre,
+          description: description ? cleanText(description, 1000) : null,
           imageUrl: imageUrl.trim(),
           lienRedirection: lienRedirection.trim(),
           statut: statut === 'INACTIF' ? 'INACTIF' : 'ACTIF',
-          emplacement: emplacement || 'BANNIERE_ACCUEIL',
-          dateDebut: dateDebut ? new Date(dateDebut) : null,
-          dateFin: dateFin ? new Date(dateFin) : null,
+          emplacement: cleanText(emplacement || 'BANNIERE_ACCUEIL', 50),
+          dateDebut: debut,
+          dateFin: fin,
           clicsCount: 0,
           impressionsCount: 0,
           creePar: req.user?.email || 'admin',
         })
         .returning();
 
-      // Log in audit logs (immuable et certifié)
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `AJOUT_PUBLICITE: "${newAd.titre}" (${newAd.emplacement})`,
-        cible: newAd.id,
-      });
+      await writeAudit(req.user?.id || 'admin', `AJOUT_PUBLICITE: "${newAd.titre}" (${newAd.emplacement})`, newAd.id);
 
       res.status(201).json(newAd);
     } catch (error) {
@@ -1948,55 +2086,53 @@ apiRouter.put(
   async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const {
-        titre,
-        description,
-        imageUrl,
-        lienRedirection,
-        statut,
-        emplacement,
-        dateDebut,
-        dateFin,
-      } = req.body;
+      const { description, imageUrl, lienRedirection, statut, emplacement, dateDebut, dateFin } = req.body;
 
       const existing = await db.select().from(advertisements).where(eq(advertisements.id, id)).limit(1);
       if (existing.length === 0) {
         return res.status(404).json({ error: 'Publicité introuvable.' });
       }
 
-      if (lienRedirection) {
-        try {
-          new URL(lienRedirection);
-        } catch {
-          return res.status(400).json({
-            error: 'Le lien de redirection doit être une URL valide (ex: https://...).',
-          });
-        }
+      if (lienRedirection !== undefined && !isSafeHttpUrl(typeof lienRedirection === 'string' ? lienRedirection.trim() : lienRedirection)) {
+        return res.status(400).json({
+          error: 'Le lien de redirection doit être une URL https valide (ex: https://...).',
+        });
+      }
+      if (imageUrl !== undefined && !isSafeHttpUrl(typeof imageUrl === 'string' ? imageUrl.trim() : imageUrl)) {
+        return res.status(400).json({ error: 'L’image doit être une URL https valide.' });
+      }
+      if (statut !== undefined && !['ACTIF', 'INACTIF'].includes(statut)) {
+        return res.status(400).json({ error: 'Statut de publicité invalide.' });
+      }
+
+      const debut = dateDebut !== undefined ? parseOptionalDate(dateDebut) : existing[0].dateDebut;
+      const fin = dateFin !== undefined ? parseOptionalDate(dateFin) : existing[0].dateFin;
+      if (debut === 'invalid' || fin === 'invalid') {
+        return res.status(400).json({ error: 'Date de début ou de fin invalide.' });
+      }
+
+      const newTitre = req.body.titre !== undefined ? cleanText(req.body.titre, 200) : existing[0].titre;
+      if (!newTitre) {
+        return res.status(400).json({ error: 'Le titre ne peut pas être vide.' });
       }
 
       const [updatedAd] = await db
         .update(advertisements)
         .set({
-          titre: titre !== undefined ? titre.trim() : existing[0].titre,
-          description: description !== undefined ? (description ? description.trim() : null) : existing[0].description,
+          titre: newTitre,
+          description: description !== undefined ? (description ? cleanText(description, 1000) : null) : existing[0].description,
           imageUrl: imageUrl !== undefined ? imageUrl.trim() : existing[0].imageUrl,
           lienRedirection: lienRedirection !== undefined ? lienRedirection.trim() : existing[0].lienRedirection,
           statut: statut !== undefined ? statut : existing[0].statut,
-          emplacement: emplacement !== undefined ? emplacement : existing[0].emplacement,
-          dateDebut: dateDebut !== undefined ? (dateDebut ? new Date(dateDebut) : null) : existing[0].dateDebut,
-          dateFin: dateFin !== undefined ? (dateFin ? new Date(dateFin) : null) : existing[0].dateFin,
+          emplacement: emplacement !== undefined ? cleanText(emplacement, 50) : existing[0].emplacement,
+          dateDebut: debut,
+          dateFin: fin,
           misAJourLe: new Date(),
         })
         .where(eq(advertisements.id, id))
         .returning();
 
-      // Log in audit logs
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `MODIF_PUBLICITE: "${updatedAd.titre}"`,
-        cible: updatedAd.id,
-      });
+      await writeAudit(req.user?.id || 'admin', `MODIF_PUBLICITE: "${updatedAd.titre}"`, updatedAd.id);
 
       res.json(updatedAd);
     } catch (error) {
@@ -2022,13 +2158,7 @@ apiRouter.delete(
       const adTitre = existing[0].titre;
       await db.delete(advertisements).where(eq(advertisements.id, id));
 
-      // Log in audit logs
-      await db.insert(auditLogs).values({
-        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        adminId: req.user?.id || 'admin',
-        action: `SUPPR_PUBLICITE: "${adTitre}"`,
-        cible: id,
-      });
+      await writeAudit(req.user?.id || 'admin', `SUPPR_PUBLICITE: "${adTitre}"`, id);
 
       res.json({ success: true, message: `La publicité "${adTitre}" a été supprimée.` });
     } catch (error) {
@@ -2049,6 +2179,8 @@ apiRouter.post(
   async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { rooms: localRooms, messages: localMessages, reports: localReports, tickets: localTickets } = req.body;
+    // Plafond de volume par import
+    const MAX_ITEMS = 1000;
 
     let importedRooms = 0;
     let importedMessages = 0;
@@ -2057,52 +2189,66 @@ apiRouter.post(
 
     // 1. Import local rooms
     if (Array.isArray(localRooms)) {
-      for (const r of localRooms) {
-        if (!r.id || !r.titre) continue;
+      for (const r of localRooms.slice(0, MAX_ITEMS)) {
+        if (!r || typeof r.id !== 'string' || typeof r.titre !== 'string' || !r.titre) continue;
         const exists = await db.select().from(rooms).where(eq(rooms.id, r.id)).limit(1);
         if (exists.length === 0) {
-          // Ensure hoteId points to a valid user or admin
-          const hostId = r.hoteId || 'usr-admin-founder';
-          const hostExists = await db.select().from(users).where(eq(users.id, hostId)).limit(1);
-          const finalHostId = hostExists.length > 0 ? hostId : 'usr-admin-founder';
+          // Ensure hoteId points to a valid user, otherwise the importing admin becomes host
+          const hostExists =
+            typeof r.hoteId === 'string' ? await db.select().from(users).where(eq(users.id, r.hoteId)).limit(1) : [];
+          const finalHostId = hostExists.length > 0 ? r.hoteId : req.user!.id;
 
-          await db.insert(rooms).values({
-            id: r.id,
-            titre: r.titre,
-            code: r.code || Math.random().toString(36).substring(2, 8).toUpperCase(),
-            hoteId: finalHostId,
-            hotePseudo: r.hotePseudo || 'Hôte Kinoo',
-            maxParticipants: r.maxParticipants || 10,
-            statut: r.statut || 'EN_COURS',
-            estPrivee: Boolean(r.estPrivee),
-            codeAcces: r.codeAcces || null,
-            estVerrouillee: Boolean(r.estVerrouillee),
-            sourceContenu: r.sourceContenu || null,
-            playbackState: r.playbackState || 'PAUSE',
-            currentPositionSec: typeof r.currentPositionSec === 'number' ? r.currentPositionSec : 0,
-          });
-          importedRooms++;
+          // Les mots de passe de salle importés sont hachés (jamais conservés en clair)
+          const codeAccesHash =
+            typeof r.codeAcces === 'string' && r.codeAcces.trim() ? await hashRoomPassword(r.codeAcces.trim()) : null;
+
+          let source: Record<string, unknown> | null = null;
+          if (r.sourceContenu) {
+            source = sanitizeSourceContenu(r.sourceContenu);
+          }
+
+          try {
+            await db.insert(rooms).values({
+              id: cleanText(r.id, 100),
+              titre: cleanText(r.titre, 100),
+              code: typeof r.code === 'string' && /^[A-Za-z0-9-]{4,20}$/.test(r.code) ? r.code.toUpperCase() : generateRoomCode(8),
+              hoteId: finalHostId,
+              hotePseudo: cleanText(r.hotePseudo || 'Hôte Kinoo', 50),
+              maxParticipants: Math.min(Math.max(parseInt(String(r.maxParticipants), 10) || 10, 1), 100),
+              statut: ['PROGRAMMEE', 'EN_COURS', 'TERMINEE'].includes(r.statut) ? r.statut : 'EN_COURS',
+              estPrivee: Boolean(r.estPrivee) || Boolean(codeAccesHash),
+              codeAcces: null,
+              codeAccesHash,
+              estVerrouillee: Boolean(r.estVerrouillee),
+              sourceContenu: source,
+              playbackState: r.playbackState === 'LECTURE' ? 'LECTURE' : 'PAUSE',
+              currentPositionSec: sanitizePositionSec(r.currentPositionSec),
+            });
+            importedRooms++;
+          } catch (insErr: any) {
+            if (insErr?.code !== '23505') throw insErr;
+          }
         }
       }
     }
 
     // 2. Import local messages
     if (Array.isArray(localMessages)) {
-      for (const m of localMessages) {
-        if (!m.id || !m.roomId || !m.texte) continue;
+      for (const m of localMessages.slice(0, MAX_ITEMS)) {
+        if (!m || typeof m.id !== 'string' || typeof m.roomId !== 'string' || typeof m.texte !== 'string' || !m.texte) continue;
         const exists = await db.select().from(messages).where(eq(messages.id, m.id)).limit(1);
         if (exists.length === 0) {
           // Check if parent room exists
           const roomExists = await db.select().from(rooms).where(eq(rooms.id, m.roomId)).limit(1);
           if (roomExists.length > 0) {
             await db.insert(messages).values({
-              id: m.id,
+              id: cleanText(m.id, 100),
               roomId: m.roomId,
-              userId: m.userId || 'anonyme',
-              userPseudo: m.userPseudo || 'Invité',
-              texte: m.texte,
-              type: m.type || 'TEXTE',
-              timestampSec: m.timestampSec || null,
+              userId: cleanText(m.userId || 'anonyme', 100),
+              userPseudo: cleanText(m.userPseudo || 'Invité', 50),
+              texte: cleanText(m.texte, 2000),
+              type: m.type === 'SYSTEME' ? 'SYSTEME' : 'TEXTE',
+              timestampSec: typeof m.timestampSec === 'number' ? sanitizePositionSec(m.timestampSec) : null,
             });
             importedMessages++;
           }
@@ -2112,19 +2258,19 @@ apiRouter.post(
 
     // 3. Import local reports
     if (Array.isArray(localReports)) {
-      for (const rep of localReports) {
-        if (!rep.id || !rep.motif) continue;
+      for (const rep of localReports.slice(0, MAX_ITEMS)) {
+        if (!rep || typeof rep.id !== 'string' || typeof rep.motif !== 'string' || !rep.motif) continue;
         const exists = await db.select().from(reports).where(eq(reports.id, rep.id)).limit(1);
         if (exists.length === 0) {
           await db.insert(reports).values({
-            id: rep.id,
-            roomId: rep.roomId || 'global',
-            auteurId: rep.auteurId || 'anonyme',
-            auteurPseudo: rep.auteurPseudo || 'Anonyme',
-            cibleType: rep.cibleType || 'MESSAGE',
-            cibleId: rep.cibleId || 'unknown',
-            motif: rep.motif,
-            statut: rep.statut || 'OUVERT',
+            id: cleanText(rep.id, 100),
+            roomId: cleanText(rep.roomId || 'global', 100),
+            auteurId: cleanText(rep.auteurId || 'anonyme', 100),
+            auteurPseudo: cleanText(rep.auteurPseudo || 'Anonyme', 60),
+            cibleType: ['UTILISATEUR', 'MESSAGE', 'SALON', 'CONTENU'].includes(rep.cibleType) ? rep.cibleType : 'MESSAGE',
+            cibleId: cleanText(rep.cibleId || 'unknown', 128),
+            motif: cleanText(rep.motif, 1000),
+            statut: ['OUVERT', 'EN_COURS', 'TRAITE', 'REJETE'].includes(rep.statut) ? rep.statut : 'OUVERT',
           });
           importedReports++;
         }
@@ -2133,16 +2279,16 @@ apiRouter.post(
 
     // 4. Import local tickets
     if (Array.isArray(localTickets)) {
-      for (const t of localTickets) {
-        if (!t.id || !t.userEmail || !t.message) continue;
+      for (const t of localTickets.slice(0, MAX_ITEMS)) {
+        if (!t || typeof t.id !== 'string' || typeof t.userEmail !== 'string' || typeof t.message !== 'string' || !t.message) continue;
         const exists = await db.select().from(tickets).where(eq(tickets.id, t.id)).limit(1);
         if (exists.length === 0) {
           await db.insert(tickets).values({
-            id: t.id,
-            userEmail: t.userEmail,
-            message: t.message,
-            statut: t.statut || 'NOUVEAU',
-            reponseAdmin: t.reponseAdmin || null,
+            id: cleanText(t.id, 100),
+            userEmail: cleanText(t.userEmail, 255).toLowerCase(),
+            message: cleanText(t.message, 3000),
+            statut: ['NOUVEAU', 'EN_COURS', 'RESOLU'].includes(t.statut) ? t.statut : 'NOUVEAU',
+            reponseAdmin: t.reponseAdmin ? cleanText(t.reponseAdmin, 3000) : null,
           });
           importedTickets++;
         }
@@ -2171,7 +2317,8 @@ apiRouter.post(
 apiRouter.get('/webrtc/ice-servers', rateLimitAntiSpam, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   // Protection contre le scraping et l'abus d'infrastructure TURN WebRTC :
   // Nécessite un compte utilisateur authentifié ou une référence à un salon actif valide (?roomId= ou header x-room-id)
-  const roomId = (req.query.roomId as string) || (req.headers['x-room-id'] as string);
+  const rawRoomId = (req.query.roomId as string) || (req.headers['x-room-id'] as string);
+  const roomId = typeof rawRoomId === 'string' ? rawRoomId.slice(0, 100) : '';
   let isAuthorized = Boolean(req.user);
 
   if (!isAuthorized && roomId) {
@@ -2191,64 +2338,45 @@ apiRouter.get('/webrtc/ice-servers', rateLimitAntiSpam, optionalAuth, async (req
     });
   }
 
-  const iceServers: RTCIceServer[] = [
+  const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
     {
       urls: [
         process.env.STUN_SERVER_URL || 'stun:stun.l.google.com:19302',
         'stun:stun1.l.google.com:19302',
-        'stun:stun2.l.google.com:19302',
-        'stun:stun3.l.google.com:19302',
       ],
     },
   ];
 
-  // If explicit managed TURN server (Twilio, Coturn, Metered) is configured via env
-  if (process.env.TURN_SERVER_URL) {
+  // Serveur TURN géré (Coturn, Twilio, Metered…) configuré par variables d'environnement.
+  // Aucun relais communautaire public n'est utilisé en repli : ses identifiants publics exposeraient le trafic.
+  const turnConfigured = Boolean(process.env.TURN_SERVER_URL);
+  if (turnConfigured) {
     if (process.env.TURN_SECRET && !process.env.TURN_USERNAME) {
       // Coturn Ephemeral Credentials (RFC 5766 REST API spec)
-      const expiry = Math.floor(Date.now() / 1000) + 24 * 3600; // 24 hours
+      const expiry = Math.floor(Date.now() / 1000) + 3600; // 1 heure
       const username = `${expiry}:kinoo`;
       const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
       hmac.update(username);
       const credential = hmac.digest('base64');
       iceServers.push({
-        urls: process.env.TURN_SERVER_URL,
+        urls: process.env.TURN_SERVER_URL as string,
         username,
         credential,
       });
     } else {
       // Static TURN credentials
       iceServers.push({
-        urls: process.env.TURN_SERVER_URL,
+        urls: process.env.TURN_SERVER_URL as string,
         username: process.env.TURN_USERNAME || '',
         credential: process.env.TURN_SECRET || process.env.TURN_CREDENTIAL || '',
       });
     }
-  } else {
-    // OpenRelay community TURN fallback for symmetric NATs and restrictive firewalls
-    iceServers.push(
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      }
-    );
   }
 
   res.json({
     iceServers,
-    turnConfigured: Boolean(process.env.TURN_SERVER_URL || true),
-    mode: process.env.TURN_SERVER_URL ? 'custom_managed_turn' : 'openrelay_turn_fallback',
+    turnConfigured,
+    mode: turnConfigured ? 'custom_managed_turn' : 'stun_only',
   });
 });
 
@@ -2256,74 +2384,86 @@ apiRouter.get('/webrtc/ice-servers', rateLimitAntiSpam, optionalAuth, async (req
 // 6. INVITATIONS RÉELLES PAR E-MAIL & CALENDRIER .ICS (RFC 5545)
 // ============================================================================
 
-// Envoi d'une invitation par email avec lien direct et calendrier .ics (Anti-Spam Rate-Limited et validé par Zod)
-apiRouter.post('/rooms/:id/invite', rateLimitEmail, validateBody(inviteSchema), optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { recipientEmail, scheduledDate, note } = req.body;
+// Envoi d'une invitation par e-mail : réservé à l'hôte du salon (ou au Super Admin), limité par utilisateur
+apiRouter.post(
+  '/rooms/:id/invite',
+  authenticate,
+  rateLimitInviteUser,
+  rateLimitEmail,
+  validateBody(inviteSchema),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { recipientEmail, scheduledDate, note } = req.body;
 
-    if (!recipientEmail) {
-      return res.status(400).json({ error: "L'adresse email du destinataire est requise." });
+      if (!recipientEmail) {
+        return res.status(400).json({ error: "L'adresse email du destinataire est requise." });
+      }
+
+      const result = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
+      const room = result[0];
+      if (!room || room.statut === 'TERMINEE') {
+        return res.status(404).json({ error: 'Salon introuvable.' });
+      }
+      if (room.hoteId !== req.user!.id && req.user!.role !== 'SUPER_ADMIN') {
+        return res.status(403).json({ error: "Seul l'hôte du salon peut envoyer des invitations." });
+      }
+
+      // URL construite depuis la configuration, jamais depuis l'en-tête Host
+      const roomUrl = `${getPublicBaseUrl(req)}/salon/${room.code}`;
+      const senderPseudo = req.user!.pseudo || room.hotePseudo || 'Un ami sur Kinoo';
+
+      const sentRecord = await EmailService.sendRoomInvitationEmail({
+        recipientEmail,
+        senderPseudo,
+        roomTitle: room.titre,
+        roomCode: room.code,
+        roomUrl,
+        scheduledDate,
+        note,
+      });
+
+      res.json({
+        success: true,
+        message: 'Invitation envoyée avec succès.',
+        invitation: { id: sentRecord.id, status: sentRecord.status },
+      });
+    } catch (error) {
+      console.error('[API] Erreur envoi invitation:', error);
+      res.status(500).json({ error: "Erreur lors de l'envoi de l'invitation." });
     }
-
-    const result = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
-    const room = result[0];
-    if (!room) {
-      return res.status(404).json({ error: 'Salon introuvable.' });
-    }
-
-    const hostHeader = req.get('host') || 'localhost:3000';
-    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-    const roomUrl = `${protocol}://${hostHeader}/salon/${room.code}`;
-
-    const senderPseudo = req.user?.pseudo || room.hotePseudo || 'Un ami sur Kinoo';
-
-    const sentRecord = await EmailService.sendRoomInvitationEmail({
-      recipientEmail,
-      senderPseudo,
-      roomTitle: room.titre,
-      roomCode: room.code,
-      roomUrl,
-      scheduledDate,
-      note,
-    });
-
-    res.json({
-      success: true,
-      message: `Invitation envoyée avec succès à ${recipientEmail}.`,
-      invitation: sentRecord,
-    });
-  } catch (error) {
-    console.error('[API] Erreur envoi invitation:', error);
-    res.status(500).json({ error: "Erreur lors de l'envoi de l'invitation." });
   }
-});
+);
 
 // Téléchargement direct du fichier d'agenda .ics (Google Agenda, Apple Calendar, Outlook)
-apiRouter.get('/rooms/:id/calendar.ics', async (req: Request, res: Response) => {
+apiRouter.get('/rooms/:id/calendar.ics', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
     const result = await db.select().from(rooms).where(eq(rooms.id, id)).limit(1);
     const room = result[0];
-    if (!room) {
+    if (!room || room.statut === 'TERMINEE') {
       return res.status(404).send('Salon introuvable');
     }
 
-    const hostHeader = req.get('host') || 'localhost:3000';
-    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-    const roomUrl = `${protocol}://${hostHeader}/salon/${room.code}`;
+    // Un salon privé ne révèle son code qu'à son hôte (ou au Super Admin)
+    if (room.estPrivee && (!req.user || (req.user.id !== room.hoteId && req.user.role !== 'SUPER_ADMIN'))) {
+      return res.status(403).send('Accès refusé');
+    }
+
+    const roomUrl = `${getPublicBaseUrl(req)}/salon/${room.code}`;
 
     const icsString = generateIcsCalendar({
       uid: `kinoo-${room.code}-${Date.now()}`,
-      summary: `Séance Kinoo : ${room.titre}`,
+      summary: `Séance Kinoo : ${cleanText(room.titre, 100)}`,
       description: `Séance de streaming synchronisée sur Kinoo. Rejoindre directement : ${roomUrl}`,
       roomUrl,
       startTime: new Date(),
       durationMinutes: 180, // 3 heures
     });
 
+    const safeCode = String(room.code).replace(/[^A-Za-z0-9-]/g, '');
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="kinoo-seance-${room.code}.ics"`);
+    res.setHeader('Content-Disposition', `attachment; filename="kinoo-seance-${safeCode}.ics"`);
     res.send(icsString);
   } catch (error) {
     console.error('[API] Erreur génération .ics:', error);
@@ -2362,7 +2502,8 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
         dateInscription: userProfile[0].dateInscription,
         dernierAcces: userProfile[0].dernierAcces,
       } : null,
-      salonsCrees: userRooms,
+      // Les empreintes de mots de passe de salle ne sont jamais exportées
+      salonsCrees: userRooms.map(toPublicRoom),
       historiqueParticipations: userParticipations,
       messagesPublies: userMessages,
       ticketsSupport: userTickets,
@@ -2372,8 +2513,9 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
       },
     };
 
+    const safeId = String(userId).replace(/[^A-Za-z0-9_-]/g, '');
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="kinoo-donnees-rgpd-${userId}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="kinoo-donnees-rgpd-${safeId}.json"`);
     res.json(exportData);
   } catch (error) {
     console.error('[API] Erreur export RGPD:', error);
@@ -2383,8 +2525,8 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
 
 // Suppression définitive du compte (Article 17 RGPD - Droit à l'oubli)
 // - Pour les comptes avec mot de passe : mot de passe obligatoire.
-// - Pour les comptes Google sans mot de passe : confirmation par la phrase "SUPPRIMER" ou "DELETE" ou email du compte.
-apiRouter.delete('/user/rgpd-delete-account', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+// - Pour les comptes Google sans mot de passe : retaper l'adresse e-mail du compte.
+apiRouter.delete('/user/rgpd-delete-account', authenticate, rateLimitAccountDeletion, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { passwordConfirm, phraseConfirm } = req.body;
     const userId = req.user!.id;
@@ -2396,9 +2538,13 @@ apiRouter.delete('/user/rgpd-delete-account', authenticate, async (req: Authenti
       return res.status(404).json({ error: 'Utilisateur introuvable.' });
     }
 
-    if (dbUser.passwordHash) {
+    if (dbUser.role === 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'Le compte Super Admin ne peut pas être supprimé depuis cette interface.' });
+    }
+
+    if (hasRealPassword(dbUser.passwordHash)) {
       // Compte avec mot de passe : mot de passe obligatoire
-      if (!passwordConfirm) {
+      if (!passwordConfirm || typeof passwordConfirm !== 'string') {
         return res.status(400).json({ error: 'La confirmation par mot de passe est requise pour supprimer votre compte.' });
       }
       const match = await comparePassword(passwordConfirm, dbUser.passwordHash);
@@ -2406,98 +2552,94 @@ apiRouter.delete('/user/rgpd-delete-account', authenticate, async (req: Authenti
         return res.status(401).json({ error: 'Mot de passe incorrect. Suppression annulée.' });
       }
     } else {
-      // Compte Google (ou OAuth) sans mot de passe : confirmation de sécurité équivalente par retapage strict de son adresse e-mail
-      const input = (phraseConfirm || passwordConfirm || '').trim().toLowerCase();
+      // Compte Google (ou OAuth) sans mot de passe : retapage strict de l'adresse e-mail
+      const input = String(phraseConfirm || passwordConfirm || '').trim().toLowerCase();
       const expectedEmail = (dbUser.email || '').trim().toLowerCase();
       if (!input || input !== expectedEmail) {
         return res.status(400).json({
-          error: `Pour confirmer la suppression de votre compte Google, veuillez retaper exactement votre adresse e-mail (${dbUser.email}).`,
+          error: 'Pour confirmer la suppression de votre compte, veuillez retaper exactement votre adresse e-mail.',
         });
       }
     }
 
-    // 1. Cascade deletion: delete user's own participations and messages across all rooms
-    await db.delete(participations).where(eq(participations.userId, userId));
-    await db.delete(messages).where(eq(messages.userId, userId));
-
-    // 2. Find rooms hosted by user: notify all connected participants in real-time, then delete room child records and rooms
-    const hostedRooms = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.hoteId, userId));
-    for (const hr of hostedRooms) {
-      if (globalWsServer) {
-        try {
-          globalWsServer.broadcastToRoom(hr.id, {
-            type: 'ROOM_TERMINATED',
-            serverTimestamp: Date.now(),
-            payload: {
-              reason: "Le compte de l'hôte a été supprimé définitivement (Article 17 RGPD). La séance est clôturée.",
-            },
-          });
-          globalWsServer.closeRoom(hr.id, 1000, "Compte hôte supprimé (RGPD)");
-        } catch (e) {
-          console.warn('[RGPD] Erreur notification WS salle clôturée:', e);
-        }
-      }
-      await db.delete(messages).where(eq(messages.roomId, hr.id));
-      await db.delete(participations).where(eq(participations.roomId, hr.id));
-    }
-    await db.delete(rooms).where(eq(rooms.hoteId, userId));
-
-    // 3. Archivage anonymisé conditionnel des sanctions (Point 8)
-    // Ne concerne QUE les utilisateurs ayant fait l'objet d'une action de modération formelle
+    // Calculs préalables (échouent avant toute suppression si la configuration HMAC est absente)
     const isSuspended = dbUser.statutCompte === 'SUSPENDU';
     const confirmedSanctions = await db
       .select()
       .from(reports)
-      .where(and(eq(reports.cibleId, userId), eq(reports.statut, 'RESOLU')));
-
+      .where(and(eq(reports.cibleId, userId), eq(reports.statut, 'TRAITE')));
     const hasSanctionAction = isSuspended || confirmedSanctions.length > 0;
+    const userHmac = hasSanctionAction ? generateUserHmac(userId) : '';
 
-    if (hasSanctionAction) {
-      const userHmac = generateUserHmac(userId);
+    const hostedRooms = await db.select({ id: rooms.id }).from(rooms).where(eq(rooms.hoteId, userId));
+
+    // Suppression atomique : tout ou rien (aucun compte à moitié effacé)
+    await db.transaction(async (tx) => {
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000); // 12 mois max
 
-      // Si le compte était suspendu/banni
-      if (isSuspended) {
-        await db.insert(moderationArchives).values({
-          id: `arch_sanct_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
-          sanctionedUserHmac: userHmac,
-          motif: 'Suspension définitive pour non-respect des règles de la communauté',
-          actionPrise: 'SUSPENSION',
-          dateSanction: dbUser.dernierAcces || now,
-          dateArchivage: now,
-          dateExpiration: expiresAt,
-        });
+      // 1. Données de l'utilisateur dans toutes les salles
+      await tx.delete(participations).where(eq(participations.userId, userId));
+      await tx.delete(messages).where(eq(messages.userId, userId));
+
+      // 2. Salles hébergées et leurs enregistrements enfants
+      for (const hr of hostedRooms) {
+        await tx.delete(messages).where(eq(messages.roomId, hr.id));
+        await tx.delete(participations).where(eq(participations.roomId, hr.id));
+        await tx.delete(monthlyRoomCreations).where(eq(monthlyRoomCreations.roomId, hr.id));
+      }
+      await tx.delete(monthlyRoomCreations).where(eq(monthlyRoomCreations.userId, userId));
+      await tx.delete(rooms).where(eq(rooms.hoteId, userId));
+
+      // 3. Archivage anonymisé conditionnel des sanctions (HMAC non réversible, 12 mois)
+      if (hasSanctionAction) {
+        const expiresAt = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+        if (isSuspended) {
+          await tx.insert(moderationArchives).values({
+            id: newId('arch_sanct'),
+            sanctionedUserHmac: userHmac,
+            motif: 'Suspension définitive pour non-respect des règles de la communauté',
+            actionPrise: 'SUSPENSION',
+            dateSanction: dbUser.dernierAcces || now,
+            dateArchivage: now,
+            dateExpiration: expiresAt,
+          });
+        }
+
+        for (const cs of confirmedSanctions) {
+          await tx.insert(moderationArchives).values({
+            id: newId('arch_rep'),
+            sanctionedUserHmac: userHmac,
+            motif: cs.motif || 'Infraction confirmée par la modération',
+            actionPrise: 'SANCTION_CONFIRMEE',
+            dateSanction: cs.dateCreation || now,
+            dateArchivage: now,
+            dateExpiration: expiresAt,
+          });
+        }
       }
 
-      // Si des signalements confirmés avec action de modération existent
-      for (const cs of confirmedSanctions) {
-        await db.insert(moderationArchives).values({
-          id: `arch_rep_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`,
-          sanctionedUserHmac: userHmac,
-          motif: cs.motif || 'Infraction confirmée par la modération',
-          actionPrise: 'SANCTION_CONFIRMEE',
-          dateSanction: cs.dateCreation || now,
-          dateArchivage: now,
-          dateExpiration: expiresAt,
-        });
+      // 4. Suppression des données personnelles identifiantes
+      if (dbUser.email) {
+        await tx.delete(tickets).where(eq(tickets.userEmail, dbUser.email));
       }
-    }
+      await tx.delete(reports).where(eq(reports.auteurId, userId));
+      await tx.delete(reports).where(eq(reports.cibleId, userId));
 
-    // 4. Suppression définitive de toutes les données personnelles identifiantes
-    if (dbUser.email) {
-      await db.delete(tickets).where(eq(tickets.userEmail, dbUser.email));
-    }
-    await db.delete(reports).where(eq(reports.auteurId, userId));
-    await db.delete(reports).where(eq(reports.cibleId, userId));
+      // 5. Suppression de la ligne utilisateur
+      await tx.delete(users).where(eq(users.id, userId));
+    });
 
-    // 5. Suppression de la ligne utilisateur de la table users
-    await db.delete(users).where(eq(users.id, userId));
+    // Notification temps réel une fois la suppression validée
+    for (const hr of hostedRooms) {
+      globalWsServer?.terminateRoom(hr.id, "Le compte de l'hôte a été supprimé définitivement (Article 17 RGPD). La séance est clôturée.");
+    }
+    globalWsServer?.disconnectUser(userId, 'Compte supprimé');
 
     // Clear session HttpOnly cookie
     clearAuthCookie(res);
 
-    console.log(`[RGPD] Compte utilisateur ${userId} (${dbUser.email}) supprimé définitivement à sa demande.`);
+    console.log(`[RGPD] Compte utilisateur ${userId} supprimé définitivement à sa demande.`);
     res.json({
       success: true,
       message: 'Votre compte et toutes vos données personnelles associées ont été supprimés définitivement de la base de données.',
@@ -2513,7 +2655,8 @@ apiRouter.delete('/user/rgpd-delete-account', authenticate, async (req: Authenti
 // ============================================================================
 
 apiRouter.get('/admin/metrics', authenticate, requireRole(['SUPER_ADMIN']), (req: AuthenticatedRequest, res: Response) => {
-  const metrics = MetricsCollector.getSnapshot();
+  const wsStats = globalWsServer?.getActiveConnectionsCount();
+  const metrics = MetricsCollector.getSnapshot(wsStats?.totalConnectedSockets ?? 0);
   res.json({
     success: true,
     metrics,
