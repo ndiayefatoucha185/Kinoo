@@ -1,3 +1,5 @@
+// Charge le fichier .env en local (sans effet en production si le fichier n'existe pas)
+import 'dotenv/config';
 import crypto from 'crypto';
 import express from 'express';
 import http from 'http';
