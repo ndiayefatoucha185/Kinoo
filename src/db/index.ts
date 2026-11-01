@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import fs from 'fs';
 import * as schema from './schema.ts';
 
 declare global {
@@ -16,7 +17,15 @@ export const createPool = () => {
     const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
     // Certificat d'autorité (PEM) du fournisseur, ex. Supabase : DB_SSL_CA contient le texte du certificat
     // (les retours à la ligne peuvent être écrits \n).
-    const caPem = process.env.DB_SSL_CA ? process.env.DB_SSL_CA.replace(/\\n/g, '\n') : undefined;
+    let caPem: string | undefined = process.env.DB_SSL_CA ? process.env.DB_SSL_CA.replace(/\\n/g, '\n') : undefined;
+    // Alternative plus simple : DB_SSL_CA_FILE = chemin d'un fichier .crt (ex. supabase-ca.crt)
+    if (!caPem && process.env.DB_SSL_CA_FILE) {
+      try {
+        caPem = fs.readFileSync(process.env.DB_SSL_CA_FILE, 'utf-8');
+      } catch (err: any) {
+        console.error(`[DB] Impossible de lire DB_SSL_CA_FILE (${process.env.DB_SSL_CA_FILE}) : ${err.message}`);
+      }
+    }
     const sslOptions = { rejectUnauthorized, ...(caPem ? { ca: caPem } : {}) };
     if (!rejectUnauthorized) {
       console.warn('[DB] DB_SSL_REJECT_UNAUTHORIZED=false : le certificat TLS de la base de données n’est PAS vérifié.');
