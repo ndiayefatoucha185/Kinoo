@@ -1153,7 +1153,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                   <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    25 séances / mois, 50 participants, import local, salon débrief micro et 100% sans pub.
+                    10 séances / mois, 15 participants, import local, salon débrief micro et 100% sans pub.
                   </p>
                 </div>
 
@@ -1167,7 +1167,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   }`}
                 >
                   <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-[#3B82F6] text-[10px] font-bold text-white shadow-sm">
-                    Tout Illimité
+                    Tout le confort
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1188,7 +1188,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                   <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    Séances illimitées, 250 participants, assistant IA dédié, messagerie privée et débit prioritaire.
+                    25 séances / mois, 25 participants, assistant IA dédié, messagerie privée et débit prioritaire.
                   </p>
                 </div>
               </div>
@@ -1389,7 +1389,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span className="text-xs font-bold text-white">2 800 FCFA / mois</span>
                   </div>
                   <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    25 séances / mois, 50 participants, import local, salon débrief micro.
+                    10 séances / mois, 15 participants, import local, salon débrief micro.
                   </p>
                 </div>
 
@@ -1418,7 +1418,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span className="text-xs font-bold text-white">4 750 FCFA / mois</span>
                   </div>
                   <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    Séances illimitées, 250 participants, IA dédiée, débit prioritaire.
+                    25 séances / mois, 25 participants, IA dédiée, débit prioritaire.
                   </p>
                 </div>
               </div>

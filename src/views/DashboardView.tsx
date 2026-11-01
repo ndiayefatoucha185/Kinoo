@@ -2388,7 +2388,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div>
                     <h4 className="text-xs font-bold text-white">Forfait actif</h4>
                     <p className="text-[11px] text-[#EC4899]">
-                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — Tout illimité' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 25 séances/mois' : 'Gratuit (P0) — 8 participants max'}
+                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — 25 séances/mois' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 10 séances/mois' : 'Gratuit (P0) — 8 participants max'}
                     </p>
                   </div>
                   <button
@@ -2756,11 +2756,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>25 séances par mois</span>
+                      <span>10 séances par mois</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>Jusqu'à 50 participants</span>
+                      <span>Jusqu'à 15 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
@@ -2800,11 +2800,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
-                      <span>Séances illimitées</span>
+                      <span>25 séances par mois</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
-                      <span>Jusqu'à 250 participants</span>
+                      <span>Jusqu'à 25 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />

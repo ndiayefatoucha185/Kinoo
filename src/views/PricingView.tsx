@@ -346,12 +346,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>25 films ou épisodes</strong> de série par mois</span>
                 </li>
 
-                {/* Invitation jusqu'à 50 personnes */}
+                {/* Invitation jusqu'à 15 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 50 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 15 personnes</strong></span>
                 </li>
 
                 {/* Au choix par lien URL ou par import vidéo */}
@@ -441,7 +441,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
               <h3 className="text-2xl font-bold text-white flex items-center gap-2">
                 <span>Premium</span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Tout Illimité
+                  Tout le confort
                 </span>
               </h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
@@ -480,7 +480,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>Visionnage illimité</strong> de films et séries</span>
+                  <span><strong>25 séances par mois</strong> de films et séries</span>
                 </li>
 
                 {/* Toutes les fonctionnalités Standard incluses */}
@@ -491,12 +491,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>Toutes les fonctions Standard incluses</strong> (import vidéo, suggestions, chat + vocal, débriefing, sans pub)</span>
                 </li>
 
-                {/* Invitation jusqu'à 250 personnes */}
+                {/* Invitation jusqu'à 25 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 250 personnes</strong> simultanément</span>
+                  <span>Invitation <strong>jusqu'à 25 personnes</strong> simultanément</span>
                 </li>
 
                 {/* Accès à un assistant IA personnel */}
@@ -611,7 +611,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     25 films / épisodes
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    Illimité
+                    25 / mois
                   </td>
                 </tr>
 
@@ -621,12 +621,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Users className="w-4 h-4 text-[#3B82F6]" />
                     <span>Capacité d'invitation par séance</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 10 personnes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 8 personnes</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    Jusqu'à 50 personnes
+                    Jusqu'à 15 personnes
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    Jusqu'à 250 personnes
+                    Jusqu'à 25 personnes
                   </td>
                 </tr>
 

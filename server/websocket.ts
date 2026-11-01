@@ -685,6 +685,7 @@ export class KinooWebSocketServer {
     client.joined = true;
     clients.add(client);
     this.cancelEmptyRoomClose(roomId);
+    if (client.role === 'HOTE') this.cancelHostAbsence(roomId);
 
     // Présence en base (fire-and-forget) : sert au décompte des participants en ligne
     db.update(participations)
@@ -747,6 +748,25 @@ export class KinooWebSocketServer {
           onlineCount: clients.size,
         },
       });
+    }
+
+    // Liste des personnes présentes, envoyée au nouvel arrivant (l'invité voit aussi l'hôte)
+    try {
+      const seen = new Map<string, { userId: string; pseudo: string; role: string }>();
+      for (const c of clients) {
+        if (c.ws.readyState === WebSocket.OPEN && !seen.has(c.userId)) {
+          seen.set(c.userId, { userId: c.userId, pseudo: c.pseudo, role: c.role });
+        }
+      }
+      client.ws.send(
+        JSON.stringify({
+          type: 'ROOM_ROSTER',
+          serverTimestamp: Date.now(),
+          payload: { selfUserId: client.userId, participants: Array.from(seen.values()) },
+        })
+      );
+    } catch {
+      /* ignore */
     }
 
     // Send immediate sync snapshot to the newly connected participant
@@ -817,6 +837,73 @@ export class KinooWebSocketServer {
     this.emptyRoomTimers.set(roomId, t);
   }
 
+  // Hôte parti : on met la lecture en pause pour tout le monde, puis la salle est terminée
+  // si l'hôte n'est pas revenu après le délai de grâce (rechargement de page, coupure réseau).
+  private hostAbsenceTimers = new Map<string, NodeJS.Timeout>();
+  private static readonly HOST_ABSENCE_GRACE_MS = 60_000;
+
+  private cancelHostAbsence(roomId: string) {
+    const t = this.hostAbsenceTimers.get(roomId);
+    if (t) {
+      clearTimeout(t);
+      this.hostAbsenceTimers.delete(roomId);
+      this.broadcastToRoom(roomId, {
+        type: 'HOST_BACK',
+        serverTimestamp: Date.now(),
+        payload: {},
+      });
+    }
+  }
+
+  private async scheduleHostAbsence(roomId: string) {
+    if (this.hostAbsenceTimers.has(roomId)) return;
+    const graceMs = KinooWebSocketServer.HOST_ABSENCE_GRACE_MS;
+
+    // Pause autoritative à la position courante
+    try {
+      const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+      if (room && room.playbackState === 'LECTURE') {
+        const base = room.lastPlaybackUpdate ? new Date(room.lastPlaybackUpdate).getTime() : Date.now();
+        const pos = sanitizePositionSec(room.currentPositionSec + (Date.now() - base) / 1000);
+        await db
+          .update(rooms)
+          .set({ playbackState: 'PAUSE', currentPositionSec: pos, lastPlaybackUpdate: new Date() })
+          .where(eq(rooms.id, roomId));
+        this.broadcastToRoom(roomId, {
+          type: 'PAUSE',
+          serverTimestamp: Date.now(),
+          senderId: 'server',
+          payload: { positionSec: pos },
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    this.broadcastToRoom(roomId, {
+      type: 'HOST_AWAY',
+      serverTimestamp: Date.now(),
+      payload: { graceMs },
+    });
+
+    const t = setTimeout(async () => {
+      this.hostAbsenceTimers.delete(roomId);
+      const present = Array.from(this.roomClients.get(roomId) || []).some((c) => c.role === 'HOTE');
+      if (present) return;
+      try {
+        await db
+          .update(rooms)
+          .set({ statut: 'TERMINEE' })
+          .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
+      } catch {
+        /* best-effort */
+      }
+      this.terminateRoom(roomId, "L'hôte a quitté la séance.");
+    }, graceMs);
+    if (typeof t.unref === 'function') t.unref();
+    this.hostAbsenceTimers.set(roomId, t);
+  }
+
   private removeClientFromRoom(client: ClientConnection) {
     if (!client.roomId) return;
     const roomId = client.roomId;
@@ -831,6 +918,10 @@ export class KinooWebSocketServer {
         .set({ estEnLigne: false })
         .where(and(eq(participations.roomId, roomId), eq(participations.userId, client.userId)))
         .catch(() => {});
+    }
+
+    if (!userStillPresent && client.role === 'HOTE') {
+      this.scheduleHostAbsence(roomId);
     }
 
     const remaining = clients.size;
@@ -1324,6 +1415,17 @@ export class KinooWebSocketServer {
             }, remainingMinDelay);
           }
         }
+        break;
+      }
+
+      case 'CLIENT_NETWORK': {
+        const status = payload.status === 'POOR' ? 'POOR' : 'OK';
+        this.broadcastToRoom(roomId, {
+          type: 'PARTICIPANT_NETWORK',
+          serverTimestamp: now,
+          senderId: client.userId,
+          payload: { userId: client.userId, pseudo: client.pseudo, status },
+        });
         break;
       }
 

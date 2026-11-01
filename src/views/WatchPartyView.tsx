@@ -85,6 +85,11 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const ytPlayerRef = useRef<any>(null);
   const ytPlayerReadyRef = useRef<boolean>(false);
   const isInternalYTEventRef = useRef<boolean>(false);
+  const bufferingTimerRef = useRef<any>(null);
+  const poorNetworkSentRef = useRef<boolean>(false);
+  const enforceTimerRef = useRef<any>(null);
+  const lastEnforceToastRef = useRef<number>(0);
+  const softRateActiveRef = useRef<boolean>(false);
   const isWarmingUpRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
@@ -93,6 +98,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'SYNCHRONISE' | 'RECALAGE' | 'ATTENTE'>('SYNCHRONISE');
   const [driftSec, setDriftSec] = useState(0);
+  const [hostAway, setHostAway] = useState(false);
+  const [myNetworkPoor, setMyNetworkPoor] = useState(false);
+  const [poorNetworkUserIds, setPoorNetworkUserIds] = useState<string[]>([]);
   const [ytCaptionsActive, setYtCaptionsActive] = useState<boolean>(true);
   const [showYtCaptionsMenu, setShowYtCaptionsMenu] = useState<boolean>(false);
   const [ytCaptionLang, setYtCaptionLang] = useState<string>('fr');
@@ -260,7 +268,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               estVerrouillee: r.estVerrouillee,
               chatActif: true,
               reactionsActives: true,
-              maxParticipants: r.maxParticipants || 10,
+              maxParticipants: r.maxParticipants || 8,
               dateCreation: (r as any).dateCreation || new Date().toISOString(),
             };
             handleRoomLoaded(mappedRoom);
@@ -321,7 +329,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           videoId: ytId,
           playerVars: {
             autoplay: 0,
-            controls: 1,
+            controls: isHost ? 1 : 0,
+            disablekb: isHost ? 0 : 1,
             enablejsapi: 1,
             modestbranding: 1,
             rel: 0,
@@ -367,6 +376,34 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 isWarmingUpRef.current = false;
                 syncEngine.sendEvent('CLIENT_READY', { id: localUserId, pseudo: localPseudo, role: userRole });
                 return;
+              }
+
+              // Réseau : mise en mémoire tampon prolongée = signalée à la salle
+              if (event.data === YTState.BUFFERING) {
+                if (!bufferingTimerRef.current) {
+                  bufferingTimerRef.current = setTimeout(() => {
+                    bufferingTimerRef.current = null;
+                    if (!poorNetworkSentRef.current) {
+                      poorNetworkSentRef.current = true;
+                      setMyNetworkPoor(true);
+                      syncEngine.sendNetworkStatus('POOR');
+                    }
+                  }, 3000);
+                }
+              } else if (bufferingTimerRef.current) {
+                clearTimeout(bufferingTimerRef.current);
+                bufferingTimerRef.current = null;
+              }
+              if (event.data === YTState.PLAYING && poorNetworkSentRef.current) {
+                poorNetworkSentRef.current = false;
+                setMyNetworkPoor(false);
+                syncEngine.sendNetworkStatus('OK');
+                if (!isHost) resyncGuestToHost();
+              }
+
+              // Invité : la lecture appartient à l'hôte, toute pause/lecture locale est annulée
+              if (!isHost && (event.data === YTState.PAUSED || event.data === YTState.PLAYING)) {
+                enforceHostPlaybackState(event.target, event.data === YTState.PLAYING);
               }
 
               if (event.data === YTState.PLAYING) {
@@ -449,6 +486,45 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     return () => clearInterval(interval);
   }, [isYouTube, duration]);
 
+  // Remet l'invité exactement sur la position de l'hôte
+  const resyncGuestToHost = () => {
+    const expected = syncEngine.calculateCalculatedPosition();
+    try {
+      if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+        isInternalYTEventRef.current = true;
+        ytPlayerRef.current.seekTo(expected, true);
+      } else if (videoRef.current) {
+        videoRef.current.currentTime = expected;
+      }
+    } catch {}
+  };
+
+  // L'invité ne peut ni mettre en pause ni relancer : on rétablit l'état voulu par l'hôte
+  const enforceHostPlaybackState = (player: any, playerIsPlaying: boolean) => {
+    if (isHost || isWarmingUpRef.current) return;
+    const hostWantsPlay = syncEngine.getState().etatLecture === 'LECTURE';
+    if (playerIsPlaying === hostWantsPlay) return;
+    clearTimeout(enforceTimerRef.current);
+    enforceTimerRef.current = setTimeout(() => {
+      const stillWantsPlay = syncEngine.getState().etatLecture === 'LECTURE';
+      try {
+        if (stillWantsPlay) {
+          const expected = syncEngine.calculateCalculatedPosition();
+          const cur = player?.getCurrentTime ? player.getCurrentTime() : 0;
+          if (Math.abs(cur - expected) > 1) player.seekTo(expected, true);
+          player.playVideo();
+        } else {
+          player.pauseVideo();
+        }
+      } catch {}
+      const nowTs = Date.now();
+      if (nowTs - lastEnforceToastRef.current > 8000) {
+        lastEnforceToastRef.current = nowTs;
+        onToast("Seul l'hôte contrôle la lecture : vous restez synchronisé avec lui.", 'info');
+      }
+    }, 150);
+  };
+
   // Handle incoming real-time packets
   const handleSyncPacket = (packet: SyncPacket) => {
     switch (packet.type) {
@@ -458,6 +534,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         if (!payload) break;
         const targetPos = typeof payload.currentPositionSec === 'number' ? payload.currentPositionSec : 0;
         const targetPlaying = payload.playbackState === 'LECTURE';
+        // L'hôte est la référence : il ne se recale jamais sur un instantané (sauf à son arrivée dans la salle)
+        if (isHost && ytPlayerReadyRef.current && packet.type === 'STATE_PULSE' && (ytPlayerRef.current?.getCurrentTime?.() || 0) > 1) break;
 
         if (payload.sourceContenu && (!room?.sourceContenu || room.sourceContenu.id !== payload.sourceContenu.id)) {
           setRoom((prev) => (prev ? { ...prev, sourceContenu: payload.sourceContenu, sourceContenuId: payload.sourceContenu.id } : null));
@@ -471,15 +549,15 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             isInternalYTEventRef.current = true;
             try {
               const cur = ytPlayerRef.current.getCurrentTime() || 0;
-              if (Math.abs(cur - targetPos) > 0.6) {
+              if (Math.abs(cur - targetPos) > 1.5) {
                 ytPlayerRef.current.seekTo(targetPos, true);
               }
-              ytPlayerRef.current.playVideo();
+              if (ytPlayerRef.current.getPlayerState?.() !== 1) ytPlayerRef.current.playVideo();
             } catch {}
             setIsPlaying(true);
             setSyncStatus('SYNCHRONISE');
           } else if (videoRef.current) {
-            if (Math.abs(videoRef.current.currentTime - targetPos) > 0.6) {
+            if (Math.abs(videoRef.current.currentTime - targetPos) > 1.5) {
               videoRef.current.currentTime = targetPos;
             }
             videoRef.current.play().catch((err: any) => { if (err?.name === 'NotAllowedError' || String(err).includes('play')) { setIsAutoplayBlocked(true); } });
@@ -508,10 +586,15 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'PREPARE_PLAY': {
         const prepPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
         debugSyncLog('📥 SIGNAL PREPARE_PLAY REÇU DU SERVEUR', { positionSec: prepPos });
-        if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-          try { ytPlayerRef.current.seekTo(prepPos, true); } catch {}
-        } else if (videoRef.current) {
-          videoRef.current.currentTime = prepPos;
+        if (!isHost) {
+          if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+            try {
+              const curPrep = ytPlayerRef.current.getCurrentTime() || 0;
+              if (Math.abs(curPrep - prepPos) > 1) ytPlayerRef.current.seekTo(prepPos, true);
+            } catch {}
+          } else if (videoRef.current) {
+            if (Math.abs(videoRef.current.currentTime - prepPos) > 1) videoRef.current.currentTime = prepPos;
+          }
         }
         // Répondre CLIENT_READY au serveur
         syncEngine.sendEvent('CLIENT_READY', { id: localUserId, pseudo: localPseudo, role: userRole });
@@ -527,18 +610,19 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         });
         const targetPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
         const startAt = packet.payload?.scheduledStartTime;
-        const now = Date.now();
+        const now = syncEngine.getServerNow();
         const delay = startAt ? Math.max(0, startAt - now) : 0;
+        if (isHost) break; // l'hôte joue déjà : ne jamais le faire reculer
 
         const executePlay = (pos: number) => {
           if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
             isInternalYTEventRef.current = true;
             try {
               const cur = ytPlayerRef.current.getCurrentTime() || 0;
-              if (Math.abs(cur - pos) > 0.5) {
+              if (Math.abs(cur - pos) > 1) {
                 ytPlayerRef.current.seekTo(pos, true);
               }
-              ytPlayerRef.current.unMute();
+              if (!isMuted) ytPlayerRef.current.unMute();
               ytPlayerRef.current.playVideo();
             } catch (err: any) {
               if (err?.name === 'NotAllowedError' || String(err).includes('play')) {
@@ -548,10 +632,10 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             setIsPlaying(true);
             setSyncStatus('SYNCHRONISE');
           } else if (videoRef.current) {
-            if (Math.abs(videoRef.current.currentTime - pos) > 0.5) {
+            if (Math.abs(videoRef.current.currentTime - pos) > 1) {
               videoRef.current.currentTime = pos;
             }
-            videoRef.current.muted = false;
+            videoRef.current.muted = isMuted;
             videoRef.current.play().catch((err: any) => {
               if (err?.name === 'NotAllowedError' || String(err).includes('play')) {
                 setIsAutoplayBlocked(true);
@@ -576,6 +660,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       }
 
       case 'PAUSE': {
+        if (isHost && packet.senderId !== 'server') break;
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
           isInternalYTEventRef.current = true;
           try {
@@ -596,6 +681,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       }
 
       case 'SEEK': {
+        if (isHost) break;
         const targetSeekPos = packet.payload?.positionSec ?? 0;
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
           isInternalYTEventRef.current = true;
@@ -613,6 +699,12 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'USER_JOIN':
         setParticipations((prev) => {
           if (prev.some((p) => p.utilisateurId === packet.senderId)) return prev;
+          if (packet.senderId === syncEngine.getCurrentUserId()) {
+            return [...prev.filter((p) => p.utilisateurId !== localUserId), {
+              id: 'part-' + packet.senderId, salleId: roomId, utilisateurId: packet.senderId, pseudo: packet.senderPseudo,
+              role: packet.senderRole, dateRejoint: new Date().toISOString(), estActif: true, estBanni: false,
+            } as Participation];
+          }
           return [
             ...prev,
             {
@@ -629,8 +721,50 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         });
         break;
 
+      case 'ROOM_ROSTER': {
+        const list: any[] = Array.isArray(packet.payload?.participants) ? packet.payload.participants : [];
+        setParticipations(
+          list.map((u) => ({
+            id: 'part-' + u.userId,
+            salleId: roomId,
+            utilisateurId: u.userId,
+            pseudo: u.pseudo,
+            role: u.role === 'HOTE' ? 'HOTE' : 'PARTICIPANT',
+            dateRejoint: new Date().toISOString(),
+            estActif: true,
+            estBanni: false,
+          })) as Participation[]
+        );
+        break;
+      }
+
+      case 'HOST_AWAY':
+        if (!isHost) setHostAway(true);
+        break;
+
+      case 'HOST_BACK':
+        setHostAway(false);
+        break;
+
+      case 'PARTICIPANT_NETWORK': {
+        const uid = packet.payload?.userId as string;
+        if (!uid || uid === (syncEngine.getCurrentUserId() || localUserId)) break;
+        const poor = packet.payload?.status === 'POOR';
+        setPoorNetworkUserIds((prev) => (poor ? Array.from(new Set([...prev, uid])) : prev.filter((x) => x !== uid)));
+        if (isHost) {
+          onToast(
+            poor
+              ? `${packet.payload?.pseudo || 'Un participant'} a un problème de réseau. Vous pouvez mettre en pause le temps qu'il revienne.`
+              : `${packet.payload?.pseudo || 'Un participant'} a retrouvé une bonne connexion.`,
+            poor ? 'info' : 'success'
+          );
+        }
+        break;
+      }
+
       case 'USER_LEAVE':
         setParticipations((prev) => prev.filter((p) => p.utilisateurId !== packet.senderId));
+        setPoorNetworkUserIds((prev) => prev.filter((x) => x !== packet.senderId));
         break;
 
       case 'USER_KICKED':
@@ -704,12 +838,42 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         return;
       }
 
+      // L'hôte est la référence : jamais corrigé
+      if (isHost) {
+        setDriftSec(0);
+        setSyncStatus('SYNCHRONISE');
+        return;
+      }
+
       const expectedTime = syncEngine.calculateCalculatedPosition();
-      const diff = Math.abs(currentVidTime - expectedTime);
+      const signedDiff = currentVidTime - expectedTime;
+      const diff = Math.abs(signedDiff);
       setDriftSec(Number(diff.toFixed(2)));
 
-      // Auto-correct if drift exceeds 1.2s threshold
-      if (diff > 1.2) {
+      // Petit écart (0,4 s à 2,5 s) : on ajuste très légèrement la vitesse, sans saut ni coupure
+      if (diff > 0.4 && diff <= 2.5) {
+        try {
+          if (isYouTube && ytPlayerRef.current?.setPlaybackRate) {
+            ytPlayerRef.current.setPlaybackRate(signedDiff < 0 ? 1.25 : 0.75);
+            softRateActiveRef.current = true;
+          } else if (videoRef.current) {
+            videoRef.current.playbackRate = signedDiff < 0 ? 1.08 : 0.92;
+            softRateActiveRef.current = true;
+          }
+        } catch {}
+        setSyncStatus('RECALAGE');
+        return;
+      }
+      if (softRateActiveRef.current) {
+        try {
+          if (isYouTube && ytPlayerRef.current?.setPlaybackRate) ytPlayerRef.current.setPlaybackRate(1);
+          else if (videoRef.current) videoRef.current.playbackRate = 1;
+        } catch {}
+        softRateActiveRef.current = false;
+      }
+
+      // Grand écart (plus de 2,5 s) : un seul saut vers la position de l'hôte
+      if (diff > 2.5) {
         setSyncStatus('RECALAGE');
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
           isInternalYTEventRef.current = true;
@@ -723,10 +887,50 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       } else {
         setSyncStatus('SYNCHRONISE');
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, isYouTube]);
+  }, [isPlaying, isYouTube, isHost]);
+
+  // Réseau de cet appareil : coupure / retour
+  useEffect(() => {
+    const goOffline = () => setMyNetworkPoor(true);
+    const goOnline = () => {
+      setMyNetworkPoor(false);
+      syncEngine.sendNetworkStatus('OK');
+      syncEngine.requestAuthoritativeSync();
+      if (!isHost) setTimeout(resyncGuestToHost, 800);
+    };
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, [isHost]);
+
+  // Lecteur HTML5 (fichier / flux) : même règle, l'invité ne contrôle pas la lecture
+  useEffect(() => {
+    if (isHost || isYouTube) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const onPause = () => {
+      if (syncEngine.getState().etatLecture === 'LECTURE' && !v.ended) {
+        setTimeout(() => {
+          if (syncEngine.getState().etatLecture === 'LECTURE') v.play().catch(() => {});
+        }, 150);
+      }
+    };
+    const onPlay = () => {
+      if (syncEngine.getState().etatLecture !== 'LECTURE') v.pause();
+    };
+    v.addEventListener('pause', onPause);
+    v.addEventListener('play', onPlay);
+    return () => {
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('play', onPlay);
+    };
+  }, [isHost, isYouTube, room?.sourceContenu?.id]);
 
   // Host updates the playing media
   const handleHostMediaChange = (newSource: ContentSource) => {
@@ -1037,6 +1241,16 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               <strong>Aperçu de développement privé :</strong> Les invités ne pourront pas rejoindre depuis cet aperçu de développement (isolé sur la base de test et réservé à votre espace). Pour tester avec des amis, utilisez l'adresse de partage (ais-pre) ou configurez <code>PUBLIC_BASE_URL</code>.
             </p>
           </div>
+        </div>
+      )}
+      {hostAway && !isHost && (
+        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+          L'hôte s'est déconnecté. La lecture est en pause ; la séance sera terminée s'il ne revient pas dans une minute.
+        </div>
+      )}
+      {myNetworkPoor && (
+        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+          Connexion instable : la lecture reprendra automatiquement au même endroit que l'hôte dès que le réseau revient.
         </div>
       )}
       {/* Top Sync & Status Bar */}
@@ -1567,7 +1781,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               <div className="space-y-2">
                 {participations.map((part) => {
                   const isPartHost = part.role === 'HOTE';
-                  const isMyself = part.utilisateurId === localUserId;
+                  const isMyself = part.utilisateurId === (syncEngine.getCurrentUserId() || localUserId);
 
                   return (
                     <div
@@ -1583,6 +1797,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                             <span className="font-semibold text-white">{cleanUserPseudo(part.pseudo)}</span>
                             <UserPlanBadge plan={getUserPlan(part.utilisateurId, part.pseudo)} size="xs" />
                             {isMyself && <span className="text-[10px] text-gray-500">(Vous)</span>}
+                            {poorNetworkUserIds.includes(part.utilisateurId) && (
+                              <span className="text-[10px] text-amber-400 font-semibold">• réseau instable</span>
+                            )}
                           </div>
                           <span className="text-[10px] text-gray-400 font-mono">
                             {isPartHost ? 'Hôte de séance' : 'Participant'}

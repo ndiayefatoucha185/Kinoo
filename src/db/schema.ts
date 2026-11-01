@@ -30,7 +30,7 @@ export const rooms = pgTable('rooms', {
   code: varchar('code', { length: 20 }).notNull().unique(),
   hoteId: varchar('hote_id', { length: 128 }).notNull().references(() => users.id),
   hotePseudo: varchar('hote_pseudo', { length: 100 }).notNull(),
-  maxParticipants: integer('max_participants').notNull().default(10),
+  maxParticipants: integer('max_participants').notNull().default(8),
   statut: varchar('statut', { length: 20 }).notNull().default('EN_COURS'), // PROGRAMMEE, EN_COURS, TERMINEE
   estPrivee: boolean('est_privee').notNull().default(false),
   codeAcces: varchar('code_acces', { length: 50 }),

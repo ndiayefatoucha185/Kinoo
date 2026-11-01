@@ -1021,7 +1021,7 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
       const currentCount = creationsThisMonth[0]?.count || 0;
       if (currentCount >= planConfig.maxMonthlyRooms) {
         return res.status(403).json({
-          error: `Vous avez atteint votre quota mensuel de ${planConfig.maxMonthlyRooms} séances pour votre formule ${planConfig.name}. Passez à la formule Standard (25 séances/mois) ou Premium (illimité) pour continuer à créer des séances.`,
+          error: `Vous avez atteint votre quota mensuel de ${planConfig.maxMonthlyRooms} séances pour votre formule ${planConfig.name}. Passez à la formule Standard (10 séances/mois) ou Premium (25 séances/mois) pour continuer à créer des séances.`,
           code: 'QUOTA_EXCEEDED',
           quota: planConfig.maxMonthlyRooms,
           used: currentCount,

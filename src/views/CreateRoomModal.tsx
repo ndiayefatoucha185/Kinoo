@@ -374,7 +374,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                     ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                     : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                 }`}>
-                  {isPremium ? 'Illimité' : `${currentMonthRooms.length}/${monthlyLimit} ce mois`}
+                  {`${currentMonthRooms.length}/${monthlyLimit} ce mois`}
                 </span>
               </div>
             </div>
@@ -639,7 +639,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
               <div className="text-[#B8B4C0] flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-[#3B82F6]" />
-                <span>Max 8 personnes (Forfait Gratuit)</span>
+                <span>Max {maxAllowedParticipants} personnes (Forfait {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'})</span>
               </div>
             </div>
           </div>

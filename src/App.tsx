@@ -171,7 +171,7 @@ export default function App() {
                 estVerrouillee: r.estVerrouillee,
                 chatActif: true,
                 reactionsActives: true,
-                maxParticipants: r.maxParticipants || 10,
+                maxParticipants: r.maxParticipants || 8,
                 dateCreation: (r as any).dateCreation || new Date().toISOString(),
               };
               StorageService.saveRoom(mappedRoom);

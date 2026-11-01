@@ -433,8 +433,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-pink-300/90 font-medium">≈ 4,27 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 25 séances par mois</li>
-                <li>✓ Jusqu'à 50 participants</li>
+                <li>✓ 10 séances par mois</li>
+                <li>✓ Jusqu'à 15 participants</li>
                 <li>✓ Import de fichiers vidéo locaux</li>
                 <li>✓ Chat vocal & débriefing micro</li>
                 <li>✓ 100% sans publicité</li>
@@ -451,7 +451,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Premium */}
           <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 space-y-5 flex flex-col justify-between">
             <div className="space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6]">Tout illimité</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6]">Tout le confort</span>
               <h3 className="text-xl font-bold text-white">Kinoo Premium</h3>
               <div className="flex flex-col">
                 <div className="flex items-baseline gap-1.5">
@@ -461,8 +461,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-blue-300/90 font-medium">≈ 7,24 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ Séances de visionnage illimitées</li>
-                <li>✓ Jusqu'à 250 participants</li>
+                <li>✓ 25 séances par mois</li>
+                <li>✓ Jusqu'à 25 participants</li>
                 <li>✓ Assistant IA personnel dédié</li>
                 <li>✓ Réseau d'amis & messagerie privée</li>
                 <li>✓ Qualité et débit prioritaires</li>

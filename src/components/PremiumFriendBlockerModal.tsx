@@ -95,7 +95,7 @@ export const PremiumFriendBlockerModal: React.FC<PremiumFriendBlockerModalProps>
             </li>
             <li className="flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-[#3B82F6] shrink-0 mt-0.5" />
-              <span>Salons illimités jusqu'à 250 spectateurs &amp; flux vidéo HD</span>
+              <span>Salons jusqu'à 25 spectateurs &amp; flux vidéo HD</span>
             </li>
           </ul>
         </div>

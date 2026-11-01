@@ -9,7 +9,7 @@ export interface PlanConfig {
   priceXofMonthly: number;
   priceXofAnnual: number;
   maxParticipants: number;
-  maxMonthlyRooms: number; // 3 pour Gratuit, 25 pour Standard, Illimité pour Premium
+  maxMonthlyRooms: number; // 3 Gratuit, 10 Standard, 25 Premium
   allowLocalFiles: boolean;
   allowVoiceDebrief: boolean;
   allowAddFriends: boolean;
@@ -42,7 +42,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 0,
     priceXofMonthly: 0,
     priceXofAnnual: 0,
-    maxParticipants: 10,
+    maxParticipants: 8,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
     allowVoiceDebrief: false,
@@ -57,8 +57,8 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 3.42,
     priceXofMonthly: 2800,
     priceXofAnnual: 2240,
-    maxParticipants: 50,
-    maxMonthlyRooms: 25,
+    maxParticipants: 15,
+    maxMonthlyRooms: 10,
     allowLocalFiles: true,
     allowVoiceDebrief: true,
     allowAddFriends: false,
@@ -72,8 +72,8 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 5.79,
     priceXofMonthly: 4750,
     priceXofAnnual: 3800,
-    maxParticipants: 250,
-    maxMonthlyRooms: Infinity,
+    maxParticipants: 25,
+    maxMonthlyRooms: 25,
     allowLocalFiles: true,
     allowVoiceDebrief: true,
     allowAddFriends: true,

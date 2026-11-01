@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   code                  varchar(20)  NOT NULL UNIQUE,
   hote_id               varchar(128) NOT NULL REFERENCES users(id),
   hote_pseudo           varchar(100) NOT NULL,
-  max_participants      integer      NOT NULL DEFAULT 10,
+  max_participants      integer      NOT NULL DEFAULT 8,
   statut                varchar(20)  NOT NULL DEFAULT 'EN_COURS',
   est_privee            boolean      NOT NULL DEFAULT false,
   code_acces            varchar(50),
