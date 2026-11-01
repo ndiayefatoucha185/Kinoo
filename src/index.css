@@ -126,7 +126,7 @@ html.light textarea::placeholder {
 
 /* ==========================================================================
    LIGHT THEME — COMPLÉMENT : fonds sombres non couverts plus haut
-   (généré à partir des couleurs réellement utilisées dans src/**/*.tsx)
+   (généré à partir des couleurs réellement utilisées dans les fichiers .tsx du dossier src)
    ========================================================================== */
 html.light .bg-\[\#08090d\],
 html.light .bg-\[\#08090e\]\/95,
