@@ -301,3 +301,22 @@ html.light .bg-gray-800 {
   background-color: #e2e8f0 !important;
 }
 
+
+/* LIGHT THEME — bandeau d'état backend (admin) */
+html.light .kinoo-status-banner {
+  background-color: rgb(236 253 245) !important;
+  border-color: rgb(110 231 183) !important;
+  color: rgb(4 120 87) !important;
+}
+html.light .kinoo-status-banner span,
+html.light .kinoo-status-banner svg {
+  color: rgb(6 95 70) !important;
+}
+html.light .kinoo-status-banner .text-purple-300 {
+  color: rgb(109 40 217) !important;
+  background-color: rgb(245 243 255) !important;
+  border-color: rgb(196 181 253) !important;
+}
+html.light .kinoo-status-banner .text-gray-400 {
+  color: rgb(71 85 105) !important;
+}

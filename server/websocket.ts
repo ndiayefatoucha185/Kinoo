@@ -684,6 +684,7 @@ export class KinooWebSocketServer {
     client.roomId = roomId;
     client.joined = true;
     clients.add(client);
+    this.cancelEmptyRoomClose(roomId);
 
     // Présence en base (fire-and-forget) : sert au décompte des participants en ligne
     db.update(participations)
@@ -784,6 +785,38 @@ export class KinooWebSocketServer {
     });
   }
 
+  // Salles vides : après un court délai de grâce (rechargement de page, coupure réseau),
+  // la salle n'est plus « en direct » et passe à TERMINEE si personne n'est revenu.
+  private emptyRoomTimers = new Map<string, NodeJS.Timeout>();
+  private static readonly EMPTY_ROOM_GRACE_MS = 60_000;
+
+  private cancelEmptyRoomClose(roomId: string) {
+    const t = this.emptyRoomTimers.get(roomId);
+    if (t) {
+      clearTimeout(t);
+      this.emptyRoomTimers.delete(roomId);
+    }
+  }
+
+  private scheduleEmptyRoomClose(roomId: string) {
+    this.cancelEmptyRoomClose(roomId);
+    const t = setTimeout(async () => {
+      this.emptyRoomTimers.delete(roomId);
+      const still = this.roomClients.get(roomId);
+      if (still && still.size > 0) return;
+      try {
+        await db
+          .update(rooms)
+          .set({ statut: 'TERMINEE' })
+          .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
+      } catch {
+        /* best-effort */
+      }
+    }, KinooWebSocketServer.EMPTY_ROOM_GRACE_MS);
+    if (typeof t.unref === 'function') t.unref();
+    this.emptyRoomTimers.set(roomId, t);
+  }
+
   private removeClientFromRoom(client: ClientConnection) {
     if (!client.roomId) return;
     const roomId = client.roomId;
@@ -803,6 +836,7 @@ export class KinooWebSocketServer {
     const remaining = clients.size;
     if (remaining === 0) {
       this.roomClients.delete(roomId);
+      this.scheduleEmptyRoomClose(roomId);
       const neg = this.pendingPlayNegotiations.get(roomId);
       if (neg) {
         clearTimeout(neg.timeoutHandle);
