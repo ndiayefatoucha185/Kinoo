@@ -242,8 +242,24 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     };
 
     const localRoom = StorageService.getRoomById(roomId);
-    if (localRoom) {
-      handleRoomLoaded(localRoom);
+    if (localRoom && localRoom.statut === 'TERMINEE') {
+      onToast('Cette séance est terminée.', 'info');
+      onLeaveRoom();
+    } else if (localRoom) {
+      // Toujours vérifier auprès du serveur : une séance terminée n'est plus accessible
+      ApiClient.getRoom(roomId)
+        .then(() => handleRoomLoaded(localRoom))
+        .catch((err) => {
+          if (!isMounted) return;
+          const msg = String(err?.message || '');
+          if (/termin|n'existe pas/i.test(msg)) {
+            StorageService.saveRoom({ ...localRoom, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() });
+            onToast('Cette séance est terminée.', 'info');
+            onLeaveRoom();
+          } else {
+            handleRoomLoaded(localRoom);
+          }
+        });
     } else {
       ApiClient.getRoom(roomId)
         .then((res) => {
@@ -782,10 +798,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         onToast(packet.payload?.isLocked ? 'Salle verrouillée par l’hôte.' : 'Salle déverrouillée.', 'info');
         break;
 
-      case 'ROOM_TERMINATED':
+      case 'ROOM_TERMINATED': {
+        const cached = StorageService.getRoomById(roomId);
+        if (cached) StorageService.saveRoom({ ...cached, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() });
         onToast('L’hôte a mis fin à la séance.', 'info');
         onLeaveRoom();
         break;
+      }
 
       case 'CHAT_MESSAGE':
         if (packet.payload?.message) {
@@ -1089,6 +1108,21 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     );
   };
 
+  // Bouton « Quitter » : pour l'hôte, quitter met fin à la séance ; pour un invité, il quitte simplement
+  const handleLeaveClick = () => {
+    if (!isHost || !room) {
+      onLeaveRoom();
+      return;
+    }
+    if (!window.confirm('En quittant, vous mettez fin à la séance pour tous les participants. Continuer ?')) return;
+    const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
+    StorageService.saveRoom(updated);
+    syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
+    onToast('Séance terminée.', 'success');
+    onLeaveRoom();
+  };
+
   const handleHostTerminateRoom = () => {
     if (!isHost || !room) return;
     if (!window.confirm('Voulez-vous vraiment terminer définitivement cette séance pour tous les participants ?')) return;
@@ -1096,6 +1130,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
     StorageService.saveRoom(updated);
     syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
     onToast('Séance clôturée avec succès.', 'success');
     onLeaveRoom();
   };
@@ -1311,9 +1346,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           </button>
 
           <button
-            onClick={onLeaveRoom}
+            onClick={handleLeaveClick}
             className="p-1.5 text-gray-400 hover:text-white rounded-lg bg-[#232326] border border-[#383840]"
-            title="Quitter la salle"
+            title={isHost ? 'Quitter et terminer la séance' : 'Quitter la salle'}
           >
             <LogOut className="w-4 h-4" />
           </button>

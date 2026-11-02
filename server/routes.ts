@@ -937,6 +937,26 @@ apiRouter.get('/rooms', optionalAuth, async (_req: AuthenticatedRequest, res: Re
 });
 
 // Récupérer un salon par son code ou ID
+// Salles non terminées de l'utilisateur connecté (hôte ou participant) : sert à nettoyer son tableau de bord
+apiRouter.get('/rooms/mine/active', authenticate, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const hosted = await db
+      .select({ id: rooms.id })
+      .from(rooms)
+      .where(and(eq(rooms.hoteId, userId), sql`${rooms.statut} <> 'TERMINEE'`));
+    const joined = await db
+      .select({ id: rooms.id })
+      .from(participations)
+      .innerJoin(rooms, eq(participations.roomId, rooms.id))
+      .where(and(eq(participations.userId, userId), sql`${rooms.statut} <> 'TERMINEE'`));
+    res.json({ activeRoomIds: Array.from(new Set([...hosted, ...joined].map((r) => r.id))) });
+  } catch (error) {
+    console.error('[API] Erreur listage salles actives:', error);
+    res.status(500).json({ error: 'Erreur lors de la récupération de vos salles.' });
+  }
+});
+
 apiRouter.get('/rooms/:idOrCode', rateLimitRoomSearch, optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const raw = (req.params.idOrCode || '').trim().slice(0, 100);

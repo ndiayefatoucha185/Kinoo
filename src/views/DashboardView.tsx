@@ -75,7 +75,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [activeMessageFriend, setActiveMessageFriend] = useState<string | null>(null);
 
   // User-specific authentic data from StorageService (no fictitious data)
-  const [userRooms, setUserRooms] = useState<Room[]>(() => StorageService.getUserRooms(currentUser.id));
+  const [userRooms, setUserRooms] = useState<Room[]>(() =>
+    StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE')
+  );
   const [friends, setFriends] = useState<UserContact[]>(() => StorageService.getContacts(currentUser.id));
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>(() => StorageService.getScheduledSessions(currentUser.id));
 
@@ -135,8 +137,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   }, [currentUser.forfait]);
 
+  // Les séances terminées côté serveur disparaissent du tableau de bord (et ne sont plus accessibles)
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getMyActiveRoomIds()
+      .then(({ activeRoomIds }) => {
+        if (cancelled) return;
+        const active = new Set(activeRoomIds);
+        const local = StorageService.getUserRooms(currentUser.id);
+        for (const r of local) {
+          if (r.statut !== 'TERMINEE' && !active.has(r.id)) {
+            StorageService.saveRoom({ ...r, statut: 'TERMINEE', dateFinEffective: r.dateFinEffective || new Date().toISOString() });
+          }
+        }
+        setUserRooms(StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE'));
+      })
+      .catch(() => {
+        /* hors ligne : on garde l'affichage local */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser.id]);
+
   const refreshAllData = () => {
-    setUserRooms(StorageService.getUserRooms(currentUser.id));
+    setUserRooms(StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE'));
     setFriends(StorageService.getContacts(currentUser.id));
     setScheduledSessions(StorageService.getScheduledSessions(currentUser.id));
   };
