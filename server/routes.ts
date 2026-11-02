@@ -937,22 +937,32 @@ apiRouter.get('/rooms', optionalAuth, async (_req: AuthenticatedRequest, res: Re
 });
 
 // Récupérer un salon par son code ou ID
-// Salles non terminées de l'utilisateur connecté (hôte ou participant) : sert à nettoyer son tableau de bord
+// Salles de l'utilisateur connecté (hôte ou participant) : historique complet + liste des salles encore actives.
+// Sert au tableau de bord (séances créées, temps de visionnage, entrée uniquement dans les salles actives).
 apiRouter.get('/rooms/mine/active', authenticate, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user!.id;
-    const hosted = await db
-      .select({ id: rooms.id })
-      .from(rooms)
-      .where(and(eq(rooms.hoteId, userId), sql`${rooms.statut} <> 'TERMINEE'`));
-    const joined = await db
-      .select({ id: rooms.id })
+    const hosted = await db.select().from(rooms).where(eq(rooms.hoteId, userId));
+    const joinedRows = await db
+      .select({ room: rooms })
       .from(participations)
       .innerJoin(rooms, eq(participations.roomId, rooms.id))
-      .where(and(eq(participations.userId, userId), sql`${rooms.statut} <> 'TERMINEE'`));
-    res.json({ activeRoomIds: Array.from(new Set([...hosted, ...joined].map((r) => r.id))) });
+      .where(eq(participations.userId, userId));
+    const byId = new Map<string, any>();
+    for (const r of hosted) byId.set(r.id, r);
+    for (const row of joinedRows) if (!byId.has(row.room.id)) byId.set(row.room.id, row.room);
+    const all = Array.from(byId.values()).sort(
+      (a, b) => new Date(b.dateCreation).getTime() - new Date(a.dateCreation).getTime()
+    );
+    res.json({
+      activeRoomIds: all.filter((r) => r.statut !== 'TERMINEE').map((r) => r.id),
+      history: all.slice(0, 200).map((r) => ({
+        ...toPublicRoom(r),
+        dateFin: r.statut === 'TERMINEE' ? r.lastPlaybackUpdate || null : null,
+      })),
+    });
   } catch (error) {
-    console.error('[API] Erreur listage salles actives:', error);
+    console.error('[API] Erreur listage salles utilisateur:', error);
     res.status(500).json({ error: 'Erreur lors de la récupération de vos salles.' });
   }
 });
@@ -1231,7 +1241,7 @@ apiRouter.delete('/rooms/:id', authenticate, async (req: AuthenticatedRequest, r
     if (r.hoteId !== user.id && user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'Action non autorisée : seul l’hôte peut clôturer la salle.' });
     }
-    await db.update(rooms).set({ statut: 'TERMINEE' }).where(eq(rooms.id, raw));
+    await db.update(rooms).set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() }).where(eq(rooms.id, raw));
     // Déconnecte immédiatement les participants encore présents
     globalWsServer?.terminateRoom(raw, "L'hôte a mis fin à la séance.");
     res.json({ success: true, message: 'Séance clôturée avec succès.' });

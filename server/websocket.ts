@@ -827,7 +827,7 @@ export class KinooWebSocketServer {
       try {
         await db
           .update(rooms)
-          .set({ statut: 'TERMINEE' })
+          .set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() })
           .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
       } catch {
         /* best-effort */
@@ -893,7 +893,7 @@ export class KinooWebSocketServer {
       try {
         await db
           .update(rooms)
-          .set({ statut: 'TERMINEE' })
+          .set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() })
           .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
       } catch {
         /* best-effort */
@@ -1252,7 +1252,7 @@ export class KinooWebSocketServer {
         if (!isHost) break;
 
         try {
-          await db.update(rooms).set({ statut: 'TERMINEE' }).where(eq(rooms.id, roomId));
+          await db.update(rooms).set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() }).where(eq(rooms.id, roomId));
         } catch (err) {
           console.error('[WS] Erreur clôture de la salle en base:', err);
           break;

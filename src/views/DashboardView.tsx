@@ -75,9 +75,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [activeMessageFriend, setActiveMessageFriend] = useState<string | null>(null);
 
   // User-specific authentic data from StorageService (no fictitious data)
-  const [userRooms, setUserRooms] = useState<Room[]>(() =>
-    StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE')
+  // historyRooms = toutes les séances (statistiques, historique) ; userRooms = séances encore actives (on peut y entrer)
+  const sortByDateDesc = (list: Room[]) =>
+    [...list].sort((a, b) => new Date(b.dateCreation || 0).getTime() - new Date(a.dateCreation || 0).getTime());
+  const [historyRooms, setHistoryRooms] = useState<Room[]>(() =>
+    sortByDateDesc(StorageService.getUserRooms(currentUser.id))
   );
+  const userRooms = historyRooms.filter((r) => r.statut !== 'TERMINEE');
+  const setUserRooms = (_: Room[]) => setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
   const [friends, setFriends] = useState<UserContact[]>(() => StorageService.getContacts(currentUser.id));
   const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>(() => StorageService.getScheduledSessions(currentUser.id));
 
@@ -137,20 +142,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   }, [currentUser.forfait]);
 
-  // Les séances terminées côté serveur disparaissent du tableau de bord (et ne sont plus accessibles)
+  // Synchronise l'historique avec le serveur (source de vérité : statut, date de fin, séances d'un autre appareil)
   useEffect(() => {
     let cancelled = false;
     ApiClient.getMyActiveRoomIds()
-      .then(({ activeRoomIds }) => {
+      .then(({ activeRoomIds, history }) => {
         if (cancelled) return;
         const active = new Set(activeRoomIds);
-        const local = StorageService.getUserRooms(currentUser.id);
-        for (const r of local) {
-          if (r.statut !== 'TERMINEE' && !active.has(r.id)) {
+        const serverById = new Map<string, any>((history || []).map((h: any) => [h.id, h]));
+        // 1. Séances connues du serveur mais absentes de ce navigateur
+        for (const h of history || []) {
+          if (!StorageService.getRoomById(h.id)) {
+            StorageService.saveRoom({
+              id: h.id,
+              codePublic: h.code || h.id,
+              nom: h.titre || 'Watch Party',
+              statut: h.statut || 'TERMINEE',
+              hoteId: h.hoteId,
+              hotePseudo: h.hotePseudo,
+              sourceContenuId: h.sourceContenu?.id || 'src-default',
+              sourceContenu: h.sourceContenu || {
+                synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '',
+                id: 'src-default', titre: 'Vidéo', typeSource: 'URL_WEB', fournisseur: 'Web',
+              },
+              estPrivee: !!h.estPrivee,
+              estVerrouillee: !!h.estVerrouillee,
+              chatActif: true,
+              reactionsActives: true,
+              maxParticipants: h.maxParticipants || 8,
+              dateCreation: h.dateCreation || new Date().toISOString(),
+              dateFinEffective: h.dateFin || undefined,
+            } as Room);
+          }
+        }
+        // 2. Statut et date de fin réels pour les séances déjà connues
+        for (const r of StorageService.getUserRooms(currentUser.id)) {
+          const srv = serverById.get(r.id);
+          if (srv) {
+            if (srv.statut === 'TERMINEE' && (r.statut !== 'TERMINEE' || !r.dateFinEffective)) {
+              StorageService.saveRoom({ ...r, statut: 'TERMINEE', dateFinEffective: srv.dateFin || r.dateFinEffective || new Date().toISOString() });
+            }
+          } else if (r.statut !== 'TERMINEE' && !active.has(r.id)) {
             StorageService.saveRoom({ ...r, statut: 'TERMINEE', dateFinEffective: r.dateFinEffective || new Date().toISOString() });
           }
         }
-        setUserRooms(StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE'));
+        setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
       })
       .catch(() => {
         /* hors ligne : on garde l'affichage local */
@@ -161,7 +197,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [currentUser.id]);
 
   const refreshAllData = () => {
-    setUserRooms(StorageService.getUserRooms(currentUser.id).filter((r) => r.statut !== 'TERMINEE'));
+    setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
     setFriends(StorageService.getContacts(currentUser.id));
     setScheduledSessions(StorageService.getScheduledSessions(currentUser.id));
   };
@@ -357,10 +393,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   // Dynamic statistics calculations
-  const totalWatchMinutes = userRooms.reduce((acc, r) => {
-    const dur = r.sourceContenu?.dureeSec ? Math.round(r.sourceContenu.dureeSec / 60) : 45;
-    return acc + dur;
-  }, 0);
+  const roomMinutes = (r: Room): number => {
+    const start = new Date(r.dateCreation || 0).getTime();
+    const end = r.dateFinEffective ? new Date(r.dateFinEffective).getTime() : Date.now();
+    if (!start || end <= start) return 0;
+    const elapsedMin = Math.round((end - start) / 60000);
+    const cap = r.sourceContenu?.dureeSec ? Math.ceil(r.sourceContenu.dureeSec / 60) : 360;
+    return Math.max(0, Math.min(elapsedMin, cap, 360));
+  };
+  const totalWatchMinutes = historyRooms
+    .filter((r) => r.statut === 'TERMINEE')
+    .reduce((acc, r) => acc + roomMinutes(r), 0);
   const totalWatchHours = (totalWatchMinutes / 60).toFixed(1);
 
   // Calendar dates representation (Septembre 2026)
@@ -1450,7 +1493,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Salles réelles de l'utilisateur ou état vide */}
-                  {userRooms.length === 0 ? (
+                  {historyRooms.length === 0 ? (
                     <div className="p-8 rounded-2xl bg-[#1C1C22]/40 border border-dashed border-[#2B2B32] text-center space-y-3">
                       <div className="w-12 h-12 rounded-2xl bg-[#24242C] flex items-center justify-center mx-auto text-[#EC4899]">
                         <Tv className="w-6 h-6" />
@@ -1471,11 +1514,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {userRooms.slice(0, 4).map((room) => (
+                      {historyRooms.slice(0, 4).map((room) => (
                         <div
                           key={room.id}
-                          onClick={() => onEnterRoom(room.id)}
-                          className="group cursor-pointer space-y-2"
+                          onClick={() => {
+                            if (room.statut === 'TERMINEE') return;
+                            onEnterRoom(room.id);
+                          }}
+                          className={`group space-y-2 ${room.statut === 'TERMINEE' ? 'cursor-default opacity-80' : 'cursor-pointer'}`}
                         >
                           <div className="relative aspect-[16/9] rounded-2xl overflow-hidden bg-[#1C1C22] border border-[#2B2B32] group-hover:border-[#7C3AED] transition-all">
                             <img
@@ -1496,7 +1542,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               {room.codePublic}
                             </span>
                             <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full text-[9px] font-semibold bg-[#7C3AED]/80 text-white">
-                              {room.statut === 'EN_COURS' ? 'En direct' : 'Prête'}
+                              {room.statut === 'TERMINEE' ? 'Terminée' : room.statut === 'EN_COURS' ? 'En direct' : 'Prête'}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -1528,14 +1574,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         Séances créées
                       </h3>
                       {renderCircularGauge(
-                        userRooms.length === 0 ? 0 : Math.min(100, userRooms.length * 25),
-                        `${userRooms.length}`,
+                        historyRooms.length === 0 ? 0 : Math.min(100, historyRooms.length * 25),
+                        `${historyRooms.length}`,
                         'gauge-rooms',
                         '#7C3AED',
                         '#EC4899'
                       )}
                       <p className="text-[10px] text-[#B8B4C0] mt-1">
-                        {userRooms.length === 0 ? '0 séance pour l’instant' : `${userRooms.length} salle(s) dans votre historique`}
+                        {historyRooms.length === 0 ? '0 séance pour l’instant' : `${historyRooms.length} salle(s) dans votre historique`}
                       </p>
                     </div>
 
@@ -1655,6 +1701,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {historyRooms.some((r) => r.statut === 'TERMINEE') && (
+                <div className="space-y-3 pt-2">
+                  <h3 className="text-sm font-bold text-white">Historique de vos séances</h3>
+                  <div className="space-y-2">
+                    {historyRooms
+                      .filter((r) => r.statut === 'TERMINEE')
+                      .map((room) => (
+                        <div
+                          key={room.id}
+                          className="bg-[#16161B] border border-[#232328] rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{room.nom}</p>
+                            <p className="text-[11px] text-[#B8B4C0] truncate">
+                              {room.sourceContenu?.titre || 'Source personnalisée'} •{' '}
+                              {room.dateCreation ? new Date(room.dateCreation).toLocaleDateString('fr-FR') : ''} •{' '}
+                              {roomMinutes(room)} min
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-[11px] font-bold text-[#EC4899] bg-[#232326] px-2 py-0.5 rounded-lg">
+                              {room.codePublic}
+                            </span>
+                            <span className="text-[11px] font-semibold text-gray-300 bg-[#232326] px-2 py-0.5 rounded-full">
+                              Terminée
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               )}
             </div>

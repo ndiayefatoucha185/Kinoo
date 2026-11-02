@@ -190,8 +190,8 @@ export const ApiClient = {
     return apiRequest<Room[]>('/api/rooms');
   },
 
-  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[] }> {
-    return apiRequest<{ activeRoomIds: string[] }>('/api/rooms/mine/active');
+  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[] }> {
+    return apiRequest<{ activeRoomIds: string[]; history: any[] }>('/api/rooms/mine/active');
   },
 
   async closeRoom(roomId: string): Promise<{ success: boolean }> {
