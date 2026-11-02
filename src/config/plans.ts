@@ -1,4 +1,4 @@
-import { UserPlan } from '../types/kinoo';
+import type { UserPlan } from '../types/kinoo';
 export type { UserPlan };
 
 export interface PlanConfig {
