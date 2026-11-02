@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import { db } from '../src/db/index.js';
 import { rooms, messages, participations } from '../src/db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { verifyToken, resolveSessionUser, getClientIp } from './auth.js';
 import { MetricsCollector } from './metrics.js';
 import {
@@ -544,11 +544,21 @@ export class KinooWebSocketServer {
 
       // 1. Vérification si la salle est verrouillée par son hôte
       if (room.estVerrouillee && !isHost) {
-        return {
-          allowed: false,
-          reason: 'Ce salon est actuellement verrouillé par son hôte.',
-          errorCode: 4423,
-        };
+        // Une personne déjà entrée dans la salle peut revenir (coupure réseau, rechargement) ; les nouvelles non.
+        const known = await db
+          .select({ id: participations.id })
+          .from(participations)
+          .where(and(eq(participations.roomId, roomId), eq(participations.userId, userId)))
+          .limit(1);
+        if (!known.length) {
+          return {
+            allowed: false,
+            reason: room.participantsAttendus
+              ? 'Cette salle est complète : toutes les personnes attendues sont déjà entrées.'
+              : 'Ce salon est actuellement verrouillé par son hôte.',
+            errorCode: 4423,
+          };
+        }
       }
 
       // 2. Vérification du mot de passe de salle (empreinte scrypt, ou ancien clair en repli)
@@ -687,11 +697,33 @@ export class KinooWebSocketServer {
     this.cancelEmptyRoomClose(roomId);
     if (client.role === 'HOTE') this.cancelHostAbsence(roomId);
 
-    // Présence en base (fire-and-forget) : sert au décompte des participants en ligne
-    db.update(participations)
-      .set({ estEnLigne: true })
-      .where(and(eq(participations.roomId, roomId), eq(participations.userId, client.userId)))
-      .catch(() => {});
+    // Présence en base : crée la ligne si la personne arrive sans être passée par l'API (utile au verrouillage)
+    (async () => {
+      try {
+        const existing = await db
+          .select({ id: participations.id })
+          .from(participations)
+          .where(and(eq(participations.roomId, roomId), eq(participations.userId, client.userId)))
+          .limit(1);
+        if (existing.length) {
+          await db
+            .update(participations)
+            .set({ estEnLigne: true })
+            .where(and(eq(participations.roomId, roomId), eq(participations.userId, client.userId)));
+        } else {
+          await db.insert(participations).values({
+            id: `part-${crypto.randomBytes(8).toString('hex')}`,
+            roomId,
+            userId: client.userId,
+            pseudo: client.pseudo,
+            role: client.role === 'HOTE' ? 'HOTE' : 'PARTICIPANT',
+            estEnLigne: true,
+          });
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
 
     // Émission d'un jeton cryptographique aléatoire à usage unique pour sécuriser le prochain passage de relais
     const nextRolloverToken = crypto.randomBytes(32).toString('hex');
@@ -770,7 +802,8 @@ export class KinooWebSocketServer {
     }
 
     // Send immediate sync snapshot to the newly connected participant
-    this.sendCurrentRoomSnapshot(client, roomId);
+    await this.sendCurrentRoomSnapshot(client, roomId);
+    if (!client.isRollover) this.checkRoomFullAfterJoin(roomId);
     return true;
   }
 
@@ -946,6 +979,53 @@ export class KinooWebSocketServer {
     }
   }
 
+  // Démarre la séance (une seule fois) et prévient toute la salle ; le client de l'hôte lance alors la lecture
+  private async startSession(roomId: string, reason: 'MANUAL' | 'AUTO') {
+    try {
+      const updated = await db
+        .update(rooms)
+        .set({ demarreeLe: new Date() })
+        .where(and(eq(rooms.id, roomId), sql`${rooms.demarreeLe} IS NULL`))
+        .returning({ id: rooms.id });
+      if (!updated.length) return;
+      this.broadcastToRoom(roomId, {
+        type: 'SESSION_STARTED',
+        serverTimestamp: Date.now(),
+        payload: { reason },
+      });
+    } catch (err) {
+      console.error('[WS] Erreur démarrage de séance:', err);
+    }
+  }
+
+  // Après chaque arrivée : verrouille la salle quand tout le monde est là, et démarre si le mode automatique est actif
+  private async checkRoomFullAfterJoin(roomId: string) {
+    try {
+      const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+      if (!room || !room.participantsAttendus) return;
+      const present = new Set<string>();
+      for (const c of this.roomClients.get(roomId) || []) {
+        if (c.ws.readyState === WebSocket.OPEN) present.add(c.userId);
+      }
+      if (present.size < room.participantsAttendus) return;
+
+      if (!room.estVerrouillee) {
+        await db.update(rooms).set({ estVerrouillee: true }).where(eq(rooms.id, roomId));
+        this.broadcastToRoom(roomId, {
+          type: 'ROOM_LOCKED',
+          serverTimestamp: Date.now(),
+          senderId: 'server',
+          payload: { isLocked: true, auto: true },
+        });
+      }
+      if (room.demarrageAuto && !room.demarreeLe) {
+        await this.startSession(roomId, 'AUTO');
+      }
+    } catch (err) {
+      console.error('[WS] Erreur vérification salle complète:', err);
+    }
+  }
+
   private async sendCurrentRoomSnapshot(client: ClientConnection, roomId: string) {
     try {
       const result = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
@@ -967,6 +1047,9 @@ export class KinooWebSocketServer {
               currentPositionSec: calculatedSec,
               sourceContenu: room.sourceContenu,
               estVerrouillee: room.estVerrouillee,
+              demarree: Boolean(room.demarreeLe),
+              participantsAttendus: room.participantsAttendus ?? null,
+              demarrageAuto: room.demarrageAuto,
               onlineCount: this.roomClients.get(roomId)?.size || 1,
             },
           })
@@ -1415,6 +1498,13 @@ export class KinooWebSocketServer {
             }, remainingMinDelay);
           }
         }
+        break;
+      }
+
+      case 'START_SESSION': {
+        const isHostUser = await this.requireHost(client, 'HOST_ONLY', "Seul l'hôte peut démarrer la séance.");
+        if (!isHostUser) break;
+        await this.startSession(roomId, 'MANUAL');
         break;
       }
 

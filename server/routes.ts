@@ -890,6 +890,18 @@ function toPublicRoom(room: any) {
   return { ...rest, requiresPassword: Boolean(room.estPrivee && (codeAccesHash || codeAcces)) };
 }
 
+/** Vrai pour l'hôte ou une personne déjà entrée dans la salle (elle peut revenir même si la salle est verrouillée). */
+async function isKnownMember(roomId: string, userId: string | undefined, hostId: string): Promise<boolean> {
+  if (!userId) return false;
+  if (userId === hostId) return true;
+  const rows = await db
+    .select({ id: participations.id })
+    .from(participations)
+    .where(and(eq(participations.roomId, roomId), eq(participations.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Résout une salle par identifiant ou code court (avec ou sans préfixe KN-). */
 async function findRoomByIdOrCode(raw: string) {
   const upper = raw.toUpperCase();
@@ -954,7 +966,14 @@ apiRouter.get('/rooms/mine/active', authenticate, async (req: AuthenticatedReque
     const all = Array.from(byId.values()).sort(
       (a, b) => new Date(b.dateCreation).getTime() - new Date(a.dateCreation).getTime()
     );
+    const now = new Date();
+    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthly = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(monthlyRoomCreations)
+      .where(and(eq(monthlyRoomCreations.userId, userId), gte(monthlyRoomCreations.creeLe, startOfMonth)));
     res.json({
+      monthlyCreated: monthly[0]?.count || 0,
       activeRoomIds: all.filter((r) => r.statut !== 'TERMINEE').map((r) => r.id),
       history: all.slice(0, 200).map((r) => ({
         ...toPublicRoom(r),
@@ -979,8 +998,13 @@ apiRouter.get('/rooms/:idOrCode', rateLimitRoomSearch, optionalAuth, async (req:
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
-    if (room.estVerrouillee) {
-      return res.status(423).json({ error: "Salle verrouillée par l'hôte", isLocked: true });
+    if (room.estVerrouillee && !(await isKnownMember(room.id, req.user?.id, room.hoteId))) {
+      return res.status(423).json({
+        error: room.participantsAttendus
+          ? 'Cette salle est complète : toutes les personnes attendues sont déjà entrées.'
+          : "Salle verrouillée par l'hôte",
+        isLocked: true,
+      });
     }
 
     const secret = room.codeAccesHash || room.codeAcces;
@@ -1059,7 +1083,11 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
       }
     }
 
-    const { estPrivee, codeAcces, sourceContenu } = req.body;
+    const { estPrivee, codeAcces, sourceContenu, invitesAttendus, demarrageAuto } = req.body;
+
+    // Nombre de personnes attendues (hôte compris), borné par la formule de l'hôte
+    const wantedGuests = typeof invitesAttendus === 'number' ? invitesAttendus : planConfig.maxParticipants - 1;
+    const participantsAttendus = Math.min(Math.max(wantedGuests + 1, 2), planConfig.maxParticipants);
     const titre = cleanText(req.body.titre, 100);
 
     if (titre.length < 2) {
@@ -1097,7 +1125,10 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
             code: generateRoomCode(8),
             hoteId: user.id,
             hotePseudo: user.pseudo,
-            maxParticipants: planConfig.maxParticipants,
+            maxParticipants: participantsAttendus,
+            participantsAttendus,
+            demarrageAuto: demarrageAuto !== false,
+            demarreeLe: null,
             statut: 'EN_COURS',
             estPrivee: Boolean(estPrivee) || Boolean(codeAccesHash),
             codeAcces: null,
@@ -1161,8 +1192,12 @@ apiRouter.post('/rooms/:id/join', rateLimitJoin, optionalAuth, async (req: Authe
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
-    if (room.estVerrouillee) {
-      return res.status(423).json({ error: "Salle verrouillée par l'hôte" });
+    if (room.estVerrouillee && !(await isKnownMember(room.id, req.user?.id, room.hoteId))) {
+      return res.status(423).json({
+        error: room.participantsAttendus
+          ? 'Cette salle est complète : toutes les personnes attendues sont déjà entrées.'
+          : "Salle verrouillée par l'hôte",
+      });
     }
 
     const secret = room.codeAccesHash || room.codeAcces;

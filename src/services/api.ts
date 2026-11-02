@@ -190,8 +190,8 @@ export const ApiClient = {
     return apiRequest<Room[]>('/api/rooms');
   },
 
-  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[] }> {
-    return apiRequest<{ activeRoomIds: string[]; history: any[] }>('/api/rooms/mine/active');
+  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }> {
+    return apiRequest<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }>('/api/rooms/mine/active');
   },
 
   async closeRoom(roomId: string): Promise<{ success: boolean }> {
@@ -207,6 +207,8 @@ export const ApiClient = {
     estPrivee?: boolean;
     codeAcces?: string;
     sourceContenu?: any;
+    invitesAttendus?: number;
+    demarrageAuto?: boolean;
   }): Promise<Room> {
     return apiRequest<Room>('/api/rooms', {
       method: 'POST',

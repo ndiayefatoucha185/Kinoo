@@ -124,6 +124,9 @@ export interface Room {
   sourceContenu: ContentSource;
   estPrivee: boolean;
   estVerrouillee: boolean;
+  participantsAttendus?: number | null;
+  demarrageAuto?: boolean;
+  demarreeLe?: string | null;
   chatActif: boolean;
   reactionsActives: boolean;
   maxParticipants: number;

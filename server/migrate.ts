@@ -19,6 +19,11 @@ export async function ensureSecuritySchema(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version integer NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz`);
   await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS code_acces_hash text`);
+  await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS participants_attendus integer`);
+  await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS demarrage_auto boolean NOT NULL DEFAULT true`);
+  await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS demarree_le timestamptz`);
+  // Les salles créées avant cette fonction n'ont pas de salle d'attente : elles sont déjà démarrées
+  await pool.query(`UPDATE rooms SET demarree_le = date_creation WHERE demarree_le IS NULL AND participants_attendus IS NULL`);
 
   // Les mots de passe de salle stockés en clair sont remplacés par leur empreinte.
   const legacy = await pool.query(

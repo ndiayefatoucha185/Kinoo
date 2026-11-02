@@ -90,6 +90,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const enforceTimerRef = useRef<any>(null);
   const lastEnforceToastRef = useRef<number>(0);
   const softRateActiveRef = useRef<boolean>(false);
+  // Toujours la version la plus récente du gestionnaire (évite qu'il garde l'état d'un ancien rendu)
+  const handleHostPlayRef = useRef<() => void>(() => {});
+  const handleSyncPacketRef = useRef<(packet: SyncPacket) => void>(() => {});
   const isWarmingUpRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
@@ -99,6 +102,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [syncStatus, setSyncStatus] = useState<'SYNCHRONISE' | 'RECALAGE' | 'ATTENTE'>('SYNCHRONISE');
   const [driftSec, setDriftSec] = useState(0);
   const [hostAway, setHostAway] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(true);
+  const [expectedTotal, setExpectedTotal] = useState<number | null>(null);
+  const [autoStart, setAutoStart] = useState(true);
   const [myNetworkPoor, setMyNetworkPoor] = useState(false);
   const [poorNetworkUserIds, setPoorNetworkUserIds] = useState<string[]>([]);
   const [ytCaptionsActive, setYtCaptionsActive] = useState<boolean>(true);
@@ -234,7 +240,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       syncEngine.connect(
         roomId,
         { id: localUserId, pseudo: localPseudo, role: userRole, ageCertifie: true },
-        handleSyncPacket
+        (packet: SyncPacket) => handleSyncPacketRef.current(packet)
       );
 
       // Announce join
@@ -548,6 +554,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'INITIAL_SYNC_SNAPSHOT': {
         const payload = packet.payload;
         if (!payload) break;
+        if (typeof payload.demarree === 'boolean') setSessionStarted(payload.demarree);
+        if (typeof payload.participantsAttendus === 'number') setExpectedTotal(payload.participantsAttendus);
+        if (typeof payload.demarrageAuto === 'boolean') setAutoStart(payload.demarrageAuto);
         const targetPos = typeof payload.currentPositionSec === 'number' ? payload.currentPositionSec : 0;
         const targetPlaying = payload.playbackState === 'LECTURE';
         // L'hôte est la référence : il ne se recale jamais sur un instantané (sauf à son arrivée dans la salle)
@@ -754,6 +763,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         break;
       }
 
+      case 'SESSION_STARTED':
+        setSessionStarted(true);
+        onToast('La séance démarre !', 'success');
+        // Le client de l'hôte lance la lecture : tout le monde démarre ensemble via le serveur
+        if (isHost) setTimeout(() => handleHostPlayRef.current(), 700);
+        break;
+
       case 'HOST_AWAY':
         if (!isHost) setHostAway(true);
         break;
@@ -795,7 +811,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
       case 'ROOM_LOCKED':
         setRoom((prev) => (prev ? { ...prev, estVerrouillee: packet.payload?.isLocked } : null));
-        onToast(packet.payload?.isLocked ? 'Salle verrouillée par l’hôte.' : 'Salle déverrouillée.', 'info');
+        onToast(
+          packet.payload?.isLocked
+            ? packet.payload?.auto
+              ? 'Tout le monde est là : la salle est verrouillée.'
+              : 'Salle verrouillée par l’hôte.'
+            : 'Salle déverrouillée.',
+          'info'
+        );
         break;
 
       case 'ROOM_TERMINATED': {
@@ -838,6 +861,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         break;
     }
   };
+
+  handleSyncPacketRef.current = handleSyncPacket;
 
   // Periodic Drift Monitoring Check (Calcul de Dérive)
   useEffect(() => {
@@ -992,6 +1017,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     setIsPlaying(true);
     debugSyncLog('🖱️ CLIC LECTURE HÔTE EFFECTUÉ', { positionSec: pos });
     syncEngine.sendEvent('PLAY', { id: localUserId, pseudo: localPseudo, role: userRole }, { positionSec: pos });
+  };
+
+  handleHostPlayRef.current = handleHostPlay;
+
+  // Démarrage de la séance depuis la salle d'attente (le serveur vérifie que c'est bien l'hôte)
+  const handleStartSession = () => {
+    if (!isHost) return;
+    syncEngine.sendRaw('START_SESSION');
   };
 
   const handleHostPause = () => {
@@ -1361,6 +1394,39 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         <div className="lg:col-span-8 space-y-3">
           {/* Video Player Box */}
           <div className="bg-black rounded-2xl overflow-hidden border border-[#232326] relative aspect-video flex items-center justify-center group shadow-2xl">
+            {!sessionStarted && (
+              <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#09090B]/95 backdrop-blur-md p-6 text-center">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#EC4899] flex items-center justify-center mb-4 shadow-xl animate-pulse">
+                  <Users className="w-7 h-7 text-white" />
+                </div>
+                <h3 className="text-lg sm:text-xl font-bold text-white mb-1">Salle d'attente</h3>
+                <p className="text-sm text-gray-300 mb-1">
+                  {expectedTotal
+                    ? `${participations.length} / ${expectedTotal} personnes présentes`
+                    : `${participations.length} personne(s) présente(s)`}
+                </p>
+                <p className="text-xs text-gray-400 max-w-sm mb-5">
+                  {autoStart
+                    ? 'La séance démarrera automatiquement quand tout le monde sera arrivé.'
+                    : "La séance démarrera quand l'hôte la lancera."}
+                  {!isHost && " L'hôte peut aussi la démarrer avant."}
+                </p>
+                {isHost && (
+                  <button
+                    onClick={handleStartSession}
+                    disabled={participations.length < 2}
+                    className="px-6 py-3 bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white font-bold rounded-xl shadow-lg hover:opacity-95 transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>
+                      {participations.length < 2
+                        ? 'En attente d’au moins un invité'
+                        : `Démarrer maintenant avec ${participations.length} personne${participations.length > 1 ? 's' : ''}`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
             {isYouTube ? (
               <div className="w-full h-full relative flex items-center justify-center bg-black [&>iframe]:w-full [&>iframe]:h-full [&>iframe]:border-0">
                 <div id="kinoo-yt-player" className="w-full h-full" />

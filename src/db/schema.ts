@@ -37,6 +37,12 @@ export const rooms = pgTable('rooms', {
   // Empreinte scrypt du mot de passe de salle (le champ codeAcces en clair n'est plus alimenté)
   codeAccesHash: text('code_acces_hash'),
   estVerrouillee: boolean('est_verrouillee').notNull().default(false),
+  // Nombre total de personnes attendues (hôte compris) : à ce nombre la salle se verrouille toute seule
+  participantsAttendus: integer('participants_attendus'),
+  // true : la séance démarre seule quand tout le monde est là ; l'hôte peut toujours la démarrer à la main
+  demarrageAuto: boolean('demarrage_auto').notNull().default(true),
+  // Heure de démarrage de la séance (null = salle d'attente)
+  demarreeLe: timestamp('demarree_le', { withTimezone: true }),
   sourceContenu: jsonb('source_contenu'),
   playbackState: varchar('playback_state', { length: 20 }).notNull().default('PAUSE'),
   currentPositionSec: real('current_position_sec').notNull().default(0),

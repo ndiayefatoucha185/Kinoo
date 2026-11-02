@@ -38,6 +38,9 @@ export const createRoomSchema = z.object({
   estPrivee: z.boolean().optional().default(false),
   codeAcces: z.string().max(32).optional().nullable(),
   sourceContenu: z.any().optional().nullable(),
+  // Nombre de personnes à inviter (hors hôte) et mode de démarrage de la séance
+  invitesAttendus: z.number().int().min(1).max(500).optional(),
+  demarrageAuto: z.boolean().optional(),
 });
 
 // 3. Signalements

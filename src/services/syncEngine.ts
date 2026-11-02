@@ -22,6 +22,7 @@ export type SyncEventType =
   | 'ROOM_ROSTER'
   | 'HOST_AWAY'
   | 'HOST_BACK'
+  | 'SESSION_STARTED'
   | 'PARTICIPANT_NETWORK';
 
 export interface SyncPacket {
@@ -326,7 +327,7 @@ class RoomSyncEngine {
       }
     }
 
-    if (msg.type === 'ROOM_ROSTER' || msg.type === 'HOST_AWAY' || msg.type === 'HOST_BACK' || msg.type === 'PARTICIPANT_NETWORK') {
+    if (msg.type === 'ROOM_ROSTER' || msg.type === 'HOST_AWAY' || msg.type === 'HOST_BACK' || msg.type === 'SESSION_STARTED' || msg.type === 'PARTICIPANT_NETWORK') {
       if (msg.type === 'ROOM_ROSTER' && msg.payload?.selfUserId && this.currentUser) {
         this.currentUser.id = msg.payload.selfUserId;
       }
@@ -557,6 +558,17 @@ class RoomSyncEngine {
 
   public getCurrentUserId(): string | null {
     return this.currentUser?.id || null;
+  }
+
+  // Message simple vers le serveur (ex. START_SESSION, réservé à l'hôte et vérifié côté serveur)
+  public sendRaw(type: string, payload: Record<string, unknown> = {}): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type, payload }));
+      } catch {
+        // ignore
+      }
+    }
   }
 
   // Signale à la salle que cet appareil a (ou n'a plus) un problème de réseau

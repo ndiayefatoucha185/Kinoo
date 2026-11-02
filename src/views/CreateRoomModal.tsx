@@ -56,8 +56,26 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
   const monthlyLimit = planConfig.maxMonthlyRooms;
-  const isQuotaExceeded = currentMonthRooms.length >= monthlyLimit;
+  // Compteur fait foi côté serveur ; repli sur ce navigateur si le serveur est injoignable
+  const [serverMonthly, setServerMonthly] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getMyActiveRoomIds()
+      .then((r) => {
+        if (!cancelled && typeof r.monthlyCreated === 'number') setServerMonthly(r.monthlyCreated);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const monthlyUsed = serverMonthly ?? currentMonthRooms.length;
+  const isQuotaExceeded = monthlyUsed >= monthlyLimit;
   const maxAllowedParticipants = planConfig.maxParticipants;
+  const maxGuests = Math.max(1, maxAllowedParticipants - 1);
+  const [invitesAttendus, setInvitesAttendus] = useState<number>(Math.min(3, maxGuests));
+  const [demarrageAuto, setDemarrageAuto] = useState(true);
+  const [motDePasse, setMotDePasse] = useState('');
 
   // 1. Local File state
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -267,8 +285,10 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       const serverRoom = await ApiClient.createRoom({
         titre: nom.trim(),
         estPrivee: true,
-        codeAcces: undefined,
+        codeAcces: motDePasse.trim() ? motDePasse.trim() : undefined,
         sourceContenu: contentSource,
+        invitesAttendus: Math.min(Math.max(invitesAttendus, 1), maxGuests),
+        demarrageAuto,
       });
 
       const assignedCode = (serverRoom as any).code || `KN-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -287,6 +307,9 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         chatActif,
         reactionsActives,
         maxParticipants: (serverRoom as any).maxParticipants || maxAllowedParticipants,
+        participantsAttendus: (serverRoom as any).participantsAttendus ?? null,
+        demarrageAuto: (serverRoom as any).demarrageAuto !== false,
+        demarreeLe: (serverRoom as any).demarreeLe ?? null,
         dateCreation: (serverRoom as any).dateCreation || new Date().toISOString(),
       };
 
@@ -374,7 +397,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                     ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                     : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                 }`}>
-                  {`${currentMonthRooms.length}/${monthlyLimit} ce mois`}
+                  {`${monthlyUsed}/${monthlyLimit} ce mois`}
                 </span>
               </div>
             </div>
@@ -644,6 +667,64 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             </div>
           </div>
 
+          {/* Invités, démarrage et mot de passe */}
+          <div className="bg-[#141417] border border-[#232326] rounded-xl p-4 space-y-4 text-xs">
+            <h4 className="font-bold text-white">Invités et démarrage</h4>
+
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="kinoo-invites" className="text-[#B8B4C0]">
+                Nombre de personnes à inviter (sans vous)
+              </label>
+              <input
+                id="kinoo-invites"
+                type="number"
+                min={1}
+                max={maxGuests}
+                value={invitesAttendus}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  setInvitesAttendus(Number.isFinite(n) ? Math.min(Math.max(n, 1), maxGuests) : 1);
+                }}
+                className="w-20 px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white text-center font-semibold focus:outline-none focus:border-[#7C3AED]"
+              />
+            </div>
+            <p className="text-[11px] text-[#B8B4C0] leading-snug">
+              Quand {invitesAttendus} personne{invitesAttendus > 1 ? 's' : ''} {invitesAttendus > 1 ? 'auront' : 'aura'} rejoint la salle, elle se verrouille : personne d'autre ne pourra entrer.
+              Maximum {maxGuests} invité{maxGuests > 1 ? 's' : ''} avec la formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'}.
+            </p>
+
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={demarrageAuto}
+                onChange={(e) => setDemarrageAuto(e.target.checked)}
+                className="mt-0.5 rounded border-[#232326] text-[#EC4899] focus:ring-0"
+              />
+              <span className="text-white leading-snug">
+                Démarrer automatiquement quand tout le monde est arrivé
+                <span className="block text-[11px] text-[#B8B4C0]">
+                  Sinon, ou si quelqu'un tarde, vous pouvez toujours démarrer la séance vous-même depuis la salle d'attente.
+                </span>
+              </span>
+            </label>
+
+            <div className="space-y-1">
+              <label htmlFor="kinoo-room-password" className="text-[#B8B4C0]">
+                Mot de passe de la salle (facultatif, 4 caractères minimum)
+              </label>
+              <input
+                id="kinoo-room-password"
+                type="text"
+                maxLength={32}
+                autoComplete="off"
+                value={motDePasse}
+                onChange={(e) => setMotDePasse(e.target.value)}
+                placeholder="Laissez vide pour une salle sans mot de passe"
+                className="w-full px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white placeholder:text-gray-500 focus:outline-none focus:border-[#7C3AED]"
+              />
+            </div>
+          </div>
+
           {/* Boutons d'action */}
           <div className="pt-2 flex items-center justify-end gap-3">
             <button
@@ -655,7 +736,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !nom.trim()}
+              disabled={isSubmitting || !nom.trim() || (motDePasse.trim().length > 0 && motDePasse.trim().length < 4)}
               className="px-6 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all disabled:opacity-50 flex items-center gap-2"
             >
               <Play className="w-3.5 h-3.5 fill-current" />
