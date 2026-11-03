@@ -46,6 +46,8 @@ export const rooms = pgTable('rooms', {
   sourceContenu: jsonb('source_contenu'),
   playbackState: varchar('playback_state', { length: 20 }).notNull().default('PAUSE'),
   currentPositionSec: real('current_position_sec').notNull().default(0),
+  // Temps de lecture réellement écoulé (secondes), cumulé à chaque pause / fin de séance
+  lectureTotaleSec: real('lecture_totale_sec').notNull().default(0),
   lastPlaybackUpdate: timestamp('last_playback_update', { withTimezone: true }).notNull().defaultNow(),
   dateCreation: timestamp('date_creation', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -216,4 +218,36 @@ export const kvStore = pgTable('kv_store', {
   value: jsonb('value').notNull().default({}),
   counter: integer('counter').notNull().default(0),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+// Carnet d'amis (contact_user_id renseigné quand l'ami a un compte Kinoo)
+export const contacts = pgTable('contacts', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  ownerId: varchar('owner_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  contactUserId: varchar('contact_user_id', { length: 128 }).references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  email: varchar('email', { length: 255 }),
+  dateAjout: timestamp('date_ajout', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const scheduledSessions = pgTable('scheduled_sessions', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  userId: varchar('user_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 150 }).notNull(),
+  dateIso: timestamp('date_iso', { withTimezone: true }).notNull().defaultNow(),
+  dayOfMonth: integer('day_of_month').notNull(),
+  timeStr: varchar('time_str', { length: 5 }).notNull().default('20:30'),
+  mediaTitle: varchar('media_title', { length: 200 }),
+  mediaType: varchar('media_type', { length: 30 }),
+  badge: varchar('badge', { length: 40 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const privateMessages = pgTable('private_messages', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  senderId: varchar('sender_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  recipientId: varchar('recipient_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp('read_at', { withTimezone: true }),
 });

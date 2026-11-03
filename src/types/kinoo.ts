@@ -124,6 +124,8 @@ export interface Room {
   sourceContenu: ContentSource;
   estPrivee: boolean;
   estVerrouillee: boolean;
+  // Temps de lecture réellement écoulé (secondes), mesuré par le serveur
+  lectureTotaleSec?: number;
   participantsAttendus?: number | null;
   demarrageAuto?: boolean;
   demarreeLe?: string | null;
@@ -208,6 +210,8 @@ export interface UserContact {
   dateAjout: string;
   dateNaissance?: string;
   forfait?: UserPlan;
+  // Identifiant du compte Kinoo de l'ami (absent s'il n'a pas encore de compte) : requis pour la messagerie
+  linkedUserId?: string;
 }
 
 export interface ScheduledSession {

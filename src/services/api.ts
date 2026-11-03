@@ -190,6 +190,38 @@ export const ApiClient = {
     return apiRequest<Room[]>('/api/rooms');
   },
 
+  // --- AMIS, SÉANCES PROGRAMMÉES, MESSAGES PRIVÉS ---
+  async getContacts(): Promise<{ contacts: any[] }> {
+    return apiRequest<{ contacts: any[] }>('/api/contacts');
+  },
+  async addContact(query: string): Promise<{ contacts: any[] }> {
+    return apiRequest<{ contacts: any[] }>('/api/contacts', { method: 'POST', body: JSON.stringify({ query }) });
+  },
+  async deleteContact(id: string): Promise<{ contacts: any[] }> {
+    return apiRequest<{ contacts: any[] }>(`/api/contacts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  async getScheduledSessions(): Promise<{ sessions: any[] }> {
+    return apiRequest<{ sessions: any[] }>('/api/scheduled-sessions');
+  },
+  async addScheduledSession(data: {
+    title: string;
+    dayOfMonth: number;
+    timeStr?: string;
+    badge?: string;
+    dateIso?: string;
+  }): Promise<{ session: any }> {
+    return apiRequest<{ session: any }>('/api/scheduled-sessions', { method: 'POST', body: JSON.stringify(data) });
+  },
+  async deleteScheduledSession(id: string): Promise<{ success: boolean }> {
+    return apiRequest<{ success: boolean }>(`/api/scheduled-sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+  async getConversation(userId: string): Promise<{ messages: { id: string; fromMe: boolean; body: string; createdAt: string }[] }> {
+    return apiRequest(`/api/messages/${encodeURIComponent(userId)}`);
+  },
+  async sendPrivateMessage(toUserId: string, body: string): Promise<{ message: { id: string; fromMe: boolean; body: string; createdAt: string } }> {
+    return apiRequest('/api/messages', { method: 'POST', body: JSON.stringify({ toUserId, body }) });
+  },
+
   async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }> {
     return apiRequest<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }>('/api/rooms/mine/active');
   },

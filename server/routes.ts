@@ -2,7 +2,7 @@ import { generateCaptchaChallenge } from './captcha.js';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { db } from '../src/db/index.js';
-import { users, rooms, participations, messages, reports, tickets, transactions, auditLogs, catalogItems, advertisements, monthlyRoomCreations, moderationArchives } from '../src/db/schema.js';
+import { users, rooms, participations, messages, reports, tickets, transactions, auditLogs, catalogItems, advertisements, monthlyRoomCreations, moderationArchives, contacts, scheduledSessions, privateMessages } from '../src/db/schema.js';
 import { eq, desc, and, or, isNull, lte, gte, sql } from 'drizzle-orm';
 import {
   authenticate,
@@ -32,6 +32,8 @@ import {
 import { KINOO_PLANS, getPlanConfig } from '../src/config/plans.js';
 import { EmailService, generateIcsCalendar } from './email.js';
 import { globalWsServer } from './websocket.js';
+import { socialRouter } from './social.js';
+import { accrueWatchTime } from './watchtime.js';
 import {
   validateBody,
   loginSchema,
@@ -111,6 +113,7 @@ export async function purgeExpiredModerationArchives(): Promise<number> {
 }
 
 export const apiRouter = Router();
+apiRouter.use(socialRouter);
 
 // Limiteurs spécifiques (par IP ou par adresse e-mail ciblée)
 const rateLimitForgotPassword = rateLimitKv('forgot', {
@@ -1276,7 +1279,7 @@ apiRouter.delete('/rooms/:id', authenticate, async (req: AuthenticatedRequest, r
     if (r.hoteId !== user.id && user.role !== 'SUPER_ADMIN') {
       return res.status(403).json({ error: 'Action non autorisée : seul l’hôte peut clôturer la salle.' });
     }
-    await db.update(rooms).set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() }).where(eq(rooms.id, raw));
+    await db.update(rooms).set({ statut: 'TERMINEE', lectureTotaleSec: accrueWatchTime(), lastPlaybackUpdate: new Date() }).where(eq(rooms.id, raw));
     // Déconnecte immédiatement les participants encore présents
     globalWsServer?.terminateRoom(raw, "L'hôte a mis fin à la séance.");
     res.json({ success: true, message: 'Séance clôturée avec succès.' });
@@ -2551,6 +2554,12 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
     const userParticipations = await db.select().from(participations).where(eq(participations.userId, userId));
     const userMessages = await db.select().from(messages).where(eq(messages.userId, userId));
     const userTickets = await db.select().from(tickets).where(eq(tickets.userEmail, userEmail));
+    const userContacts = await db.select().from(contacts).where(eq(contacts.ownerId, userId));
+    const userSessions = await db.select().from(scheduledSessions).where(eq(scheduledSessions.userId, userId));
+    const userPrivateMessages = await db
+      .select()
+      .from(privateMessages)
+      .where(or(eq(privateMessages.senderId, userId), eq(privateMessages.recipientId, userId)));
 
     const exportData = {
       format: 'RGPD_DATA_EXPORT_JSON',
@@ -2572,6 +2581,14 @@ apiRouter.get('/user/rgpd-export', authenticate, async (req: AuthenticatedReques
       historiqueParticipations: userParticipations,
       messagesPublies: userMessages,
       ticketsSupport: userTickets,
+      carnetAmis: userContacts.map((c) => ({ nom: c.name, email: c.email, dateAjout: c.dateAjout })),
+      seancesProgrammees: userSessions,
+      messagesPrives: userPrivateMessages.map((m) => ({
+        id: m.id,
+        envoyeParMoi: m.senderId === userId,
+        contenu: m.body,
+        date: m.createdAt,
+      })),
       informationConservationSanctions: {
         cadreLegal: "Article 17.3.e du RGPD (sécurité de la plateforme et défense de droits en justice)",
         regle: "En cas de sanction disciplinaire formelle pour comportement abusif, un condensat cryptographique HMAC non réversible, le motif générique et la mesure prise sont conservés pour une durée maximale de 12 mois à des fins de sécurité de la communauté, sans aucune conservation de votre pseudo, email ou contenu de messages.",

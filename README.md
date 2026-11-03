@@ -46,6 +46,14 @@ Le compte Super Admin est créé au premier démarrage à partir de `ADMIN_EMAIL
 - **Salle d'attente** : la séance démarre automatiquement quand tout le monde est là (option), ou quand l'hôte clique sur « Démarrer maintenant ».
 - Si l'hôte quitte, la séance est terminée (immédiatement via « Quitter », ou après 60 s s'il ferme simplement l'onglet). Une salle vide se termine après 60 s.
 
+## Amis, séances programmées, messagerie, statistiques
+
+- **Amis** (formule Premium) : ajout par pseudo ou e-mail ; si la personne a un compte Kinoo, l'indicateur « en ligne » est réel.
+- **Messagerie privée** (Premium) : entre amis ayant un compte, stockée en base, rafraîchie toutes les 5 secondes.
+- **Séances programmées** : stockées en base, disponibles depuis n'importe quel appareil.
+- **Temps de visionnage** : mesuré par le serveur (temps de lecture réellement écoulé), pas estimé.
+- Les tables correspondantes se créent toutes seules au démarrage du serveur ; les fichiers `supabase/migrations/0003_social.sql` et `0004_watch_time.sql` en sont la trace.
+
 ## Déploiement
 
 Un `Dockerfile` est fourni (Google Cloud Run). Variables à définir en production : voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md#mise-en-production).

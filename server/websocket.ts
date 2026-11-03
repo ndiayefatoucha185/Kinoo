@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
+import { accrueWatchTime } from './watchtime.js';
 import { db } from '../src/db/index.js';
 import { rooms, messages, participations } from '../src/db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
@@ -126,6 +127,16 @@ export class KinooWebSocketServer {
   }
 
   /** Ferme toutes les sockets d'un utilisateur (suspension, révocation, suppression de compte). */
+  /** Vrai si la personne a au moins une connexion ouverte (dans une salle). */
+  public isUserConnected(userId: string): boolean {
+    for (const clients of this.roomClients.values()) {
+      for (const c of clients) {
+        if (c.userId === userId && c.ws.readyState === WebSocket.OPEN) return true;
+      }
+    }
+    return false;
+  }
+
   public disconnectUser(userId: string, reason = 'Session terminée'): void {
     for (const clients of Array.from(this.roomClients.values())) {
       for (const client of Array.from(clients)) {
@@ -860,7 +871,7 @@ export class KinooWebSocketServer {
       try {
         await db
           .update(rooms)
-          .set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() })
+          .set({ statut: 'TERMINEE', lectureTotaleSec: accrueWatchTime(), lastPlaybackUpdate: new Date() })
           .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
       } catch {
         /* best-effort */
@@ -900,7 +911,7 @@ export class KinooWebSocketServer {
         const pos = sanitizePositionSec(room.currentPositionSec + (Date.now() - base) / 1000);
         await db
           .update(rooms)
-          .set({ playbackState: 'PAUSE', currentPositionSec: pos, lastPlaybackUpdate: new Date() })
+          .set({ playbackState: 'PAUSE', lectureTotaleSec: accrueWatchTime(), currentPositionSec: pos, lastPlaybackUpdate: new Date() })
           .where(eq(rooms.id, roomId));
         this.broadcastToRoom(roomId, {
           type: 'PAUSE',
@@ -926,7 +937,7 @@ export class KinooWebSocketServer {
       try {
         await db
           .update(rooms)
-          .set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() })
+          .set({ statut: 'TERMINEE', lectureTotaleSec: accrueWatchTime(), lastPlaybackUpdate: new Date() })
           .where(and(eq(rooms.id, roomId), eq(rooms.statut, 'EN_COURS')));
       } catch {
         /* best-effort */
@@ -1144,6 +1155,7 @@ export class KinooWebSocketServer {
               .update(rooms)
               .set({
                 playbackState: 'LECTURE',
+                lectureTotaleSec: accrueWatchTime(),
                 currentPositionSec: targetSec,
                 lastPlaybackUpdate: new Date(),
               })
@@ -1213,6 +1225,7 @@ export class KinooWebSocketServer {
             .update(rooms)
             .set({
               playbackState: 'PAUSE',
+              lectureTotaleSec: accrueWatchTime(),
               currentPositionSec: targetSec,
               lastPlaybackUpdate: new Date(now),
             })
@@ -1243,6 +1256,7 @@ export class KinooWebSocketServer {
           await db
             .update(rooms)
             .set({
+              lectureTotaleSec: accrueWatchTime(),
               currentPositionSec: targetSec,
               lastPlaybackUpdate: new Date(now),
             })
@@ -1282,6 +1296,7 @@ export class KinooWebSocketServer {
             .set({
               sourceContenu: source,
               playbackState: 'PAUSE',
+              lectureTotaleSec: accrueWatchTime(),
               currentPositionSec: 0,
               lastPlaybackUpdate: new Date(now),
             })
@@ -1335,7 +1350,7 @@ export class KinooWebSocketServer {
         if (!isHost) break;
 
         try {
-          await db.update(rooms).set({ statut: 'TERMINEE', lastPlaybackUpdate: new Date() }).where(eq(rooms.id, roomId));
+          await db.update(rooms).set({ statut: 'TERMINEE', lectureTotaleSec: accrueWatchTime(), lastPlaybackUpdate: new Date() }).where(eq(rooms.id, roomId));
         } catch (err) {
           console.error('[WS] Erreur clôture de la salle en base:', err);
           break;
