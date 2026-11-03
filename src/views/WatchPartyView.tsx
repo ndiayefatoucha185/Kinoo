@@ -1971,6 +1971,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showChangeMediaModal}
         onClose={() => setShowChangeMediaModal(false)}
         onMediaSelected={handleHostMediaChange}
+        canUseCatalogue={currentUser?.forfait === 'PREMIUM'}
       />
 
       {/* Post-Movie Debrief Lounge Modal */}

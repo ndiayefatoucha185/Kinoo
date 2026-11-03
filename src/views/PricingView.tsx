@@ -362,14 +362,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span>Diffusion au choix par <strong>lien URL</strong> ou <strong>import vidéo</strong></span>
                 </li>
 
-                {/* Accès catalogue suggestions */}
-                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
-                  <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Accès au catalogue <strong>« Films & séries du moment »</strong></span>
-                </li>
-
                 {/* Chat texte ET vocal disponibles */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
@@ -497,6 +489,14 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Check className="w-3.5 h-3.5" />
                   </div>
                   <span>Invitation <strong>jusqu'à 25 personnes</strong> simultanément</span>
+                </li>
+
+                {/* Catalogue : Premium uniquement */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
+                  <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span>Accès au catalogue <strong>« Films & séries du moment »</strong></span>
                 </li>
 
                 {/* Accès à un assistant IA personnel */}
@@ -670,8 +670,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-4 text-center text-red-400">
                     <XIcon className="w-4 h-4 mx-auto" />
                   </td>
-                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    <Check className="w-4 h-4 mx-auto" />
+                  <td className="py-3.5 px-4 text-center text-red-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
+                    <XIcon className="w-4 h-4 mx-auto" />
                   </td>
                   <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#3B82F6]/5">
                     <Check className="w-4 h-4 mx-auto" />

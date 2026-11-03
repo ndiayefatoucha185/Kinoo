@@ -33,6 +33,7 @@ import { KINOO_PLANS, getPlanConfig } from '../src/config/plans.js';
 import { EmailService, generateIcsCalendar } from './email.js';
 import { globalWsServer } from './websocket.js';
 import { socialRouter } from './social.js';
+import { sourceNotAllowedReason } from './sourceGuard.js';
 import { accrueWatchTime } from './watchtime.js';
 import {
   validateBody,
@@ -1112,6 +1113,10 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
       source = sanitizeSourceContenu(sourceContenu);
       if (!source) {
         return res.status(400).json({ error: 'Source vidéo invalide (URL http(s) attendue).' });
+      }
+      const notAllowed = sourceNotAllowedReason(user.forfait, source);
+      if (notAllowed) {
+        return res.status(403).json({ error: notAllowed, code: 'PLAN_REQUIRED' });
       }
     }
 

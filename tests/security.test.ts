@@ -12,6 +12,7 @@ import {
   safeEqual,
 } from '../server/security.ts';
 import { getPlanConfig, KINOO_PLANS } from '../src/config/plans.ts';
+import { sourceNotAllowedReason } from '../server/sourceGuard.ts';
 
 test('les codes de salle ont 8 caractères sans lettres ambiguës', () => {
   for (let i = 0; i < 200; i++) {
@@ -67,4 +68,16 @@ test('formules : 8/15/25 participants et 3/10/25 séances par mois', () => {
   assert.equal(KINOO_PLANS.STANDARD.maxMonthlyRooms, 10);
   assert.equal(KINOO_PLANS.PREMIUM.maxMonthlyRooms, 25);
   assert.equal(getPlanConfig(undefined).id, 'GRATUIT');
+});
+
+test('catalogue réservé au Premium, fichier local réservé à Standard et Premium', () => {
+  assert.equal(KINOO_PLANS.PREMIUM.allowCatalogue, true);
+  assert.equal(KINOO_PLANS.STANDARD.allowCatalogue, false);
+  assert.equal(KINOO_PLANS.GRATUIT.allowCatalogue, false);
+  assert.notEqual(sourceNotAllowedReason('GRATUIT', { typeSource: 'CATALOGUE' }), null);
+  assert.notEqual(sourceNotAllowedReason('STANDARD', { typeSource: 'CATALOGUE' }), null);
+  assert.equal(sourceNotAllowedReason('PREMIUM', { typeSource: 'CATALOGUE' }), null);
+  assert.notEqual(sourceNotAllowedReason('GRATUIT', { typeSource: 'FICHIER_LOCAL' }), null);
+  assert.equal(sourceNotAllowedReason('STANDARD', { typeSource: 'FICHIER_LOCAL' }), null);
+  assert.equal(sourceNotAllowedReason('GRATUIT', { typeSource: 'URL_WEB' }), null);
 });

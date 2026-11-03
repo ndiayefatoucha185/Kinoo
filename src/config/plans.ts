@@ -11,6 +11,7 @@ export interface PlanConfig {
   maxParticipants: number;
   maxMonthlyRooms: number; // 3 Gratuit, 10 Standard, 25 Premium
   allowLocalFiles: boolean;
+  allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
   allowVoiceDebrief: boolean;
   allowAddFriends: boolean;
   badgeLabel: string;
@@ -45,6 +46,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     maxParticipants: 8,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
+    allowCatalogue: false,
     allowVoiceDebrief: false,
     allowAddFriends: false,
     badgeLabel: 'Gratuit',
@@ -60,6 +62,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     maxParticipants: 15,
     maxMonthlyRooms: 10,
     allowLocalFiles: true,
+    allowCatalogue: false,
     allowVoiceDebrief: true,
     allowAddFriends: false,
     badgeLabel: 'Standard',
@@ -75,6 +78,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     maxParticipants: 25,
     maxMonthlyRooms: 25,
     allowLocalFiles: true,
+    allowCatalogue: true,
     allowVoiceDebrief: true,
     allowAddFriends: true,
     badgeLabel: 'Premium',

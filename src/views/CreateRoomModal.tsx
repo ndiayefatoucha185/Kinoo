@@ -72,8 +72,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   const monthlyUsed = serverMonthly ?? currentMonthRooms.length;
   const isQuotaExceeded = monthlyUsed >= monthlyLimit;
   const maxAllowedParticipants = planConfig.maxParticipants;
-  const maxGuests = Math.max(1, maxAllowedParticipants - 1);
-  const [invitesAttendus, setInvitesAttendus] = useState<number>(Math.min(3, maxGuests));
+  const [totalPersonnes, setTotalPersonnes] = useState<number>(Math.min(4, maxAllowedParticipants));
   const [demarrageAuto, setDemarrageAuto] = useState(true);
   const [motDePasse, setMotDePasse] = useState('');
 
@@ -272,6 +271,11 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       return;
     }
 
+    if (sourceType === 'CATALOGUE' && !isPremium) {
+      alert('Le catalogue est réservé à la formule Premium.');
+      return;
+    }
+
     if (sourceType === 'URL_WEB' && !urlInput.trim()) {
       alert('Veuillez renseigner un lien URL ou une vidéo YouTube.');
       return;
@@ -287,7 +291,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         estPrivee: true,
         codeAcces: motDePasse.trim() ? motDePasse.trim() : undefined,
         sourceContenu: contentSource,
-        invitesAttendus: Math.min(Math.max(invitesAttendus, 1), maxGuests),
+        invitesAttendus: Math.min(Math.max(totalPersonnes, 2), maxAllowedParticipants) - 1,
         demarrageAuto,
       });
 
@@ -384,6 +388,85 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             />
           </div>
 
+          {/* Nombre de personnes, démarrage et mot de passe */}
+          <div className="bg-[#141417] border border-[#7C3AED]/40 rounded-xl p-4 space-y-4 text-xs">
+            <h4 className="font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#7C3AED]" />
+              Participants et démarrage
+            </h4>
+
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="kinoo-total" className="text-white font-semibold leading-snug">
+                Combien de personnes dans la salle, vous compris ?
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Une personne de moins"
+                  onClick={() => setTotalPersonnes((n) => Math.max(2, n - 1))}
+                  className="w-8 h-8 rounded-lg bg-[#232326] text-white font-bold hover:bg-[#2c2c31]"
+                >
+                  −
+                </button>
+                <input
+                  id="kinoo-total"
+                  type="number"
+                  min={2}
+                  max={maxAllowedParticipants}
+                  value={totalPersonnes}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setTotalPersonnes(Number.isFinite(n) ? Math.min(Math.max(n, 2), maxAllowedParticipants) : 2);
+                  }}
+                  className="w-16 px-2 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white text-center font-bold focus:outline-none focus:border-[#7C3AED]"
+                />
+                <button
+                  type="button"
+                  aria-label="Une personne de plus"
+                  onClick={() => setTotalPersonnes((n) => Math.min(maxAllowedParticipants, n + 1))}
+                  className="w-8 h-8 rounded-lg bg-[#232326] text-white font-bold hover:bg-[#2c2c31]"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-[#B8B4C0] leading-snug">
+              Vous + {totalPersonnes - 1} invité{totalPersonnes - 1 > 1 ? 's' : ''}. Quand ces {totalPersonnes} personnes seront dans la salle, elle se verrouille : personne d'autre ne pourra entrer.
+              Maximum {maxAllowedParticipants} avec la formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'}.
+            </p>
+
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={demarrageAuto}
+                onChange={(e) => setDemarrageAuto(e.target.checked)}
+                className="mt-0.5 rounded border-[#232326] text-[#EC4899] focus:ring-0"
+              />
+              <span className="text-white leading-snug">
+                Démarrer automatiquement quand tout le monde est arrivé
+                <span className="block text-[11px] text-[#B8B4C0]">
+                  Sinon, ou si quelqu'un tarde, vous pouvez toujours démarrer la séance vous-même depuis la salle d'attente.
+                </span>
+              </span>
+            </label>
+
+            <div className="space-y-1">
+              <label htmlFor="kinoo-room-password" className="text-[#B8B4C0]">
+                Mot de passe de la salle (facultatif, 4 caractères minimum)
+              </label>
+              <input
+                id="kinoo-room-password"
+                type="text"
+                maxLength={32}
+                autoComplete="off"
+                value={motDePasse}
+                onChange={(e) => setMotDePasse(e.target.value)}
+                placeholder="Laissez vide pour une salle sans mot de passe"
+                className="w-full px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white placeholder:text-gray-500 focus:outline-none focus:border-[#7C3AED]"
+              />
+            </div>
+          </div>
+
           {/* SÉLECTEUR DES 3 SOURCES (Comme spécifié par l'utilisateur) */}
           <div className="space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -448,15 +531,26 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               {/* Option 3: Catalogue Kinoo */}
               <button
                 type="button"
-                onClick={() => setSourceType('CATALOGUE')}
+                onClick={() => {
+                  if (!isPremium) {
+                    alert('Le catalogue « Films & séries du moment » est réservé à la formule Premium. Utilisez un lien URL / YouTube, ou passez en Premium.');
+                    return;
+                  }
+                  setSourceType('CATALOGUE');
+                }}
                 className={`py-2.5 px-3 rounded-xl font-bold flex flex-col sm:flex-row items-center justify-center gap-2 transition-all ${
                   sourceType === 'CATALOGUE'
                     ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white shadow-md'
                     : 'text-[#B8B4C0] hover:text-white hover:bg-[#1C1C22]'
                 }`}
               >
-                <Film className="w-4 h-4 shrink-0" />
+                {!isPremium ? <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <Film className="w-4 h-4 shrink-0" />}
                 <span className="truncate">Catalogue</span>
+                {!isPremium && (
+                  <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold hidden sm:inline">
+                    Premium
+                  </span>
+                )}
               </button>
             </div>
 
@@ -664,64 +758,6 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 <Users className="w-3.5 h-3.5 text-[#3B82F6]" />
                 <span>Max {maxAllowedParticipants} personnes (Forfait {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'})</span>
               </div>
-            </div>
-          </div>
-
-          {/* Invités, démarrage et mot de passe */}
-          <div className="bg-[#141417] border border-[#232326] rounded-xl p-4 space-y-4 text-xs">
-            <h4 className="font-bold text-white">Invités et démarrage</h4>
-
-            <div className="flex items-center justify-between gap-3">
-              <label htmlFor="kinoo-invites" className="text-[#B8B4C0]">
-                Nombre de personnes à inviter (sans vous)
-              </label>
-              <input
-                id="kinoo-invites"
-                type="number"
-                min={1}
-                max={maxGuests}
-                value={invitesAttendus}
-                onChange={(e) => {
-                  const n = parseInt(e.target.value, 10);
-                  setInvitesAttendus(Number.isFinite(n) ? Math.min(Math.max(n, 1), maxGuests) : 1);
-                }}
-                className="w-20 px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white text-center font-semibold focus:outline-none focus:border-[#7C3AED]"
-              />
-            </div>
-            <p className="text-[11px] text-[#B8B4C0] leading-snug">
-              Quand {invitesAttendus} personne{invitesAttendus > 1 ? 's' : ''} {invitesAttendus > 1 ? 'auront' : 'aura'} rejoint la salle, elle se verrouille : personne d'autre ne pourra entrer.
-              Maximum {maxGuests} invité{maxGuests > 1 ? 's' : ''} avec la formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'}.
-            </p>
-
-            <label className="flex items-start gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={demarrageAuto}
-                onChange={(e) => setDemarrageAuto(e.target.checked)}
-                className="mt-0.5 rounded border-[#232326] text-[#EC4899] focus:ring-0"
-              />
-              <span className="text-white leading-snug">
-                Démarrer automatiquement quand tout le monde est arrivé
-                <span className="block text-[11px] text-[#B8B4C0]">
-                  Sinon, ou si quelqu'un tarde, vous pouvez toujours démarrer la séance vous-même depuis la salle d'attente.
-                </span>
-              </span>
-            </label>
-
-            <div className="space-y-1">
-              <label htmlFor="kinoo-room-password" className="text-[#B8B4C0]">
-                Mot de passe de la salle (facultatif, 4 caractères minimum)
-              </label>
-              <input
-                id="kinoo-room-password"
-                type="text"
-                maxLength={32}
-                autoComplete="off"
-                value={motDePasse}
-                onChange={(e) => setMotDePasse(e.target.value)}
-                placeholder="Laissez vide pour une salle sans mot de passe"
-                className="w-full px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white placeholder:text-gray-500 focus:outline-none focus:border-[#7C3AED]"
-              />
             </div>
           </div>
 

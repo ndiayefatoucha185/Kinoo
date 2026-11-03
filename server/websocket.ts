@@ -2,8 +2,9 @@ import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import { accrueWatchTime } from './watchtime.js';
+import { sourceNotAllowedReason } from './sourceGuard.js';
 import { db } from '../src/db/index.js';
-import { rooms, messages, participations } from '../src/db/schema.js';
+import { rooms, messages, participations, users } from '../src/db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { verifyToken, resolveSessionUser, getClientIp } from './auth.js';
 import { MetricsCollector } from './metrics.js';
@@ -1287,6 +1288,19 @@ export class KinooWebSocketServer {
         const source = sanitizeSourceContenu(payload.source ?? payload.sourceContenu);
         if (!source) {
           this.sendError(client, 'INVALID_MEDIA', 'Source multimédia invalide (URL http(s) requise).');
+          break;
+        }
+
+        // La formule de l'hôte détermine les sources autorisées (catalogue : Premium uniquement)
+        try {
+          const [hostUser] = await db.select({ forfait: users.forfait }).from(users).where(eq(users.id, client.userId)).limit(1);
+          const notAllowed = sourceNotAllowedReason(hostUser?.forfait, source);
+          if (notAllowed) {
+            this.sendError(client, 'PLAN_REQUIRED', notAllowed);
+            break;
+          }
+        } catch {
+          this.sendError(client, 'INTERNAL', 'Vérification de la formule impossible.');
           break;
         }
 
