@@ -1,3 +1,4 @@
+import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { AuthService, SignupData, LoginData } from '../services/auth';
 import { StorageService } from '../services/storage';
@@ -196,13 +197,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     // Ne réinitialiser le mode et l'onboarding que lors d'une NOUVELLE ouverture de la modale
     if (isOpen && !prevIsOpenRef.current) {
       setMode(initialMode);
+      if (resetToken) setTokenInput(resetToken);
       setSignupStep('account');
       setGoogleOnboardingData(null);
       setErrorMessage(null);
       setSuccessMessage(null);
     }
     prevIsOpenRef.current = isOpen;
-  }, [initialMode, isOpen]);
+  }, [initialMode, isOpen, resetToken]);
 
   if (!isOpen) return null;
 
@@ -213,13 +215,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setSelectedAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setSelectedAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
   const handleOnboardingImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,13 +227,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setOnboardingAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setOnboardingAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
     const fetchCaptcha = async () => {
@@ -368,7 +362,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (apiErr: any) {
       const res = AuthService.signup(payload);
       if (res.success && res.user) {
-        res.user.forfait = selectedForfait;
+        // Un forfait payant ne s'active jamais sans paiement confirmé côté serveur
+        res.user.forfait = 'GRATUIT';
         StorageService.setCurrentUser(res.user);
         onAuthSuccess(res.user);
         onClose();
@@ -1158,7 +1153,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                   <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    25 séances / mois, 50 participants, import local, salon débrief micro et 100% sans pub.
+                    10 séances / mois, 15 participants, import local, salon débrief micro et 100% sans pub.
                   </p>
                 </div>
 
@@ -1172,7 +1167,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   }`}
                 >
                   <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-[#3B82F6] text-[10px] font-bold text-white shadow-sm">
-                    Tout Illimité
+                    Tout le confort
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1193,7 +1188,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
                   </div>
                   <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    Séances illimitées, 250 participants, assistant IA dédié, messagerie privée et débit prioritaire.
+                    25 séances / mois, 25 participants, assistant IA dédié, messagerie privée et débit prioritaire.
                   </p>
                 </div>
               </div>
@@ -1394,7 +1389,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span className="text-xs font-bold text-white">2 800 FCFA / mois</span>
                   </div>
                   <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    25 séances / mois, 50 participants, import local, salon débrief micro.
+                    10 séances / mois, 15 participants, import local, salon débrief micro.
                   </p>
                 </div>
 
@@ -1423,7 +1418,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span className="text-xs font-bold text-white">4 750 FCFA / mois</span>
                   </div>
                   <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    Séances illimitées, 250 participants, IA dédiée, débit prioritaire.
+                    25 séances / mois, 25 participants, IA dédiée, débit prioritaire.
                   </p>
                 </div>
               </div>

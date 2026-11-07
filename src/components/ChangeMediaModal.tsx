@@ -9,12 +9,15 @@ interface ChangeMediaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMediaSelected: (newSource: ContentSource) => void;
+  // Le catalogue est réservé à la formule Premium
+  canUseCatalogue?: boolean;
 }
 
 export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
   isOpen,
   onClose,
   onMediaSelected,
+  canUseCatalogue = false,
 }) => {
   const [sourceType, setSourceType] = useState<SourceKind>('FICHIER_LOCAL');
 
@@ -207,7 +210,13 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
 
           <button
             type="button"
-            onClick={() => setSourceType('CATALOGUE')}
+            onClick={() => {
+              if (!canUseCatalogue) {
+                alert('Le catalogue « Films & séries du moment » est réservé à la formule Premium.');
+                return;
+              }
+              setSourceType('CATALOGUE');
+            }}
             className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
               sourceType === 'CATALOGUE'
                 ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white shadow-md'
@@ -216,6 +225,9 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
           >
             <Film className="w-3.5 h-3.5" />
             <span className="truncate">Catalogue</span>
+            {!canUseCatalogue && (
+              <span className="text-[8px] px-1.5 rounded bg-amber-400/20 text-amber-300 font-bold">Premium</span>
+            )}
           </button>
         </div>
 

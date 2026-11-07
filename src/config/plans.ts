@@ -1,4 +1,4 @@
-import { UserPlan } from '../types/kinoo';
+import type { UserPlan } from '../types/kinoo';
 export type { UserPlan };
 
 export interface PlanConfig {
@@ -9,8 +9,9 @@ export interface PlanConfig {
   priceXofMonthly: number;
   priceXofAnnual: number;
   maxParticipants: number;
-  maxMonthlyRooms: number; // 3 pour Gratuit, 25 pour Standard, Illimité pour Premium
+  maxMonthlyRooms: number; // 3 Gratuit, 10 Standard, 25 Premium
   allowLocalFiles: boolean;
+  allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
   allowVoiceDebrief: boolean;
   allowAddFriends: boolean;
   badgeLabel: string;
@@ -42,9 +43,10 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 0,
     priceXofMonthly: 0,
     priceXofAnnual: 0,
-    maxParticipants: 10,
+    maxParticipants: 8,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
+    allowCatalogue: false,
     allowVoiceDebrief: false,
     allowAddFriends: false,
     badgeLabel: 'Gratuit',
@@ -57,9 +59,10 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 3.42,
     priceXofMonthly: 2800,
     priceXofAnnual: 2240,
-    maxParticipants: 50,
-    maxMonthlyRooms: 25,
+    maxParticipants: 15,
+    maxMonthlyRooms: 10,
     allowLocalFiles: true,
+    allowCatalogue: false,
     allowVoiceDebrief: true,
     allowAddFriends: false,
     badgeLabel: 'Standard',
@@ -72,9 +75,10 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 5.79,
     priceXofMonthly: 4750,
     priceXofAnnual: 3800,
-    maxParticipants: 250,
-    maxMonthlyRooms: Infinity,
+    maxParticipants: 25,
+    maxMonthlyRooms: 25,
     allowLocalFiles: true,
+    allowCatalogue: true,
     allowVoiceDebrief: true,
     allowAddFriends: true,
     badgeLabel: 'Premium',

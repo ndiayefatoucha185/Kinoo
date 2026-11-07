@@ -1,11 +1,11 @@
 import crypto from 'crypto';
+import { kvSet, kvConsume } from './kv.js';
+import { escapeHtml, escapeIcsText, cleanText, sha256Hex, getPublicBaseUrl, isSafeHttpUrl } from './security.js';
 
 export interface SentEmail {
   id: string;
   to: string;
   subject: string;
-  html: string;
-  text?: string;
   type:
     | 'WELCOME'
     | 'VERIFY_EMAIL'
@@ -14,40 +14,39 @@ export interface SentEmail {
     | 'RENEWAL_REMINDER'
     | 'SUBSCRIPTION_DOWNGRADE'
     | 'PAYMENT_CONFIRMATION'
-    | 'SUPER_ADMIN_UNLOCK';
+    | 'SUPER_ADMIN_UNLOCK'
+    | 'SECURITY_ALERT';
   sentAt: string;
   status: 'SENT' | 'SIMULATED';
-  token?: string;
-  metadata?: Record<string, any>;
-  icsAttachment?: string;
 }
 
-// In-memory store of recent sent transactional emails for preview & testing
+// Historique minimal des envois (métadonnées seulement : ni corps HTML, ni jeton, ni pièce jointe)
 const sentEmailsInbox: SentEmail[] = [];
 
-// Password reset tokens (strictly 15 minutes lifetime)
-interface ResetTokenRecord {
-  token: string;
-  email: string;
-  expiresAt: number;
-}
-const passwordResetTokens = new Map<string, ResetTokenRecord>();
+const RESET_TTL_SEC = 15 * 60; // strictement 15 minutes
+const VERIFY_TTL_SEC = 24 * 60 * 60; // 24 heures
 
-// Email verification tokens (24 hours lifetime)
-interface VerifyTokenRecord {
-  token: string;
-  email: string;
-  expiresAt: number;
-}
-const emailVerificationTokens = new Map<string, VerifyTokenRecord>();
+type TokenKind = 'reset' | 'verify';
 
-// Generate secure cryptographic tokens
-function generateSecureToken(bytes: number = 32): string {
-  return crypto.randomBytes(bytes).toString('hex');
+/**
+ * Jetons à usage unique stockés dans PostgreSQL sous forme d'EMPREINTE (SHA-256) : une fuite de la base
+ * ne révèle aucun lien utilisable, et les jetons survivent aux redémarrages / instances multiples.
+ */
+async function issueToken(kind: TokenKind, email: string, ttlSec: number): Promise<string> {
+  const token = crypto.randomBytes(32).toString('hex');
+  await kvSet(`tok:${kind}:${sha256Hex(token)}`, { email }, ttlSec);
+  return token;
+}
+
+async function consumeToken(kind: TokenKind, token: unknown): Promise<string | null> {
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null;
+  const rec = await kvConsume<{ email: string }>(`tok:${kind}:${sha256Hex(token)}`);
+  return rec && typeof rec.email === 'string' ? rec.email : null;
 }
 
 /**
- * Generates an RFC 5545 compliant iCalendar (.ics) string
+ * Generates an RFC 5545 compliant iCalendar (.ics) string.
+ * Toutes les valeurs de texte sont échappées (une valeur contenant un saut de ligne ne peut plus injecter de propriété).
  */
 export function generateIcsCalendar(event: {
   uid: string;
@@ -57,13 +56,15 @@ export function generateIcsCalendar(event: {
   startTime: Date;
   durationMinutes?: number;
 }): string {
-  const formatUtc = (d: Date) =>
-    d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+  const formatUtc = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 
-  const startStr = formatUtc(event.startTime);
-  const end = new Date(event.startTime.getTime() + (event.durationMinutes || 180) * 60000);
+  const start = Number.isNaN(event.startTime.getTime()) ? new Date() : event.startTime;
+  const startStr = formatUtc(start);
+  const end = new Date(start.getTime() + (event.durationMinutes || 180) * 60000);
   const endStr = formatUtc(end);
   const nowStr = formatUtc(new Date());
+  const safeUid = String(event.uid).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 100) || 'kinoo';
+  const safeUrl = isSafeHttpUrl(event.roomUrl) || /^http:\/\/localhost(:\d+)?\//.test(event.roomUrl) ? event.roomUrl : getPublicBaseUrl();
 
   return [
     'BEGIN:VCALENDAR',
@@ -72,13 +73,13 @@ export function generateIcsCalendar(event: {
     'CALSCALE:GREGORIAN',
     'METHOD:REQUEST',
     'BEGIN:VEVENT',
-    `UID:${event.uid}@kinoo.app`,
+    `UID:${safeUid}@kinoo.app`,
     `DTSTAMP:${nowStr}`,
     `DTSTART:${startStr}`,
     `DTEND:${endStr}`,
-    `SUMMARY:${event.summary}`,
-    `DESCRIPTION:${event.description.replace(/\n/g, '\\n')}\\n\\nRejoindre la séance: ${event.roomUrl}`,
-    `URL:${event.roomUrl}`,
+    `SUMMARY:${escapeIcsText(event.summary)}`,
+    `DESCRIPTION:${escapeIcsText(`${event.description}\n\nRejoindre la séance: ${safeUrl}`)}`,
+    `URL:${safeUrl}`,
     'LOCATION:Salle virtuelle Kinoo',
     'STATUS:CONFIRMED',
     'BEGIN:VALARM',
@@ -98,14 +99,15 @@ async function sendEmail(payload: {
   to: string;
   subject: string;
   html: string;
-  text?: string;
   type: SentEmail['type'];
-  token?: string;
-  metadata?: Record<string, any>;
+  /** Lien affiché dans les journaux UNIQUEMENT hors production quand l'envoi est simulé (développement). */
+  devLink?: string;
   icsAttachment?: { filename: string; content: string };
 }): Promise<SentEmail> {
   const emailId = `mail-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   let status: 'SENT' | 'SIMULATED' = 'SIMULATED';
+  // Aucun saut de ligne dans le sujet (en-têtes)
+  const subject = cleanText(payload.subject, 200);
 
   // 1. Check for Resend
   if (process.env.RESEND_API_KEY) {
@@ -122,7 +124,7 @@ async function sendEmail(payload: {
         body: JSON.stringify({
           from: fromAddress,
           to: payload.to,
-          subject: payload.subject,
+          subject,
           html: payload.html,
           attachments: payload.icsAttachment
             ? [
@@ -133,6 +135,7 @@ async function sendEmail(payload: {
               ]
             : undefined,
         }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (response.ok) {
@@ -162,7 +165,7 @@ async function sendEmail(payload: {
           const maskedEmail = payload.to.replace(/(.{2})(.*)(@.*)/, '$1***$3');
           console.info(`[EMAIL][SANDBOX] Resend en mode test (limité au propriétaire). Email pour ${maskedEmail} archivé.`);
         } else {
-          console.info('[EMAIL] Information réponse API Resend:', errText);
+          console.info('[EMAIL] Information réponse API Resend:', errText.slice(0, 300));
         }
       }
     } catch (err: any) {
@@ -182,7 +185,7 @@ async function sendEmail(payload: {
         body: JSON.stringify({
           sender: { name: 'Kinoo', email: process.env.EMAIL_FROM || 'contact@kinoo.app' },
           to: [{ email: payload.to }],
-          subject: payload.subject,
+          subject,
           htmlContent: payload.html,
           attachment: payload.icsAttachment
             ? [
@@ -193,12 +196,13 @@ async function sendEmail(payload: {
               ]
             : undefined,
         }),
+        signal: AbortSignal.timeout(10000),
       });
       if (response.ok) {
         status = 'SENT';
       } else {
         const errText = await response.text();
-        console.info('[EMAIL] Information réponse API Brevo:', errText);
+        console.info('[EMAIL] Information réponse API Brevo:', errText.slice(0, 300));
       }
     } catch (err: any) {
       console.info('[EMAIL] Note envoi via Brevo:', err.message);
@@ -208,54 +212,56 @@ async function sendEmail(payload: {
   const record: SentEmail = {
     id: emailId,
     to: payload.to,
-    subject: payload.subject,
-    html: payload.html,
-    text: payload.text,
+    subject,
     type: payload.type,
     sentAt: new Date().toISOString(),
     status,
-    token: payload.token,
-    metadata: payload.metadata,
-    icsAttachment: payload.icsAttachment?.content,
   };
 
-  // Keep in circular buffer for debug/testing
+  // Keep a small circular buffer of metadata for debugging
   sentEmailsInbox.unshift(record);
   if (sentEmailsInbox.length > 100) {
     sentEmailsInbox.pop();
   }
 
   const maskedRecipient = payload.to.replace(/(.{2})(.*)(@.*)/, '$1***$3');
-  console.log(`[EMAIL][${status}] Destinataire: ${maskedRecipient} | Sujet: "${payload.subject}" [${payload.type}]`);
+  console.log(`[EMAIL][${status}] Destinataire: ${maskedRecipient} | Sujet: "${subject}" [${payload.type}]`);
+
+  // Développement uniquement : sans fournisseur d'e-mail configuré, le lien est affiché dans la console
+  if (status === 'SIMULATED' && payload.devLink && process.env.NODE_ENV !== 'production') {
+    console.log(`[EMAIL][DEV] Lien (simulation, jamais journalisé en production) : ${payload.devLink}`);
+  }
   return record;
 }
 
+const WRAPPER_STYLE =
+  "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;";
+
 export const EmailService = {
+  /** Métadonnées des derniers envois (aucun contenu sensible). */
   getInbox(): SentEmail[] {
     return sentEmailsInbox;
-  },
-
-  getRecentEmailsFor(email: string): SentEmail[] {
-    return sentEmailsInbox.filter((m) => m.to.toLowerCase() === email.toLowerCase());
   },
 
   /**
    * 1. Send Welcome Email upon registration
    */
   async sendWelcomeEmail(user: { email: string; pseudo: string }): Promise<SentEmail> {
+    const pseudo = escapeHtml(cleanText(user.pseudo, 100));
+    const base = getPublicBaseUrl();
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <div style="text-align: center; margin-bottom: 24px;">
           <h1 style="color: #6366f1; margin: 0; font-size: 28px; font-weight: 800;">Kinoo</h1>
           <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Cinéma & Streaming Synchronisé en Temps Réel</p>
         </div>
-        <h2 style="font-size: 20px; color: #0f172a;">Bienvenue parmi nous, ${user.pseudo} !</h2>
+        <h2 style="font-size: 20px; color: #0f172a;">Bienvenue parmi nous, ${pseudo} !</h2>
         <p style="font-size: 15px; line-height: 1.6; color: #334155;">
           Votre compte Kinoo est maintenant actif. Vous pouvez dès à présent créer des salons de visionnage privés ou publics, synchroniser vos vidéos YouTube ou flux HLS en temps réel avec vos amis, et échanger en vocal WebRTC haute fidélité.
         </p>
         <div style="margin: 32px 0; text-align: center;">
-          <a href="/explorer" style="background: #6366f1; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
-            Explorer les salons en direct
+          <a href="${escapeHtml(base)}/" style="background: #6366f1; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+            Ouvrir Kinoo
           </a>
         </div>
         <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
@@ -267,30 +273,28 @@ export const EmailService = {
 
     return sendEmail({
       to: user.email,
-      subject: `Bienvenue sur Kinoo, ${user.pseudo} !`,
+      subject: `Bienvenue sur Kinoo, ${cleanText(user.pseudo, 60)} !`,
       html,
       type: 'WELCOME',
     });
   },
 
   /**
-   * 2. Send Email Verification link
+   * 2. Send Email Verification link (valable 24 h, usage unique)
    */
   async sendVerificationEmail(user: { email: string; pseudo: string }): Promise<SentEmail> {
-    const token = generateSecureToken(24);
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24h
-    emailVerificationTokens.set(token, { token, email: user.email, expiresAt });
-
-    const verifyUrl = `/verifier-email?token=${token}&email=${encodeURIComponent(user.email)}`;
+    const token = await issueToken('verify', user.email.toLowerCase(), VERIFY_TTL_SEC);
+    // Jeton dans le fragment d'URL : jamais envoyé au serveur dans la requête, absent des journaux et du Referer
+    const verifyUrl = `${getPublicBaseUrl()}/#verify-email=${token}`;
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <h1 style="color: #6366f1; font-size: 24px; margin-bottom: 16px;">Vérification de votre adresse e-mail</h1>
         <p style="font-size: 15px; color: #334155;">
-          Bonjour ${user.pseudo}, merci de confirmer votre adresse e-mail pour sécuriser votre compte Kinoo :
+          Bonjour ${escapeHtml(cleanText(user.pseudo, 100))}, merci de confirmer votre adresse e-mail pour sécuriser votre compte Kinoo :
         </p>
         <div style="margin: 28px 0; text-align: center;">
-          <a href="${verifyUrl}" style="background: #10b981; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+          <a href="${escapeHtml(verifyUrl)}" style="background: #10b981; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
             Confirmer mon adresse e-mail
           </a>
         </div>
@@ -305,34 +309,30 @@ export const EmailService = {
       subject: 'Kinoo : Confirmez votre adresse e-mail',
       html,
       type: 'VERIFY_EMAIL',
-      token,
-      metadata: { verifyUrl },
+      devLink: verifyUrl,
     });
   },
 
   /**
-   * 3. Send Password Reset link (Strict 15 minutes expiration)
+   * 3. Send Password Reset link (Strict 15 minutes expiration, usage unique)
    */
   async sendPasswordResetEmail(email: string, pseudo?: string): Promise<SentEmail> {
-    const token = generateSecureToken(32);
-    const expiresAt = Date.now() + 15 * 60 * 1000; // Strictly 15 minutes!
-    passwordResetTokens.set(token, { token, email, expiresAt });
-
-    const resetUrl = `/reinitialiser-mot-de-passe?token=${token}&email=${encodeURIComponent(email)}`;
+    const token = await issueToken('reset', email.toLowerCase(), RESET_TTL_SEC);
+    const resetUrl = `${getPublicBaseUrl()}/#reset-password=${token}`;
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <h1 style="color: #ef4444; font-size: 22px; margin-bottom: 16px;">Réinitialisation de votre mot de passe</h1>
         <p style="font-size: 15px; color: #334155;">
-          Bonjour ${pseudo || ''}, nous avons reçu une demande de réinitialisation de votre mot de passe Kinoo.
+          Bonjour ${escapeHtml(cleanText(pseudo || '', 100))}, nous avons reçu une demande de réinitialisation de votre mot de passe Kinoo.
         </p>
         <div style="margin: 28px 0; text-align: center;">
-          <a href="${resetUrl}" style="background: #6366f1; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
+          <a href="${escapeHtml(resetUrl)}" style="background: #6366f1; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; display: inline-block;">
             Définir un nouveau mot de passe
           </a>
         </div>
         <p style="font-size: 14px; font-weight: bold; color: #b91c1c; background: #fef2f2; padding: 12px; border-radius: 6px; text-align: center;">
-          ⚠️ Ce lien de sécurité expire obligatoirement dans 15 minutes.
+          ⚠️ Ce lien de sécurité expire obligatoirement dans 15 minutes et ne peut servir qu'une fois.
         </p>
         <p style="font-size: 13px; color: #64748b;">
           Si vous n'avez pas demandé cette réinitialisation, votre compte reste sécurisé et aucune action n'est requise.
@@ -345,47 +345,30 @@ export const EmailService = {
       subject: 'Kinoo : Réinitialisation de mot de passe (Expire dans 15 min)',
       html,
       type: 'PASSWORD_RESET',
-      token,
-      metadata: { resetUrl, expiresAt },
+      devLink: resetUrl,
     });
   },
 
   /**
-   * Validate password reset token (check 15-minute window)
+   * Consomme (usage unique, atomique) un jeton de réinitialisation. Renvoie l'e-mail associé si valide.
    */
-  validateResetToken(token: string): { valid: boolean; email?: string; error?: string } {
-    const record = passwordResetTokens.get(token);
-    if (!record) {
-      return { valid: false, error: 'Lien de réinitialisation invalide ou déjà utilisé.' };
+  async consumeResetToken(token: unknown): Promise<{ valid: boolean; email?: string; error?: string }> {
+    const email = await consumeToken('reset', token);
+    if (!email) {
+      return { valid: false, error: 'Lien de réinitialisation invalide, expiré (15 min) ou déjà utilisé.' };
     }
-    if (Date.now() > record.expiresAt) {
-      passwordResetTokens.delete(token);
-      return { valid: false, error: 'Ce lien a expiré (validité stricte de 15 minutes dépassée).' };
-    }
-    return { valid: true, email: record.email };
+    return { valid: true, email };
   },
 
   /**
-   * Invalidate used reset token
+   * Consomme (usage unique, atomique) un jeton de vérification d'adresse e-mail.
    */
-  consumeResetToken(token: string) {
-    passwordResetTokens.delete(token);
-  },
-
-  /**
-   * Validate email verification token
-   */
-  validateVerificationToken(token: string): { valid: boolean; email?: string; error?: string } {
-    const record = emailVerificationTokens.get(token);
-    if (!record) {
-      return { valid: false, error: 'Token de vérification invalide.' };
+  async consumeVerificationToken(token: unknown): Promise<{ valid: boolean; email?: string; error?: string }> {
+    const email = await consumeToken('verify', token);
+    if (!email) {
+      return { valid: false, error: 'Lien de vérification invalide, expiré ou déjà utilisé.' };
     }
-    if (Date.now() > record.expiresAt) {
-      emailVerificationTokens.delete(token);
-      return { valid: false, error: 'Token de vérification expiré.' };
-    }
-    emailVerificationTokens.delete(token);
-    return { valid: true, email: record.email };
+    return { valid: true, email };
   },
 
   /**
@@ -397,43 +380,57 @@ export const EmailService = {
     roomTitle: string;
     roomCode: string;
     roomUrl: string;
-    scheduledDate?: string;
-    note?: string;
+    scheduledDate?: string | null;
+    note?: string | null;
   }): Promise<SentEmail> {
-    const startTime = options.scheduledDate ? new Date(options.scheduledDate) : new Date(Date.now() + 15 * 60000);
+    const senderPseudo = cleanText(options.senderPseudo, 60) || 'Un ami';
+    const roomTitle = cleanText(options.roomTitle, 100);
+    const roomCode = cleanText(options.roomCode, 20);
+    const note = options.note ? cleanText(options.note, 500) : '';
+
+    // Date de début : valide, ni dans un passé lointain ni au-delà d'un an ; sinon dans 15 minutes
+    let startTime = new Date(Date.now() + 15 * 60000);
+    if (options.scheduledDate) {
+      const parsed = new Date(options.scheduledDate);
+      const t = parsed.getTime();
+      if (!Number.isNaN(t) && t > Date.now() - 24 * 3600 * 1000 && t < Date.now() + 366 * 24 * 3600 * 1000) {
+        startTime = parsed;
+      }
+    }
+
     const icsContent = generateIcsCalendar({
-      uid: `invite-${options.roomCode}-${Date.now()}`,
-      summary: `Séance Kinoo : ${options.roomTitle}`,
-      description: `${options.senderPseudo} vous invite à regarder une vidéo ensemble sur Kinoo.${options.note ? `\nNote : ${options.note}` : ''}`,
+      uid: `invite-${roomCode}-${Date.now()}`,
+      summary: `Séance Kinoo : ${roomTitle}`,
+      description: `${senderPseudo} vous invite à regarder une vidéo ensemble sur Kinoo.${note ? `\nNote : ${note}` : ''}`,
       roomUrl: options.roomUrl,
       startTime,
       durationMinutes: 180, // 3 heures
     });
 
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #6366f1; margin: 0; font-size: 26px; font-weight: 800;">Kinoo</h1>
           <p style="color: #64748b; font-size: 13px;">Invitation à une Watch Party</p>
         </div>
         <h2 style="font-size: 18px; color: #0f172a;">
-          🎬 ${options.senderPseudo} vous invite à rejoindre « ${options.roomTitle} »
+          🎬 ${escapeHtml(senderPseudo)} vous invite à rejoindre « ${escapeHtml(roomTitle)} »
         </h2>
         <p style="font-size: 14px; color: #475569; line-height: 1.6;">
           Venez regarder ensemble, synchronisés à la milliseconde près, avec chat en direct et vocal WebRTC.
         </p>
         ${
-          options.note
-            ? `<div style="background: #f8fafc; border-left: 4px solid #6366f1; padding: 12px; margin: 16px 0; font-style: italic; font-size: 14px; color: #334155;">« ${options.note} »</div>`
+          note
+            ? `<div style="background: #f8fafc; border-left: 4px solid #6366f1; padding: 12px; margin: 16px 0; font-style: italic; font-size: 14px; color: #334155;">« ${escapeHtml(note)} »</div>`
             : ''
         }
         <div style="margin: 28px 0; text-align: center;">
-          <a href="${options.roomUrl}" style="background: #6366f1; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 16px; display: inline-block;">
+          <a href="${escapeHtml(options.roomUrl)}" style="background: #6366f1; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 16px; display: inline-block;">
             Rejoindre la salle maintenant
           </a>
         </div>
         <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; font-size: 13px; color: #475569; text-align: center;">
-          Code d'accès rapide : <strong style="font-family: monospace; letter-spacing: 2px; color: #1e293b;">${options.roomCode}</strong>
+          Code d'accès rapide : <strong style="font-family: monospace; letter-spacing: 2px; color: #1e293b;">${escapeHtml(roomCode)}</strong>
         </div>
         <p style="font-size: 12px; color: #64748b; margin-top: 20px; text-align: center;">
           📅 Un fichier d'événement de calendrier (.ics) est inclus. Vous pouvez l'ajouter directement à votre Google Agenda, Apple Calendar ou Outlook.
@@ -443,16 +440,11 @@ export const EmailService = {
 
     return sendEmail({
       to: options.recipientEmail,
-      subject: `🎬 ${options.senderPseudo} vous invite sur Kinoo : « ${options.roomTitle} »`,
+      subject: `🎬 ${senderPseudo} vous invite sur Kinoo : « ${roomTitle} »`,
       html,
       type: 'ROOM_INVITATION',
-      metadata: {
-        roomCode: options.roomCode,
-        roomTitle: options.roomTitle,
-        roomUrl: options.roomUrl,
-      },
       icsAttachment: {
-        filename: `kinoo-seance-${options.roomCode}.ics`,
+        filename: `kinoo-seance-${roomCode.replace(/[^A-Za-z0-9_-]/g, '')}.ics`,
         content: icsContent,
       },
     });
@@ -468,7 +460,7 @@ export const EmailService = {
     unlockUrl: string;
   }): Promise<SentEmail> {
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #6366f1; margin: 0; font-size: 26px; font-weight: 800;">Kinoo Security</h1>
           <p style="color: #64748b; font-size: 13px;">Déblocage d'urgence — Session Unique Super Admin</p>
@@ -478,14 +470,14 @@ export const EmailService = {
             🛡️ Déconnexion forcée de la session Super Admin
           </h2>
           <p style="font-size: 13px; color: #7f1d1d; margin: 0; line-height: 1.5;">
-            Bonjour ${options.pseudo}, une demande de déblocage de session a été initiée pour le compte Super Admin <strong>${options.email}</strong>.
+            Bonjour ${escapeHtml(cleanText(options.pseudo, 100))}, une demande de déblocage de session a été initiée pour le compte Super Admin <strong>${escapeHtml(options.email)}</strong>.
           </p>
         </div>
         <p style="font-size: 14px; color: #475569; line-height: 1.6;">
           Si vous avez perdu l'accès à votre appareil précédent ou si votre session est restée bloquée, cliquez sur le bouton ci-dessous pour <strong>révoquer immédiatement toute session active</strong> et libérer l'accès.
         </p>
         <div style="margin: 28px 0; text-align: center;">
-          <a href="${options.unlockUrl}" style="background: #ef4444; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 15px; display: inline-block;">
+          <a href="${escapeHtml(options.unlockUrl)}" style="background: #ef4444; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 700; font-size: 15px; display: inline-block;">
             Forcer la déconnexion & Débloquer le compte
           </a>
         </div>
@@ -500,14 +492,9 @@ export const EmailService = {
       subject: '🛡️ Kinoo Super Admin : Lien de déconnexion d’urgence et déblocage',
       html,
       type: 'SUPER_ADMIN_UNLOCK',
-      token: options.unlockToken,
-      metadata: {
-        email: options.email,
-        unlockUrl: options.unlockUrl,
-      },
+      devLink: options.unlockUrl,
     });
   },
-
 
   /**
    * Alerte de sécurité : multiples tentatives infructueuses détectées sur un compte (seuil de 20 échecs sans blocage dur)
@@ -519,15 +506,15 @@ export const EmailService = {
     ip?: string;
   }): Promise<SentEmail> {
     const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1e293b; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <div style="${WRAPPER_STYLE}">
         <div style="text-align: center; margin-bottom: 20px;">
           <h1 style="color: #f59e0b; margin: 0; font-size: 24px; font-weight: 800;">Alerte de Sécurité Kinoo</h1>
           <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Tentatives répétées de connexion détectées</p>
         </div>
         <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
           <p style="margin: 0; color: #92400e; font-size: 14px; line-height: 1.5;">
-            Bonjour <strong>${options.pseudo || options.email}</strong>,<br><br>
-            Nous avons détecté plus de <strong>${options.attempts} tentatives infructueuses</strong> de connexion sur votre compte Kinoo depuis l'adresse IP <code>${options.ip || 'non précisée'}</code>.<br><br>
+            Bonjour <strong>${escapeHtml(cleanText(options.pseudo || options.email, 100))}</strong>,<br><br>
+            Nous avons détecté plus de <strong>${Number(options.attempts) || 0} tentatives infructueuses</strong> de connexion sur votre compte Kinoo depuis l'adresse IP <code>${escapeHtml(cleanText(options.ip || 'non précisée', 64))}</code>.<br><br>
             <strong>Votre compte N'EST PAS verrouillé</strong>. Pour protéger vos accès, un test de sécurité (captcha) est désormais demandé avant d'accepter toute nouvelle tentative.
           </p>
         </div>
@@ -542,8 +529,7 @@ export const EmailService = {
       to: options.email,
       subject: 'Alerte de sécurité Kinoo : tentatives de connexion répétées',
       html,
-      type: 'SECURITY_ALERT' as any,
+      type: 'SECURITY_ALERT',
     });
-  }
-
-}
+  },
+};

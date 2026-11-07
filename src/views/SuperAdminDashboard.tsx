@@ -429,7 +429,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           ) : (
             <>
               {/* Backend Security & Cloud SQL Live Status Pill avec environnement lu */}
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-300 text-xs">
+              <div className="kinoo-status-banner flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-300 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="font-semibold uppercase tracking-wider">Fondation Backend & Cloud SQL</span>

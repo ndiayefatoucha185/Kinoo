@@ -19,6 +19,9 @@ export const users = pgTable('users', {
   activeSessionExpiresAt: timestamp('active_session_expires_at', { withTimezone: true }),
   sessionUnlockToken: varchar('session_unlock_token', { length: 128 }),
   sessionUnlockExpiresAt: timestamp('session_unlock_expires_at', { withTimezone: true }),
+  // Incrémenté pour révoquer tous les jetons JWT existants (changement de mot de passe, suspension, déconnexion globale)
+  tokenVersion: integer('token_version').notNull().default(0),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
 });
 
 export const rooms = pgTable('rooms', {
@@ -27,14 +30,24 @@ export const rooms = pgTable('rooms', {
   code: varchar('code', { length: 20 }).notNull().unique(),
   hoteId: varchar('hote_id', { length: 128 }).notNull().references(() => users.id),
   hotePseudo: varchar('hote_pseudo', { length: 100 }).notNull(),
-  maxParticipants: integer('max_participants').notNull().default(10),
+  maxParticipants: integer('max_participants').notNull().default(8),
   statut: varchar('statut', { length: 20 }).notNull().default('EN_COURS'), // PROGRAMMEE, EN_COURS, TERMINEE
   estPrivee: boolean('est_privee').notNull().default(false),
   codeAcces: varchar('code_acces', { length: 50 }),
+  // Empreinte scrypt du mot de passe de salle (le champ codeAcces en clair n'est plus alimenté)
+  codeAccesHash: text('code_acces_hash'),
   estVerrouillee: boolean('est_verrouillee').notNull().default(false),
+  // Nombre total de personnes attendues (hôte compris) : à ce nombre la salle se verrouille toute seule
+  participantsAttendus: integer('participants_attendus'),
+  // true : la séance démarre seule quand tout le monde est là ; l'hôte peut toujours la démarrer à la main
+  demarrageAuto: boolean('demarrage_auto').notNull().default(true),
+  // Heure de démarrage de la séance (null = salle d'attente)
+  demarreeLe: timestamp('demarree_le', { withTimezone: true }),
   sourceContenu: jsonb('source_contenu'),
   playbackState: varchar('playback_state', { length: 20 }).notNull().default('PAUSE'),
   currentPositionSec: real('current_position_sec').notNull().default(0),
+  // Temps de lecture réellement écoulé (secondes), cumulé à chaque pause / fin de séance
+  lectureTotaleSec: real('lecture_totale_sec').notNull().default(0),
   lastPlaybackUpdate: timestamp('last_playback_update', { withTimezone: true }).notNull().defaultNow(),
   dateCreation: timestamp('date_creation', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -197,4 +210,44 @@ export const moderationArchives = pgTable('moderation_archives', {
   dateSanction: timestamp('date_sanction', { withTimezone: true }).notNull().defaultNow(),
   dateArchivage: timestamp('date_archivage', { withTimezone: true }).notNull().defaultNow(),
   dateExpiration: timestamp('date_expiration', { withTimezone: true }).notNull(),
+});
+
+// Stockage clé/valeur partagé (jetons à usage unique, captcha, state OAuth, compteurs de limitation de débit)
+export const kvStore = pgTable('kv_store', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull().default({}),
+  counter: integer('counter').notNull().default(0),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+});
+
+// Carnet d'amis (contact_user_id renseigné quand l'ami a un compte Kinoo)
+export const contacts = pgTable('contacts', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  ownerId: varchar('owner_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  contactUserId: varchar('contact_user_id', { length: 128 }).references(() => users.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 100 }).notNull(),
+  email: varchar('email', { length: 255 }),
+  dateAjout: timestamp('date_ajout', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const scheduledSessions = pgTable('scheduled_sessions', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  userId: varchar('user_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 150 }).notNull(),
+  dateIso: timestamp('date_iso', { withTimezone: true }).notNull().defaultNow(),
+  dayOfMonth: integer('day_of_month').notNull(),
+  timeStr: varchar('time_str', { length: 5 }).notNull().default('20:30'),
+  mediaTitle: varchar('media_title', { length: 200 }),
+  mediaType: varchar('media_type', { length: 30 }),
+  badge: varchar('badge', { length: 40 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const privateMessages = pgTable('private_messages', {
+  id: varchar('id', { length: 128 }).primaryKey(),
+  senderId: varchar('sender_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  recipientId: varchar('recipient_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  body: text('body').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp('read_at', { withTimezone: true }),
 });

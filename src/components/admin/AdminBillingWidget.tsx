@@ -382,7 +382,7 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
               <div className="flex items-center justify-between text-gray-400 text-[11px]">
                 <span>Plafond séances :</span>
                 <span className="font-semibold text-pink-200 flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-[#EC4899]" /> Illimité
+                  <Sparkles className="w-3 h-3 text-[#EC4899]" /> 25 / mois
                 </span>
               </div>
               <div className="flex items-center justify-between text-gray-400 text-[11px]">

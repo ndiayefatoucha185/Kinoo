@@ -57,7 +57,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
               estVerrouillee: r.estVerrouillee,
               chatActif: true,
               reactionsActives: true,
-              maxParticipants: r.maxParticipants || 10,
+              maxParticipants: r.maxParticipants || 8,
               dateCreation: (r as any).dateCreation || new Date().toISOString(),
             };
             if (mappedRoom.statut !== 'TERMINEE' && !mappedRoom.estVerrouillee) {
@@ -110,7 +110,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
           estVerrouillee: r.estVerrouillee,
           chatActif: true,
           reactionsActives: true,
-          maxParticipants: r.maxParticipants || 10,
+          maxParticipants: r.maxParticipants || 8,
           dateCreation: (r as any).dateCreation || new Date().toISOString(),
         };
 

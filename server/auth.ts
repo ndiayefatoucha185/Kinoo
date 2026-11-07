@@ -1,11 +1,16 @@
-import { verifyCaptchaSolution, verifyTurnstileToken } from './captcha';
+import { verifyCaptchaSolution, verifyTurnstileToken } from './captcha.js';
 import { Request, Response, NextFunction } from 'express';
+import type { IncomingHttpHeaders } from 'http';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { db } from '../src/db/index.js';
 import { users } from '../src/db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { kvIncr, kvPeek, kvDelete } from './kv.js';
+import { EmailService } from './email.js';
+
+const JWT_ALG = 'HS256' as const;
 
 function getOrGenerateJwtSecret(): string {
   const envSecret = process.env.JWT_SECRET;
@@ -24,6 +29,29 @@ function getOrGenerateJwtSecret(): string {
 }
 
 const JWT_SECRET = getOrGenerateJwtSecret();
+// Clé distincte (dérivée) pour les jetons d'onboarding : un jeton d'onboarding ne peut jamais être pris pour une session.
+const ONBOARDING_SECRET = crypto.createHmac('sha256', JWT_SECRET).update('kinoo:onboarding:v1').digest('hex');
+
+// Marqueurs stockés à la place d'un hash bcrypt pour les comptes sans mot de passe local
+export const PASSWORD_MARKER_GOOGLE = 'OAUTH_GOOGLE';
+export const PASSWORD_MARKER_RESET_REQUIRED = 'OAUTH_GOOGLE_PASSWORD_RESET_REQUIRED';
+
+/** Vrai uniquement si le compte possède un vrai hash bcrypt (pas null, pas un marqueur OAuth). */
+export function hasRealPassword(hash: string | null | undefined): hash is string {
+  return Boolean(hash) && hash !== PASSWORD_MARKER_GOOGLE && hash !== PASSWORD_MARKER_RESET_REQUIRED;
+}
+
+/** E-mail du compte Super Admin (variable d'environnement ADMIN_EMAIL, jamais codé en dur). */
+export function getAdminEmail(): string {
+  return (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+}
+
+export type UserRole = 'UTILISATEUR' | 'ADMIN' | 'MODERATEUR' | 'SUPER_ADMIN';
+
+/** Les rôles privilégiés ne peuvent jamais s'authentifier via Google : mot de passe + session unique uniquement. */
+export function isPrivilegedRole(role: string | null | undefined): boolean {
+  return role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'MODERATEUR';
+}
 
 export interface AuthenticatedUser {
   id: string;
@@ -31,24 +59,38 @@ export interface AuthenticatedUser {
   email: string;
   pseudo: string;
   avatar?: string;
-  role: 'UTILISATEUR' | 'ADMIN' | 'MODERATEUR' | 'SUPER_ADMIN';
+  role: UserRole;
   forfait: 'GRATUIT' | 'STANDARD' | 'PREMIUM';
   statutCompte: 'ACTIF' | 'SUSPENDU';
   sessionToken?: string;
+  tokenVersion?: number;
 }
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
-// Password Hashing with Salt
+// Password Hashing with Salt (coût 12)
+const BCRYPT_COST = 12;
+// Hash factice : permet d'égaliser le temps de réponse quand le compte n'existe pas (anti-énumération par timing)
+const DUMMY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), BCRYPT_COST);
+
 export async function hashPassword(plain: string): Promise<string> {
-  const salt = await bcrypt.genSalt(10);
+  const salt = await bcrypt.genSalt(BCRYPT_COST);
   return bcrypt.hash(plain, salt);
 }
 
 export async function comparePassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
+}
+
+/** À appeler quand le compte n'existe pas, pour que le temps de réponse soit identique à une vraie vérification. */
+export async function burnPasswordCheck(plain: string): Promise<void> {
+  try {
+    await bcrypt.compare(typeof plain === 'string' ? plain : '', DUMMY_HASH);
+  } catch {
+    // ignore
+  }
 }
 
 // Token Generation
@@ -61,25 +103,72 @@ export function generateToken(user: AuthenticatedUser, sessionToken?: string): s
       role: user.role,
       forfait: user.forfait,
       sessionToken: sessionToken || user.sessionToken,
+      // Version de jeton : l'incrémenter en base révoque instantanément tous les JWT déjà émis pour ce compte
+      tv: user.tokenVersion ?? 0,
     },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '7d', algorithm: JWT_ALG }
   );
 }
 
-export function verifyToken(token: string): any {
+/** Jeton court (15 min) émis après validation Google pour finaliser l'inscription. Ne donne aucun accès à l'API. */
+export function generateOnboardingToken(profile: { email: string; pseudo: string; avatar?: string }): string {
+  return jwt.sign(
+    { purpose: 'onboarding', email: profile.email, pseudo: profile.pseudo, avatar: profile.avatar },
+    ONBOARDING_SECRET,
+    { expiresIn: '15m', algorithm: JWT_ALG }
+  );
+}
+
+export function verifyOnboardingToken(token: string): { email: string; pseudo?: string; avatar?: string } | null {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, ONBOARDING_SECRET, { algorithms: [JWT_ALG] }) as any;
+    if (!payload || payload.purpose !== 'onboarding' || typeof payload.email !== 'string') return null;
+    return payload;
   } catch {
     return null;
   }
 }
 
+export function verifyToken(token: string): any {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALG] }) as any;
+    if (!payload || typeof payload !== 'object' || payload.purpose) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+/** Révoque tous les jetons JWT existants du compte (changement de mot de passe, de rôle, déconnexion globale…). */
+export async function bumpTokenVersion(userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * En mode « AI Studio / fallback Bearer », le jeton est aussi renvoyé dans le corps JSON (iframe sans cookie tiers).
+ * À éviter en production : le jeton finit alors dans le stockage du navigateur.
+ */
+export function isBearerFallbackEnabled(): boolean {
+  const enabled = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
+  if (enabled && process.env.NODE_ENV === 'production' && !(globalThis as any).__kinoo_bearer_warned) {
+    (globalThis as any).__kinoo_bearer_warned = true;
+    console.warn(
+      '[SECURITY] Le fallback Bearer (IS_AI_STUDIO_PREVIEW / ALLOW_BEARER_FALLBACK) est actif en production : ' +
+        'les jetons sont renvoyés dans le corps des réponses et cookies SameSite=None. Désactivez-le hors prévisualisation.'
+    );
+  }
+  return enabled;
+}
+
 // Cookie Configuration for JWT (HttpOnly + Secure + SameSite)
 export function setAuthCookie(res: Response, req: Request, token: string) {
-  const isAiStudioEnv = process.env.IS_AI_STUDIO_PREVIEW === 'true' || process.env.ALLOW_BEARER_FALLBACK === 'true';
+  const isAiStudioEnv = isBearerFallbackEnabled();
   const isSecure = process.env.NODE_ENV === 'production' || req.secure || req.headers?.['x-forwarded-proto'] === 'https';
-  
+
   res.cookie('kinoo_token', token, {
     httpOnly: true,
     secure: isSecure,
@@ -91,14 +180,7 @@ export function setAuthCookie(res: Response, req: Request, token: string) {
   });
 }
 
-export function clearAuthCookie(res: Response, req?: Request) {
-  const isSecure = req ? (process.env.NODE_ENV === 'production' || req.secure || req.headers?.['x-forwarded-proto'] === 'https') : false;
-  res.clearCookie('kinoo_token', {
-    path: '/',
-    httpOnly: true,
-    secure: isSecure,
-    sameSite: isSecure ? 'none' : 'lax',
-  });
+export function clearAuthCookie(res: Response, _req?: Request) {
   res.clearCookie('kinoo_token', { path: '/' });
 }
 
@@ -113,6 +195,25 @@ export function extractToken(req: Request): string | null {
     return authHeader.split(' ')[1];
   }
   return null;
+}
+
+/**
+ * Résout un payload JWT déjà vérifié en utilisateur actif. Utilisé par le WebSocket (qui ne passe pas par `authenticate`).
+ * Renvoie null si le compte n'existe plus, est suspendu, si le jeton a été révoqué (tokenVersion) ou si la session
+ * Super Admin n'est plus la session active.
+ */
+export async function resolveSessionUser(
+  payload: any
+): Promise<{ id: string; pseudo: string; email: string; role: string; forfait: string } | null> {
+  if (!payload || typeof payload.id !== 'string') return null;
+  const result = await db.select().from(users).where(eq(users.id, payload.id)).limit(1);
+  const dbUser = result[0];
+  if (!dbUser || dbUser.statutCompte === 'SUSPENDU') return null;
+  if ((payload.tv ?? 0) !== (dbUser.tokenVersion ?? 0)) return null;
+  if (dbUser.role === 'SUPER_ADMIN') {
+    if (!dbUser.activeSessionToken || payload.sessionToken !== dbUser.activeSessionToken) return null;
+  }
+  return { id: dbUser.id, pseudo: dbUser.pseudo, email: dbUser.email, role: dbUser.role, forfait: dbUser.forfait };
 }
 
 // Authentication Middleware
@@ -136,6 +237,11 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
       return res.status(401).json({ error: 'Utilisateur introuvable.' });
     }
 
+    // Jeton révoqué (changement de mot de passe, déconnexion globale, changement de rôle…)
+    if ((payload.tv ?? 0) !== (dbUser.tokenVersion ?? 0)) {
+      return res.status(401).json({ error: 'Session révoquée. Veuillez vous reconnecter.', code: 'SESSION_REVOKED' });
+    }
+
     // Sous le RGPD (art. 17), un utilisateur suspendu conserve son droit fondamental à l'effacement de ses données personnelles
     if (dbUser.statutCompte === 'SUSPENDU' && req.path !== '/user/rgpd-delete-account') {
       return res.status(403).json({ error: 'Ce compte a été suspendu par un administrateur.' });
@@ -154,7 +260,7 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
         // Signal de vie : expiration si aucun ping/requête n'a été reçu pendant plus de 3 minutes (180s)
         const isHeartbeatExpired = lastActivityTime > 0 && (now.getTime() - lastActivityTime) > 3 * 60 * 1000;
         const isSessionExpired = isTimeExpired || isInactive || isHeartbeatExpired;
-        
+
         if (isSessionExpired) {
           // La session précédente a expiré par inactivité ou rupture de signal de vie
           await db.update(users).set({
@@ -199,6 +305,7 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
       forfait: dbUser.forfait as any,
       statutCompte: dbUser.statutCompte as any,
       sessionToken: payload.sessionToken,
+      tokenVersion: dbUser.tokenVersion ?? 0,
     };
 
     next();
@@ -217,7 +324,13 @@ export async function optionalAuth(req: AuthenticatedRequest, res: Response, nex
       if (payload && payload.id) {
         const result = await db.select().from(users).where(eq(users.id, payload.id)).limit(1);
         const dbUser = result[0];
-        if (dbUser && dbUser.statutCompte !== 'SUSPENDU') {
+        if (
+          dbUser &&
+          dbUser.statutCompte !== 'SUSPENDU' &&
+          (payload.tv ?? 0) === (dbUser.tokenVersion ?? 0) &&
+          // Un Super Admin n'est reconnu que si le jeton correspond à sa session active
+          (dbUser.role !== 'SUPER_ADMIN' || (dbUser.activeSessionToken && payload.sessionToken === dbUser.activeSessionToken))
+        ) {
           req.user = {
             id: dbUser.id,
             email: dbUser.email,
@@ -225,6 +338,7 @@ export async function optionalAuth(req: AuthenticatedRequest, res: Response, nex
             role: dbUser.role as any,
             forfait: dbUser.forfait as any,
             statutCompte: dbUser.statutCompte as any,
+            tokenVersion: dbUser.tokenVersion ?? 0,
           };
         }
       }
@@ -236,7 +350,7 @@ export async function optionalAuth(req: AuthenticatedRequest, res: Response, nex
 }
 
 // Strict Role Guard - Prevents privilege escalation from client console!
-export function requireRole(allowedRoles: ('UTILISATEUR' | 'ADMIN' | 'MODERATEUR' | 'SUPER_ADMIN')[]) {
+export function requireRole(allowedRoles: UserRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentification requise.' });
@@ -253,215 +367,21 @@ export function requireRole(allowedRoles: ('UTILISATEUR' | 'ADMIN' | 'MODERATEUR
   };
 }
 
-// Rate Limiter for Login/Register attempts (Sliding Window per IP)
-interface RateLimitRecord {
-  attempts: number;
-  firstAttemptTime: number;
-  blockedUntil?: number;
-}
+// ----------------------------------------------------------------------------
+// LIMITATION DE DÉBIT (compteurs persistés dans PostgreSQL : partagés entre instances, survivent aux redémarrages)
+// En cas d'indisponibilité du stockage, la requête est autorisée (disponibilité) et un avertissement est journalisé.
+// ----------------------------------------------------------------------------
 
-// Compteur 1 : Limite globale par adresse IP (tolérante pour les réseaux mobiles CGNAT : 45 tentatives / 15 min)
-const ipRateLimitStore = new Map<string, RateLimitRecord>();
-const IP_MAX_ATTEMPTS = parseInt(process.env.RATE_LIMIT_IP_MAX_ATTEMPTS || '45', 10);
-const IP_WINDOW_MS = 15 * 60 * 1000;
-const IP_BLOCK_DURATION_MS = 15 * 60 * 1000;
+type IpSource = { headers: IncomingHttpHeaders; ip?: string; socket?: { remoteAddress?: string } };
 
-// Compteur 2 : Couple IP + Email avec ralentissement progressif (Backoff au lieu de blocage dur de compte)
-interface IpEmailAttempt {
-  attempts: number;
-  lastAttemptTime: number;
-  requiredDelayMs: number;
-}
-const ipEmailStore = new Map<string, IpEmailAttempt>();
-
-// Compteur 3 : Compteur global par compte (seuil très élevé de 20 échecs pour éviter le déni de service tiers)
-const globalAccountStore = new Map<string, RateLimitRecord>();
-const GLOBAL_ACCOUNT_MAX_ATTEMPTS = 20;
-
-export async function rateLimitAuth(req: Request, res: Response, next: NextFunction) {
-  const clientIp = getClientIp(req);
-  const now = Date.now();
-
-  // 1. Limite globale par IP (CGNAT tolérant)
-  const ipRecord = ipRateLimitStore.get(clientIp);
-  if (ipRecord) {
-    if (ipRecord.blockedUntil && ipRecord.blockedUntil > now) {
-      const remainingSec = Math.ceil((ipRecord.blockedUntil - now) / 1000);
-      return res.status(429).json({
-        error: `Trop de requêtes depuis cette adresse réseau. Réessayez dans ${remainingSec} secondes.`,
-      });
-    }
-  }
-
-  // 2. Ralentissement progressif sur le couple IP + Email
-  const targetEmail = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : null;
-  if (targetEmail) {
-    const pairKey = `${clientIp}::${targetEmail}`;
-    const pairRecord = ipEmailStore.get(pairKey);
-    if (pairRecord) {
-      const elapsed = now - pairRecord.lastAttemptTime;
-      if (elapsed < pairRecord.requiredDelayMs) {
-        const waitSec = Math.ceil((pairRecord.requiredDelayMs - elapsed) / 1000);
-        return res.status(429).json({
-          error: `Veuillez patienter ${waitSec} seconde(s) avant une nouvelle tentative.`,
-        });
-      }
-
-      // Pour le Super Admin : au-delà de 3 échecs depuis CETTE adresse IP, exiger un jeton captcha
-      const isSuperAdminEmail = targetEmail === 'kinoo.service@gmail.com' || (req.body as any)?.role === 'SUPER_ADMIN';
-      if (isSuperAdminEmail && pairRecord.attempts >= 3) {
-        const captchaToken = req.body?.captchaToken || req.headers['x-kinoo-captcha'];
-        if (!captchaToken) {
-          return res.status(403).json({
-            error: 'Vérification de sécurité requise suite à de multiples tentatives depuis cette adresse.',
-            requiresCaptcha: true,
-          });
-        }
-      }
-    }
-
-    // 3. Vérification du seuil par compte (au-delà de 20 échecs : CAPTCHA OBLIGATOIRE SANS AUCUN BLOCAGE DUR)
-    const accRecord = globalAccountStore.get(targetEmail);
-    const isSuperAdminEmail = targetEmail === 'kinoo.service@gmail.com' || (req.body as any)?.role === 'SUPER_ADMIN';
-    const mustVerifyCaptcha = (accRecord && accRecord.attempts >= 20) || (isSuperAdminEmail && (pairRecord?.attempts || 0) >= 3);
-
-    if (mustVerifyCaptcha) {
-      const turnstileToken = req.body?.turnstileToken;
-      const captchaId = req.body?.captchaId;
-      const captchaAnswer = req.body?.captchaAnswer;
-
-      let isValid = false;
-
-      // 1. Essai de vérification Cloudflare Turnstile si le jeton et la clé secrète existent
-      if (turnstileToken && process.env.TURNSTILE_SECRET_KEY) {
-        const turnstileRes = await verifyTurnstileToken(turnstileToken, clientIp);
-        if (turnstileRes.success) {
-          isValid = true;
-        } else if (turnstileRes.error === 'CLOUDFLARE_UNAVAILABLE' || turnstileRes.error === 'CLOUDFLARE_NETWORK_ERROR') {
-          // Repli sur le défi interne si Cloudflare est indisponible
-          isValid = verifyCaptchaSolution(captchaId, captchaAnswer);
-        }
-      } else {
-        // 2. Défi interne de temporisation / limitation de débit
-        isValid = verifyCaptchaSolution(captchaId, captchaAnswer);
-      }
-
-      if (!isValid) {
-        return res.status(403).json({
-          error: 'Ralentissement de sécurité requis suite à de multiples tentatives. Veuillez renseigner la vérification de temporisation.',
-          requiresCaptcha: true,
-          code: 'CAPTCHA_REQUIRED',
-        });
-      }
-    }
-  }
-
-  next();
-}
-
-export function recordFailedAuthAttempt(clientIp: string, email?: string) {
-  if (!email) return;
-  const cleanEmail = email.toLowerCase().trim();
-  const now = Date.now();
-
-  // Ralentissement progressif sur le couple IP + Email
-  const pairKey = `${clientIp}::${cleanEmail}`;
-  const pairRecord = ipEmailStore.get(pairKey);
-  if (pairRecord) {
-    pairRecord.attempts += 1;
-    pairRecord.lastAttemptTime = now;
-    // Délais croissants : 0s (1-3), 2s (4), 4s (5), 8s (6), 15s (7+)
-    if (pairRecord.attempts === 4) pairRecord.requiredDelayMs = 2000;
-    else if (pairRecord.attempts === 5) pairRecord.requiredDelayMs = 4000;
-    else if (pairRecord.attempts === 6) pairRecord.requiredDelayMs = 8000;
-    else if (pairRecord.attempts >= 7) pairRecord.requiredDelayMs = 15000;
-  } else {
-    ipEmailStore.set(pairKey, { attempts: 1, lastAttemptTime: now, requiredDelayMs: 0 });
-  }
-
-  // Compteur global de sécurité (seuil 20 échecs distribués : captcha obligatoire + alerte email, AUCUN BLOCAGE DUR)
-  const accRecord = globalAccountStore.get(cleanEmail);
-  if (accRecord) {
-    if (now - accRecord.firstAttemptTime > 15 * 60 * 1000) {
-      globalAccountStore.set(cleanEmail, { attempts: 1, firstAttemptTime: now });
-    } else {
-      accRecord.attempts += 1;
-      if (accRecord.attempts === GLOBAL_ACCOUNT_MAX_ATTEMPTS) {
-        // Envoi d'une alerte par email au titulaire (sans blocage du compte)
-        try {
-          EmailService.sendSecurityAlertEmail({
-            email: cleanEmail,
-            attempts: accRecord.attempts,
-            ip: clientIp,
-          }).catch(() => {});
-        } catch {}
-      }
-    }
-  } else {
-    globalAccountStore.set(cleanEmail, { attempts: 1, firstAttemptTime: now });
-  }
-}
-
-export function resetAccountRateLimit(clientIp: string, email?: string) {
-  if (!email) return;
-  const cleanEmail = email.toLowerCase().trim();
-  ipEmailStore.delete(`${clientIp}::${cleanEmail}`);
-  globalAccountStore.delete(cleanEmail);
-}
-
-export function resetRateLimit(ip: string) {
-  const cleanIp = (ip || '').split(',')[0].trim();
-  ipRateLimitStore.delete(cleanIp);
-  ipRateLimitStore.delete(ip);
-}
-
-
-// Rate limiting anti-spam pour les envois d'emails et invitations (5 req/min)
-const emailLimitStore = new Map<string, { count: number; windowStart: number }>();
-export function rateLimitEmail(req: Request, res: Response, next: NextFunction) {
-  const clientIp = getClientIp(req);
-  const now = Date.now();
-  const rec = emailLimitStore.get(clientIp);
-  if (rec) {
-    if (now - rec.windowStart > 60000) {
-      emailLimitStore.set(clientIp, { count: 1, windowStart: now });
-    } else {
-      rec.count++;
-      if (rec.count > 5) {
-        return res.status(429).json({ error: "Trop d'envois d'invitations. Veuillez patienter une minute par mesure anti-spam." });
-      }
-    }
-  } else {
-    emailLimitStore.set(clientIp, { count: 1, windowStart: now });
-  }
-  next();
-}
-
-// Invisible Honeypot & Bot Challenge Validator
-export function verifyInvisibleCaptcha(req: Request, res: Response, next: NextFunction) {
-  const { honeypot, captchaChallenge } = req.body;
-
-  // 1. Contrôle Honeypot réel : Si le champ caché est rempli par un robot
-  if (honeypot) {
-    console.warn('[SECURITY] Bot détecté via champ honeypot invisible.');
-    return res.status(400).json({ error: 'Validation antispam échouée.' });
-  }
-
-  next();
-}
-
-// Dedicated Anti-Spam Rate Limiter for public form submissions (reports, support tickets, invitations)
-const antiSpamStore = new Map<string, RateLimitRecord>();
-const SPAM_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_SPAM_SUBMISSIONS = 15; // Max 15 submissions per 10 minutes
-
-// Extraction sécurisée de la véritable adresse IP cliente (protégée contre l'usurpation de X-Forwarded-For)
-// Extraction rigoureuse et sécurisée de l'adresse IP cliente réelle sur Google Cloud Run et proxys inverses
-export function getClientIp(req: Request): string {
+// Extraction de l'adresse IP cliente réelle sur Google Cloud Run et proxys inverses.
+// Fonctionne aussi avec une requête de handshake WebSocket (IncomingMessage, sans req.ip).
+export function getClientIp(req: IpSource): string {
   // 1. En-tête X-Forwarded-For géré par le proxy inverse (Google Front End / Cloud Run)
   const rawFwd = req.headers['x-forwarded-for'];
-  if (typeof rawFwd === 'string' && rawFwd.trim()) {
-    const parts = rawFwd.split(',').map((p) => p.trim()).filter(Boolean);
+  const fwd = Array.isArray(rawFwd) ? rawFwd.join(',') : rawFwd;
+  if (typeof fwd === 'string' && fwd.trim()) {
+    const parts = fwd.split(',').map((p) => p.trim()).filter(Boolean);
     if (parts.length > 0) {
       // Sur Google Cloud Run : Google Front End termine la connexion client et accole
       // l'IP réelle du client appelant à la fin de X-Forwarded-For.
@@ -493,76 +413,233 @@ export function getClientIp(req: Request): string {
   return '127.0.0.1';
 }
 
-export function rateLimitAntiSpam(req: Request, res: Response, next: NextFunction) {
-  const clientIp = getClientIp(req);
-  const now = Date.now();
-  const record = antiSpamStore.get(clientIp);
+/**
+ * Fabrique un limiteur à fenêtre fixe : `max` requêtes par `windowSec` secondes pour la clé fournie
+ * (par défaut l'adresse IP cliente).
+ */
+export function rateLimitKv(
+  name: string,
+  opts: { max: number; windowSec: number; message?: string; keyFn?: (req: Request) => string | null | undefined }
+) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const key = opts.keyFn ? opts.keyFn(req) : getClientIp(req);
+      if (key) {
+        const counter = await kvIncr(`rl:${name}:${key}`, opts.windowSec);
+        if (counter.count > opts.max) {
+          res.setHeader('Retry-After', String(Math.max(1, counter.ttlSec)));
+          return res.status(429).json({
+            error: opts.message || 'Trop de requêtes. Veuillez réessayer dans quelques instants.',
+            code: 'RATE_LIMITED',
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[RATE-LIMIT:${name}] Stockage indisponible, requête autorisée :`, err?.message);
+    }
+    next();
+  };
+}
 
-  if (record) {
-    if (record.blockedUntil && record.blockedUntil > now) {
-      const remainingSec = Math.ceil((record.blockedUntil - now) / 1000);
+const AUTH_WINDOW_SEC = 15 * 60;
+const IP_MAX_ATTEMPTS = parseInt(process.env.RATE_LIMIT_IP_MAX_ATTEMPTS || '45', 10);
+const ACCOUNT_CAPTCHA_THRESHOLD = 20;
+const ADMIN_PAIR_CAPTCHA_THRESHOLD = 3;
+
+// Délais croissants après échecs sur le couple IP + e-mail : 0s (1-3), 2s (4), 4s (5), 8s (6), 15s (7+)
+function pairDelayMs(attempts: number): number {
+  if (attempts >= 7) return 15000;
+  if (attempts === 6) return 8000;
+  if (attempts === 5) return 4000;
+  if (attempts === 4) return 2000;
+  return 0;
+}
+
+const pairKey = (ip: string, email: string) => `auth:pair:${ip}::${email}`;
+const acctKey = (email: string) => `auth:acct:${email}`;
+
+/**
+ * Limitation des routes d'authentification :
+ *  1. plafond par IP sur l'ensemble des appels (45 / 15 min par défaut) ;
+ *  2. ralentissement progressif après échecs sur le couple IP + e-mail ;
+ *  3. au-delà de 20 échecs sur un compte (ou 3 sur le Super Admin depuis une IP) : captcha obligatoire, sans blocage dur.
+ */
+export async function rateLimitAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const clientIp = getClientIp(req);
+
+    const ipCounter = await kvIncr(`auth:ip:${clientIp}`, AUTH_WINDOW_SEC);
+    if (ipCounter.count > IP_MAX_ATTEMPTS) {
+      res.setHeader('Retry-After', String(Math.max(1, ipCounter.ttlSec)));
       return res.status(429).json({
-        error: `Activité suspecte détectée. Veuillez patienter ${remainingSec}s avant de soumettre une nouvelle requête.`,
+        error: `Trop de requêtes depuis cette adresse réseau. Réessayez dans ${Math.max(1, ipCounter.ttlSec)} secondes.`,
       });
     }
 
-    if (now - record.firstAttemptTime > SPAM_WINDOW_MS) {
-      antiSpamStore.set(clientIp, { attempts: 1, firstAttemptTime: now });
-    } else {
-      record.attempts += 1;
-      if (record.attempts > MAX_SPAM_SUBMISSIONS) {
-        record.blockedUntil = now + SPAM_WINDOW_MS;
-        return res.status(429).json({
-          error: `Trop de requêtes soumises. Votre adresse IP est temporairement restreinte pour protéger le service contre le spam.`,
-        });
+    const targetEmail = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : null;
+    if (targetEmail) {
+      const pair = await kvPeek(pairKey(clientIp, targetEmail));
+      if (pair) {
+        const delay = pairDelayMs(pair.count);
+        const elapsed = Date.now() - (Number(pair.value?.last) || 0);
+        if (delay > 0 && elapsed < delay) {
+          const waitSec = Math.ceil((delay - elapsed) / 1000);
+          res.setHeader('Retry-After', String(waitSec));
+          return res.status(429).json({ error: `Veuillez patienter ${waitSec} seconde(s) avant une nouvelle tentative.` });
+        }
+      }
+
+      const acct = await kvPeek(acctKey(targetEmail));
+      const adminEmail = getAdminEmail();
+      const isSuperAdminTarget = (adminEmail !== '' && targetEmail === adminEmail) || (req.body as any)?.role === 'SUPER_ADMIN';
+      const mustVerifyCaptcha =
+        (acct && acct.count >= ACCOUNT_CAPTCHA_THRESHOLD) ||
+        (isSuperAdminTarget && (pair?.count || 0) >= ADMIN_PAIR_CAPTCHA_THRESHOLD);
+
+      if (mustVerifyCaptcha) {
+        const turnstileToken = req.body?.turnstileToken;
+        const captchaId = req.body?.captchaId;
+        const captchaAnswer = req.body?.captchaAnswer;
+
+        let isValid = false;
+
+        if (turnstileToken && process.env.TURNSTILE_SECRET_KEY) {
+          // 1. Cloudflare Turnstile si le jeton et la clé secrète existent
+          const turnstileRes = await verifyTurnstileToken(turnstileToken, clientIp);
+          if (turnstileRes.success) {
+            isValid = true;
+          } else if (turnstileRes.error === 'CLOUDFLARE_UNAVAILABLE' || turnstileRes.error === 'CLOUDFLARE_NETWORK_ERROR') {
+            // Repli sur le défi interne si Cloudflare est indisponible
+            isValid = await verifyCaptchaSolution(captchaId, captchaAnswer);
+          }
+        } else {
+          // 2. Défi interne de temporisation / limitation de débit
+          isValid = await verifyCaptchaSolution(captchaId, captchaAnswer);
+        }
+
+        if (!isValid) {
+          return res.status(403).json({
+            error: 'Ralentissement de sécurité requis suite à de multiples tentatives. Veuillez renseigner la vérification de temporisation.',
+            requiresCaptcha: true,
+            code: 'CAPTCHA_REQUIRED',
+          });
+        }
       }
     }
-  } else {
-    antiSpamStore.set(clientIp, { attempts: 1, firstAttemptTime: now });
+  } catch (err: any) {
+    console.warn('[RATE-LIMIT:auth] Stockage indisponible, requête autorisée :', err?.message);
   }
 
   next();
 }
 
+export async function recordFailedAuthAttempt(clientIp: string, email?: string): Promise<void> {
+  if (!email) return;
+  const cleanEmail = email.toLowerCase().trim();
+  try {
+    await kvIncr(pairKey(clientIp, cleanEmail), AUTH_WINDOW_SEC, { last: Date.now() });
+    const acct = await kvIncr(acctKey(cleanEmail), AUTH_WINDOW_SEC);
 
-const roomSearchStore = new Map<string, { attempts: number; windowStart: number }>();
-
-export function resetRoomSearchRateLimit(ip: string) {
-  roomSearchStore.delete(ip);
-}
-
-export function rateLimitRoomSearch(req: Request, res: Response, next: NextFunction) {
-  const clientIp = getClientIp(req);
-  const now = Date.now();
-  const windowMs = 60 * 1000; // 1 minute
-  const maxFailedAttempts = 5; // Limite stricte : 5 mauvaises tentatives par minute et par IP réelle
-  const record = roomSearchStore.get(clientIp);
-
-  if (record) {
-    if (now - record.windowStart > windowMs) {
-      roomSearchStore.delete(clientIp);
-    } else if (record.attempts >= maxFailedAttempts) {
-      console.warn('[SECURITY] Limite de mauvaises tentatives atteinte pour l IP ' + clientIp);
-      return res.status(429).json({
-        error: 'Trop de tentatives de recherche ou de saisie de code de salle. Veuillez patienter une minute.',
-        code: 'RATE_LIMIT_EXCEEDED'
-      });
-    }
-  }
-
-  // Hook pour comptabiliser uniquement les échecs (404)
-  const originalJson = res.json.bind(res);
-  res.json = function (body: any) {
-    if (res.statusCode === 404) {
-      const rec = roomSearchStore.get(clientIp);
-      if (rec && now - rec.windowStart <= windowMs) {
-        rec.attempts += 1;
-      } else {
-        roomSearchStore.set(clientIp, { attempts: 1, windowStart: now });
+    // Alerte e-mail au titulaire (sans blocage du compte) : uniquement si le compte existe réellement,
+    // pour ne pas servir à envoyer des e-mails à des adresses arbitraires.
+    if (acct.count === ACCOUNT_CAPTCHA_THRESHOLD) {
+      const found = await db.select({ pseudo: users.pseudo }).from(users).where(eq(users.email, cleanEmail)).limit(1);
+      if (found[0]) {
+        EmailService.sendSecurityAlertEmail({
+          email: cleanEmail,
+          pseudo: found[0].pseudo,
+          attempts: acct.count,
+          ip: clientIp,
+        }).catch(() => {});
       }
     }
+  } catch (err: any) {
+    console.warn('[RATE-LIMIT:auth] Enregistrement d’échec impossible :', err?.message);
+  }
+}
+
+export async function resetAccountRateLimit(clientIp: string, email?: string): Promise<void> {
+  if (!email) return;
+  const cleanEmail = email.toLowerCase().trim();
+  try {
+    await kvDelete(pairKey(clientIp, cleanEmail));
+    await kvDelete(acctKey(cleanEmail));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Conservée pour compatibilité. Une connexion réussie ne remet volontairement PAS à zéro le plafond par IP :
+ * sinon un attaquant disposant d'un compte légitime pourrait réarmer son quota à volonté.
+ */
+export function resetRateLimit(_ip: string) {
+  // no-op
+}
+
+// Anti-spam des envois d'e-mails et d'invitations : 5 requêtes par minute et par IP
+export const rateLimitEmail = rateLimitKv('email', {
+  max: 5,
+  windowSec: 60,
+  message: "Trop d'envois d'invitations. Veuillez patienter une minute par mesure anti-spam.",
+});
+
+// Invisible Honeypot & Bot Challenge Validator
+export function verifyInvisibleCaptcha(req: Request, res: Response, next: NextFunction) {
+  const { honeypot } = req.body || {};
+
+  // Contrôle Honeypot réel : Si le champ caché est rempli par un robot
+  if (honeypot) {
+    console.warn('[SECURITY] Bot détecté via champ honeypot invisible.');
+    return res.status(400).json({ error: 'Validation antispam échouée.' });
+  }
+
+  next();
+}
+
+// Anti-spam des formulaires publics (signalements, tickets) : 15 soumissions / 10 minutes par IP
+export const rateLimitAntiSpam = rateLimitKv('antispam', {
+  max: 15,
+  windowSec: 10 * 60,
+  message: 'Trop de requêtes soumises. Votre adresse IP est temporairement restreinte pour protéger le service contre le spam.',
+});
+
+// Recherche / saisie de code de salle : 5 ÉCHECS (salle introuvable ou mauvais mot de passe) par minute et par IP.
+// Les requêtes réussies, et la simple découverte « cette salle exige un mot de passe », ne comptent pas.
+const ROOM_SEARCH_MAX_FAILURES = 5;
+const ROOM_SEARCH_WINDOW_SEC = 60;
+
+export function resetRoomSearchRateLimit(ip: string) {
+  kvDelete(`rs:${ip}`).catch(() => {});
+}
+
+export async function rateLimitRoomSearch(req: Request, res: Response, next: NextFunction) {
+  const clientIp = getClientIp(req);
+  const key = `rs:${clientIp}`;
+
+  try {
+    const current = await kvPeek(key);
+    if (current && current.count >= ROOM_SEARCH_MAX_FAILURES) {
+      console.warn('[SECURITY] Limite de mauvaises tentatives atteinte pour l IP ' + clientIp);
+      res.setHeader('Retry-After', String(Math.max(1, current.ttlSec)));
+      return res.status(429).json({
+        error: 'Trop de tentatives de recherche ou de saisie de code de salle. Veuillez patienter une minute.',
+        code: 'RATE_LIMIT_EXCEEDED',
+      });
+    }
+  } catch (err: any) {
+    console.warn('[RATE-LIMIT:room] Stockage indisponible, requête autorisée :', err?.message);
+  }
+
+  // Hook pour comptabiliser uniquement les échecs
+  const originalJson = res.json.bind(res);
+  res.json = function (body: any) {
+    const isFailure = res.statusCode === 404 || (res.statusCode === 403 && body?.code === 'ROOM_PASSWORD_INVALID');
+    if (isFailure) {
+      kvIncr(key, ROOM_SEARCH_WINDOW_SEC).catch(() => {});
+    }
     return originalJson(body);
-  };
+  } as typeof res.json;
 
   next();
 }

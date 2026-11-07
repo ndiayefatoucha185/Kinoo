@@ -19,13 +19,15 @@ export interface ServerMetrics {
   websocket: {
     activeConnections: number;
     totalMessagesRelayed: number;
-    averageLatencyMs: number;
-    estimatedPacketLossRate: number;
+    /** Moyenne des allers-retours ping/pong WebSocket mesurés ; null tant qu'aucune mesure n'existe. */
+    averageLatencyMs: number | null;
+    /** Non mesuré côté serveur : toujours null (aucune valeur inventée). */
+    estimatedPacketLossRate: number | null;
   };
 }
 
 let totalMessagesRelayed = 0;
-let latencySamples: number[] = [12, 18, 15, 22, 14, 19, 16]; // baseline in ms
+const latencySamples: number[] = [];
 
 export const MetricsCollector = {
   incrementMessageCount() {
@@ -33,6 +35,7 @@ export const MetricsCollector = {
   },
 
   recordLatencySample(ms: number) {
+    if (!Number.isFinite(ms) || ms < 0 || ms > 60000) return;
     latencySamples.push(ms);
     if (latencySamples.length > 50) {
       latencySamples.shift();
@@ -48,7 +51,7 @@ export const MetricsCollector = {
     const avgLatency =
       latencySamples.length > 0
         ? Math.round((latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length) * 10) / 10
-        : 15.0;
+        : null;
 
     return {
       timestamp: new Date().toISOString(),
@@ -70,7 +73,7 @@ export const MetricsCollector = {
         activeConnections: activeWsConnections,
         totalMessagesRelayed,
         averageLatencyMs: avgLatency,
-        estimatedPacketLossRate: 0.002, // 0.2% typical under local/run conditions
+        estimatedPacketLossRate: null,
       },
     };
   },
