@@ -23,7 +23,7 @@ Un secret différent pour chacun : `JWT_SECRET`, `OAUTH_STATE_SECRET`, `MODERATI
 
 1. https://console.cloud.google.com → *APIs & Services* → *Credentials* → **Create credentials → OAuth client ID** (type *Web application*).
 2. *Authorized JavaScript origins* : `http://localhost:3000` (et votre domaine en production).
-3. *Authorized redirect URIs* : `http://localhost:3000/` (et `https://votre-domaine/`).
+3. *Authorized redirect URIs* : `http://localhost:3000/auth/callback` (et `https://votre-domaine/auth/callback`). Le chemin doit être exactement `/auth/callback`.
 4. Copiez dans `.env` : `GOOGLE_CLIENT_ID=` et `GOOGLE_CLIENT_SECRET=`.
 5. Écran de consentement OAuth : ajoutez votre adresse comme *utilisateur test* tant que l'application n'est pas publiée.
 
