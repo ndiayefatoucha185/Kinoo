@@ -1,3 +1,4 @@
+import { AlertTriangle as IconAlertTriangle, Sparkles as IconSparkles } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   User,
@@ -480,7 +481,7 @@ export const AdminAiAssistantWidget: React.FC<AdminAiAssistantWidgetProps> = ({
                         <div className="font-semibold text-white text-xs">{msg.proposedAction.title}</div>
                         <p className="text-[11px] text-gray-300">{msg.proposedAction.description}</p>
                         <div className="text-[10px] text-amber-300/80 italic">
-                          ⚠️ {msg.proposedAction.impactNotice}
+                          <IconAlertTriangle className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />{msg.proposedAction.impactNotice}
                         </div>
                       </div>
 
@@ -567,7 +568,7 @@ export const AdminAiAssistantWidget: React.FC<AdminAiAssistantWidgetProps> = ({
 
                 <div className="pt-2 border-t border-[#1F2133] flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] text-gray-400">
-                    💡 Cliquez sur une suggestion à droite pour lancer une requête instantanée.
+                    <IconSparkles className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />Cliquez sur une suggestion à droite pour lancer une requête instantanée.
                   </span>
                   <button
                     type="button"

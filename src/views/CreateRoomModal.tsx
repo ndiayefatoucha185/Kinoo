@@ -381,7 +381,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             <input
               type="text"
               required
-              placeholder="Ex: Soirée film avec Sarah & Lucas 🍿"
+              placeholder="Ex: Soirée film avec Sarah & Lucas"
               value={nom}
               onChange={(e) => setNom(e.target.value)}
               className="w-full bg-[#09090B] border border-[#232326] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]"

@@ -1,4 +1,6 @@
+import { Star as IconStar } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { PosterImage } from './PosterImage';
 import { User, Room, Participation } from '../types/kinoo';
 import {
   X,
@@ -46,7 +48,7 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   ]);
   const [customComment, setCustomComment] = useState('');
   const [sharedComments, setSharedComments] = useState<Array<{ pseudo: string; text: string; stars: number }>>([
-    { pseudo: 'Léa', text: 'Incroyable, j’ai adoré la fin ! On enchaîne sur quoi ? 😍', stars: 5 },
+    { pseudo: 'Léa', text: 'Incroyable, j’ai adoré la fin ! On enchaîne sur quoi ?', stars: 5 },
   ]);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -119,10 +121,12 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
 
         {/* Film Card Banner */}
         <div className="flex items-center gap-4 p-4 rounded-2xl bg-[#09090B] border border-[#232326]">
-          <img
+          <PosterImage
             src={room.sourceContenu?.posterUrl}
-            alt={room.sourceContenu?.titre}
-            className="w-16 h-16 object-cover rounded-xl border border-white/10"
+            youtubeId={room.sourceContenu?.youtubeId}
+            alt={room.sourceContenu?.titre || 'Affiche'}
+            iconClassName="w-6 h-6"
+            className="w-16 h-16 object-cover rounded-xl border border-white/10 shrink-0"
           />
           <div className="min-w-0 flex-1">
             <span className="text-[10px] uppercase font-bold text-[#EC4899] tracking-wider">Séance terminée</span>
@@ -250,7 +254,7 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
                   <span className="text-gray-200">{c.text}</span>
                 </div>
                 <div className="flex items-center gap-0.5 text-amber-400 text-[11px] font-mono shrink-0">
-                  <span>★ {c.stars}/5</span>
+                  <span className="inline-flex items-center gap-1"><IconStar className="w-3 h-3 fill-current" />{c.stars}/5</span>
                 </div>
               </div>
             ))}

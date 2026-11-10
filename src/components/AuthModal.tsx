@@ -1,3 +1,4 @@
+import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft } from 'lucide-react';
 import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { AuthService, SignupData, LoginData } from '../services/auth';
@@ -820,7 +821,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <div className="p-3.5 bg-[#141417] border border-purple-500/30 rounded-xl space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
-                          🛡️ Contrôle de sécurité Cloudflare Turnstile
+                          <IconShieldCheck className="w-3.5 h-3.5" /> Contrôle de sécurité Cloudflare Turnstile
                         </span>
                       </div>
                       <div id="cf-turnstile-container" className="flex justify-center min-h-[65px]" />
@@ -829,7 +830,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-                          🛡️ Ralentissement de sécurité (limitation de débit)
+                          <IconShieldCheck className="w-3.5 h-3.5" /> Ralentissement de sécurité (limitation de débit)
                         </span>
                         <button
                           type="button"
@@ -1279,7 +1280,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         onClick={() => setOnboardingAvatar(googleOnboardingData.profile.avatar)}
                         className="text-[11px] text-[#EC4899] hover:underline font-semibold cursor-pointer block"
                       >
-                        ↺ Rétablir ma photo Google
+                        <IconRotateCcw className="w-3 h-3 inline-block align-[-2px] mr-1" />Rétablir ma photo Google
                       </button>
                     )}
                   </div>
@@ -1539,7 +1540,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   }}
                   className="text-xs text-[#EC4899] hover:underline cursor-pointer"
                 >
-                  ← Retour à la connexion
+                  <IconArrowLeft className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />Retour à la connexion
                 </button>
               </div>
             </form>

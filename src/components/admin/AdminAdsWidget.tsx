@@ -1,3 +1,4 @@
+import { Lock as IconLock } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Advertisement, AdPlacement } from '../../types/kinoo';
 import { StorageService } from '../../services/storage';
@@ -757,7 +758,7 @@ export const AdminAdsWidget: React.FC<AdminAdsWidgetProps> = ({
 
               {/* Information reminder */}
               <div className="p-3 rounded-xl bg-[#1A1826] border border-[#302844] text-[11px] text-gray-300">
-                🔒 <strong>Rappel de sécurité :</strong> Chaque création et mise à jour sera consignée de façon immuable dans le <strong>Journal d’Audit Super Admin</strong> côté serveur.
+                <IconLock className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" /><strong>Rappel de sécurité :</strong> Chaque création et mise à jour sera consignée de façon immuable dans le <strong>Journal d’Audit Super Admin</strong> côté serveur.
               </div>
 
               {/* Actions */}

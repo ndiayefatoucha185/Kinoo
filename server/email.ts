@@ -332,7 +332,7 @@ export const EmailService = {
           </a>
         </div>
         <p style="font-size: 14px; font-weight: bold; color: #b91c1c; background: #fef2f2; padding: 12px; border-radius: 6px; text-align: center;">
-          ⚠️ Ce lien de sécurité expire obligatoirement dans 15 minutes et ne peut servir qu'une fois.
+          Ce lien de sécurité expire obligatoirement dans 15 minutes et ne peut servir qu'une fois.
         </p>
         <p style="font-size: 13px; color: #64748b;">
           Si vous n'avez pas demandé cette réinitialisation, votre compte reste sécurisé et aucune action n'est requise.
@@ -414,7 +414,7 @@ export const EmailService = {
           <p style="color: #64748b; font-size: 13px;">Invitation à une Watch Party</p>
         </div>
         <h2 style="font-size: 18px; color: #0f172a;">
-          🎬 ${escapeHtml(senderPseudo)} vous invite à rejoindre « ${escapeHtml(roomTitle)} »
+          ${escapeHtml(senderPseudo)} vous invite à rejoindre « ${escapeHtml(roomTitle)} »
         </h2>
         <p style="font-size: 14px; color: #475569; line-height: 1.6;">
           Venez regarder ensemble, synchronisés à la milliseconde près, avec chat en direct et vocal WebRTC.
@@ -433,14 +433,14 @@ export const EmailService = {
           Code d'accès rapide : <strong style="font-family: monospace; letter-spacing: 2px; color: #1e293b;">${escapeHtml(roomCode)}</strong>
         </div>
         <p style="font-size: 12px; color: #64748b; margin-top: 20px; text-align: center;">
-          📅 Un fichier d'événement de calendrier (.ics) est inclus. Vous pouvez l'ajouter directement à votre Google Agenda, Apple Calendar ou Outlook.
+          Un fichier d'événement de calendrier (.ics) est inclus. Vous pouvez l'ajouter directement à votre Google Agenda, Apple Calendar ou Outlook.
         </p>
       </div>
     `;
 
     return sendEmail({
       to: options.recipientEmail,
-      subject: `🎬 ${senderPseudo} vous invite sur Kinoo : « ${roomTitle} »`,
+      subject: `${senderPseudo} vous invite sur Kinoo : « ${roomTitle} »`,
       html,
       type: 'ROOM_INVITATION',
       icsAttachment: {
@@ -467,7 +467,7 @@ export const EmailService = {
         </div>
         <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 14px; margin: 16px 0; border-radius: 6px;">
           <h2 style="font-size: 16px; color: #991b1b; margin: 0 0 6px 0;">
-            🛡️ Déconnexion forcée de la session Super Admin
+            Déconnexion forcée de la session Super Admin
           </h2>
           <p style="font-size: 13px; color: #7f1d1d; margin: 0; line-height: 1.5;">
             Bonjour ${escapeHtml(cleanText(options.pseudo, 100))}, une demande de déblocage de session a été initiée pour le compte Super Admin <strong>${escapeHtml(options.email)}</strong>.
@@ -489,7 +489,7 @@ export const EmailService = {
 
     return sendEmail({
       to: options.email,
-      subject: '🛡️ Kinoo Super Admin : Lien de déconnexion d’urgence et déblocage',
+      subject: 'Kinoo Super Admin : Lien de déconnexion d’urgence et déblocage',
       html,
       type: 'SUPER_ADMIN_UNLOCK',
       devLink: options.unlockUrl,

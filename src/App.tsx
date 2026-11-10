@@ -1,3 +1,4 @@
+import { ArrowLeft as IconArrowLeft } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import { User, Room } from './types/kinoo';
@@ -423,7 +424,7 @@ export default function App() {
                     onClick={() => setCurrentView('dashboard')}
                     className="text-xs font-semibold text-[#EC4899] hover:underline flex items-center gap-1.5"
                   >
-                    ← Retour à mon espace
+                    <IconArrowLeft className="w-4 h-4 inline-block align-[-3px] mr-1.5" />Retour à mon espace
                   </button>
                   <span className="text-[11px] text-[#B8B4C0]">Spécifications techniques</span>
                 </div>
@@ -515,7 +516,7 @@ export default function App() {
                     onClick={() => setCurrentView('home')}
                     className="text-xs font-semibold text-[#EC4899] hover:underline flex items-center gap-1.5"
                   >
-                    ← Retour à l'accueil
+                    <IconArrowLeft className="w-4 h-4 inline-block align-[-3px] mr-1.5" />Retour à l'accueil
                   </button>
                   <span className="text-[11px] text-[#B8B4C0]">Spécifications techniques publiques</span>
                 </div>

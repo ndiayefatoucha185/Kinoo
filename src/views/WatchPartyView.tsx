@@ -1283,7 +1283,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       auteurId: mockGuestPart.utilisateurId,
       auteurPseudo: guestName,
       roleAuteur: 'PARTICIPANT',
-      contenu: `Coucou ! Je viens de rejoindre la salle avec mon lien. Bien synchro ! 👋`,
+      contenu: `Coucou ! Je viens de rejoindre la salle avec mon lien. Bien synchro !`,
       horodatage: Date.now(),
       estMasque: false,
     };
@@ -1530,7 +1530,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 onClick={() => guestFileInputRef.current?.click()}
                 className="px-3 py-1 rounded-lg bg-[#232326] hover:bg-[#303038] text-white font-semibold text-xs border border-[#383840] shrink-0"
               >
-                {guestLocalFileUrl ? '✓ Fichier lié' : 'Lier mon fichier local'}
+                {guestLocalFileUrl ? 'Fichier lié' : 'Lier mon fichier local'}
               </button>
             </div>
           )}

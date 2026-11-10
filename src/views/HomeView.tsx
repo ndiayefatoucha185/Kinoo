@@ -1,3 +1,4 @@
+import { X as IconX, Check as IconCheck } from 'lucide-react';
 import React from 'react';
 import { COMPATIBLE_SOURCES } from '../data/mockContents';
 import {
@@ -129,19 +130,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
             <ul className="space-y-3 text-xs text-[#B8B4C0]">
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Image saccadée & pixélisée</strong> : compression vidéo brutale qui dégrade les scènes rapides et l'obscurité.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Son étouffé et micro coupé</strong> : bande-son monophonique, bruits parasites et filtres vocaux inadaptés.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Décalage et spoilers</strong> : plusieurs secondes d'écart entre spectateurs, gâchant les fous rires et le suspense.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Consommation excessive</strong> de bande passante et surchauffe des ventilateurs d'ordinateurs.</span>
               </li>
             </ul>
@@ -406,10 +407,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-gray-500">0 € / mois · Sans carte bancaire</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 3 séances par mois</li>
-                <li>✓ Jusqu'à 10 participants</li>
-                <li>✓ Liens URL & YouTube directs</li>
-                <li>✓ Chat textuel en direct</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>3 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 8 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Liens URL & YouTube directs</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat textuel en direct</span></li>
               </ul>
             </div>
             <button
@@ -433,11 +434,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-pink-300/90 font-medium">≈ 4,27 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 10 séances par mois</li>
-                <li>✓ Jusqu'à 15 participants</li>
-                <li>✓ Import de fichiers vidéo locaux</li>
-                <li>✓ Chat vocal & débriefing micro</li>
-                <li>✓ 100% sans publicité</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>10 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 15 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Import de fichiers vidéo locaux</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat vocal & débriefing micro</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>100% sans publicité</span></li>
               </ul>
             </div>
             <button
@@ -461,11 +462,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-blue-300/90 font-medium">≈ 7,24 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 25 séances par mois</li>
-                <li>✓ Jusqu'à 25 participants</li>
-                <li>✓ Assistant IA personnel dédié</li>
-                <li>✓ Réseau d'amis & messagerie privée</li>
-                <li>✓ Qualité et débit prioritaires</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>25 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 25 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Assistant IA personnel dédié</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Réseau d'amis & messagerie privée</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Qualité et débit prioritaires</span></li>
               </ul>
             </div>
             <button
