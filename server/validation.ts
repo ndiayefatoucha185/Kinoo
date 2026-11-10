@@ -21,6 +21,10 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
 export const loginSchema = z.object({
   email: z.string().trim().email('Adresse e-mail invalide').max(255),
   password: z.string().min(1, 'Mot de passe requis').max(200),
+  // Champs de vérification anti-robots (Turnstile ou défi interne), lus par le contrôleur de connexion
+  turnstileToken: z.string().max(4096).optional(),
+  captchaId: z.string().max(200).optional(),
+  captchaAnswer: z.union([z.string().max(50), z.number()]).optional(),
 });
 
 export const registerSchema = z.object({

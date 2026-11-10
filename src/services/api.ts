@@ -42,7 +42,11 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
 
   if (!response.ok) {
     const errorMsg = data?.error || `Erreur requête (${response.status})`;
-    throw new Error(errorMsg);
+    const err: any = new Error(errorMsg);
+    err.status = response.status;
+    if (data?.code) err.code = data.code;
+    if (data?.requiresCaptcha) err.requiresCaptcha = true;
+    throw err;
   }
 
   return data as T;
@@ -54,10 +58,20 @@ export const ApiClient = {
   request: apiRequest,
 
   // --- AUTH ---
-  async login(email: string, password: string): Promise<{ user: User; token?: string }> {
+  async login(
+    email: string,
+    password: string,
+    captcha?: { turnstileToken?: string | null; captchaId?: string | null; captchaAnswer?: string | null }
+  ): Promise<{ user: User; token?: string }> {
     const res = await apiRequest<{ user: User; token?: string }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      body: JSON.stringify({
+        email: email.trim().toLowerCase(),
+        password,
+        ...(captcha?.turnstileToken ? { turnstileToken: captcha.turnstileToken } : {}),
+        ...(captcha?.captchaId ? { captchaId: captcha.captchaId } : {}),
+        ...(captcha?.captchaAnswer ? { captchaAnswer: String(captcha.captchaAnswer) } : {}),
+      }),
     });
     if (res.token) {
       setStoredToken(res.token);

@@ -268,15 +268,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      const res = await ApiClient.login(cleanEmail, motDePasse);
+      const res = await ApiClient.login(cleanEmail, motDePasse, {
+        turnstileToken,
+        captchaId: captchaChallenge?.challengeId || null,
+        captchaAnswer: captchaAnswer.trim() || null,
+      });
       StorageService.setCurrentUser(res.user);
       onAuthSuccess(res.user);
       onClose();
     } catch (apiErr: any) {
       const errMsg = apiErr?.message || '';
-      if (apiErr?.requiresCaptcha || errMsg.includes('captcha') || errMsg.includes('sécurité requise')) {
+      if (apiErr?.requiresCaptcha || apiErr?.code === 'CAPTCHA_REQUIRED') {
+        // Le serveur exige la vérification : on affiche la case et on s'arrête là
         setRequiresCaptcha(true);
+        setTurnstileToken(null);
+        setCaptchaAnswer('');
         fetchCaptcha();
+        try { (window as any).turnstile?.reset?.(); } catch {}
+        setErrorMessage(errMsg);
+        setIsSubmitting(false);
+        return;
       }
 
       const isConflict =
