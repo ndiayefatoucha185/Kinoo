@@ -39,6 +39,7 @@ import { ChangeMediaModal } from '../components/ChangeMediaModal';
 import { PostMovieDebriefModal } from '../components/PostMovieDebriefModal';
 import { UserPlanBadge } from '../components/UserPlanBadge';
 import { HlsPlayer } from '../components/HlsPlayer';
+import { ScreenControls } from '../components/ScreenControls';
 import { WebRTCControls } from '../components/WebRTCControls';
 import { InviteModal } from '../components/InviteModal';
 import { webrtcMesh } from '../services/webrtcMesh';
@@ -82,6 +83,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
   // Video and Sync States
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerBoxRef = useRef<HTMLDivElement | null>(null);
   const ytPlayerRef = useRef<any>(null);
   const ytPlayerReadyRef = useRef<boolean>(false);
   const isInternalYTEventRef = useRef<boolean>(false);
@@ -1393,7 +1395,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         {/* Left Column: Player & Controls (8 cols on large screens) */}
         <div className="lg:col-span-8 space-y-3">
           {/* Video Player Box */}
-          <div className="bg-black rounded-2xl overflow-hidden border border-[#232326] relative aspect-video flex items-center justify-center group shadow-2xl">
+          <div ref={playerBoxRef} className="bg-black rounded-2xl overflow-hidden border border-[#232326] relative aspect-video flex items-center justify-center group shadow-2xl">
             {!sessionStarted && (
               <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#09090B]/95 backdrop-blur-md p-6 text-center">
                 <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#EC4899] flex items-center justify-center mb-4 shadow-xl animate-pulse">
@@ -1609,6 +1611,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 >
                   {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 </button>
+
+                <ScreenControls containerRef={playerBoxRef} videoRef={videoRef} isYouTube={isYouTube} />
 
                 {/* YouTube Native Captions (CC) Menu */}
                 {isYouTube && (

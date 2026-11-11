@@ -1,6 +1,7 @@
 import { X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import { PosterImage } from '../components/PosterImage';
+import { TvCastGuide } from '../components/TvCastGuide';
 import { User, Room, UserContact, ScheduledSession, UserPlan, Advertisement } from '../types/kinoo';
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
@@ -2496,6 +2497,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* ============================================================ */}
           {activeTab === 'settings' && (
             <div className="space-y-6 pt-6">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#16161B] border border-[#232328]">
+                <TvCastGuide />
+              </div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-bold text-white">Paramètres du profil</h2>

@@ -228,7 +228,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Ordinateur (PC / Mac / Linux)</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Idéal pour l'Hôte avec commandes avancées, import rapide par glisser-déposer et vue multi-colonnes.
+              Idéal pour l'hôte : commandes avancées, import de fichiers locaux et vue vidéo + chat côte à côte.
             </p>
           </div>
 
@@ -238,7 +238,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Smartphone & Tablette</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Rejoignez une séance depuis votre lit ou en déplacement. Mode paysage plein écran avec chat rétractable.
+              Rejoignez une séance depuis votre lit ou en déplacement. Lecteur plein écran et chat placé sous la vidéo.
             </p>
           </div>
 
@@ -248,7 +248,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Télévision (Chromecast / AirPlay)</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Diffusez l’image sur votre grand écran de salon tout en conservant le chat et les réactions sur votre téléphone.
+              Envoyez la vidéo sur votre grand écran (Chromecast, AirPlay ou recopie d’écran) et gardez le chat sur votre téléphone.
             </p>
           </div>
         </div>
