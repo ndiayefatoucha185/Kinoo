@@ -10,6 +10,7 @@ export type SyncEventType =
   | 'USER_LEAVE'
   | 'USER_KICKED'
   | 'ROOM_LOCKED'
+  | 'DEBRIEF_START'
   | 'ROOM_TERMINATED'
   | 'CLIENT_READY'
   | 'CHAT_MESSAGE'

@@ -1075,7 +1075,7 @@ export class KinooWebSocketServer {
   // --------------------------------------------------------------------------
   // Messages client -> serveur : LISTE BLANCHE. Rien n'est relayé tel quel.
   // Types acceptés : PING, JOIN_ROOM, REQUEST_SYNC, PLAY, PAUSE, SEEK, MEDIA_CHANGE (alias CHANGE_MEDIA),
-  // ROOM_LOCKED, ROOM_TERMINATED, USER_KICKED, CHAT_MESSAGE, REACTION, CLIENT_READY,
+  // ROOM_LOCKED, DEBRIEF_START (hôte), ROOM_TERMINATED, USER_KICKED, CHAT_MESSAGE, REACTION, CLIENT_READY,
   // PARTICIPANT_AUDIO_VIDEO, WEBRTC_SIGNAL, WEBRTC_SPEAKING.
   // USER_JOIN / USER_LEAVE émis par un client sont ignorés : la présence est gérée par le serveur.
   // --------------------------------------------------------------------------
@@ -1353,6 +1353,24 @@ export class KinooWebSocketServer {
             senderId: client.userId,
             senderPseudo: client.pseudo,
             payload: { isLocked },
+          },
+          client.ws
+        );
+        break;
+      }
+
+      case 'DEBRIEF_START': {
+        // Seul l'hôte ouvre le débrief d'après-film : tous les participants le reçoivent
+        const isHost = await this.requireHost(client, 'HOST_ONLY', "Seul l'hôte peut lancer le débrief.");
+        if (!isHost) break;
+        this.broadcastToRoom(
+          roomId,
+          {
+            type: 'DEBRIEF_START',
+            serverTimestamp: now,
+            senderId: client.userId,
+            senderPseudo: client.pseudo,
+            payload: {},
           },
           client.ws
         );

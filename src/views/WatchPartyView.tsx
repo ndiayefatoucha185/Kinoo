@@ -165,6 +165,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     : (typeof window !== 'undefined' && sessionStorage.getItem('kinoo_guest_pseudo')) || 'Spectateur Invité';
   const isHost = room ? room.hoteId === localUserId : false;
   const userRole: UserRole = isHost ? 'HOTE' : 'PARTICIPANT';
+  const isHostRef = useRef(false);
+  isHostRef.current = isHost;
+  const handleStartDebriefRef = useRef<() => void>(() => {});
 
   // Helper to resolve user plan for badge display
   const getUserPlan = (userId?: string, pseudo?: string) => {
@@ -448,7 +451,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 }
               } else if (event.data === YTState.ENDED) {
                 setIsPlaying(false);
-                setShowDebriefModal(true);
+                if (isHostRef.current) handleStartDebriefRef.current();
               }
               isInternalYTEventRef.current = false;
             },
@@ -809,6 +812,11 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           setParticipations((prev) => prev.filter((p) => p.utilisateurId !== packet.payload?.targetUserId));
           onToast(`${packet.payload?.targetPseudo || 'Un participant'} a été expulsé.`, 'info');
         }
+        break;
+
+      case 'DEBRIEF_START':
+        setShowDebriefModal(true);
+        onToast('L’hôte a ouvert le débrief du film.', 'info');
         break;
 
       case 'ROOM_LOCKED':
@@ -1234,6 +1242,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const isDevPreview = typeof window !== 'undefined' && window.location.origin.includes('ais-dev-');
   const inviteUrl = room ? `${publicBaseUrl}?invite=${room.codePublic || room.id}` : '';
 
+  // Débrief d'après-film : lancé uniquement par l'hôte, puis ouvert chez tous les participants
+  const handleStartDebrief = () => {
+    if (!isHost) return;
+    syncEngine.sendEvent('DEBRIEF_START', { id: localUserId, pseudo: localPseudo, role: userRole }, {});
+    setShowDebriefModal(true);
+  };
+  handleStartDebriefRef.current = handleStartDebrief;
+
   const handleCopyInvite = () => {
     navigator.clipboard.writeText(inviteUrl);
     setIsCopied(true);
@@ -1372,13 +1388,24 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             <span className="hidden sm:inline">Recaler</span>
           </button>
 
-          <button
-            onClick={() => setShowInviteModal(true)}
-            className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Inviter</span>
-          </button>
+          {isHost && !room.estVerrouillee && (
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Inviter</span>
+            </button>
+          )}
+          {isHost && room.estVerrouillee && (
+            <span
+              className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-[#B8B4C0] bg-[#232326] border border-[#383840]"
+              title="Salle verrouillée : déverrouillez-la pour inviter d'autres personnes"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Salle complète</span>
+            </span>
+          )}
 
           <button
             onClick={handleLeaveClick}
@@ -1470,7 +1497,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 subtitleUrl={room.sourceContenu?.subtitleUrl}
                 subtitleName={room.sourceContenu?.subtitleName || 'Sous-titres FR'}
                 isPlaying={isPlaying}
-                onEnded={() => setShowDebriefModal(true)}
+                onEnded={() => { if (isHost) handleStartDebrief(); }}
                 onTimeUpdate={(t) => setCurrentTime(t)}
                 onDurationChange={(d) => setDuration(d)}
               />
@@ -1704,14 +1731,16 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                   </button>
                 )}
 
-                <button
-                  onClick={() => setShowDebriefModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED]/20 to-[#EC4899]/20 hover:from-[#7C3AED]/30 hover:to-[#EC4899]/30 text-white border border-[#EC4899]/40 text-xs font-semibold transition-all"
-                  title="Ouvrir le salon Débrief d'après-film"
-                >
-                  <Coffee className="w-3.5 h-3.5 text-[#EC4899]" />
-                  <span className="hidden sm:inline">Débrief film</span>
-                </button>
+                {isHost && (
+                  <button
+                    onClick={handleStartDebrief}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED]/20 to-[#EC4899]/20 hover:from-[#7C3AED]/30 hover:to-[#EC4899]/30 text-white border border-[#EC4899]/40 text-xs font-semibold transition-all"
+                    title="Lancer le salon Débrief d'après-film pour tous les participants"
+                  >
+                    <Coffee className="w-3.5 h-3.5 text-[#EC4899]" />
+                    <span className="hidden sm:inline">Débrief film</span>
+                  </button>
+                )}
 
                 {isHost && (
                   <>
@@ -1742,35 +1771,6 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
           {/* WebRTC Audio/Video Controls & Speaking Indicators */}
           <WebRTCControls roomId={room.id} currentUser={currentUser} onToast={onToast} />
-
-          {/* Demo Multi-user Simulator Bar (Preview test helper) */}
-          <div className="bg-[#141417] border border-[#232326] rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="space-y-0.5">
-              <span className="font-bold text-white flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#EC4899]" />
-                Testeur de Synchronisation Multi-Spectateurs
-              </span>
-              <p className="text-[11px] text-[#B8B4C0]">
-                Ouvrez le lien d’invitation dans un second onglet OU simulez un ami pour tester le chat et la synchro en direct.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleAddSimulatedGuest}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-[#232326] text-white hover:bg-[#303036] border border-[#383840] transition-colors whitespace-nowrap"
-              >
-                + Simuler un spectateur test
-              </button>
-
-              <button
-                onClick={handleCopyInvite}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-gradient-to-r from-[#7C3AED]/30 to-[#EC4899]/30 text-white border border-[#EC4899]/50 hover:opacity-90 transition-all whitespace-nowrap"
-              >
-                Copier lien 2e onglet
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Chat & Participants (4 cols on large screens) */}

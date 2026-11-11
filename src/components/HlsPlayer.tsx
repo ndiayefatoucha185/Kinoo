@@ -46,6 +46,8 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
   const [hlsError, setHlsError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [isHlsActive, setIsHlsActive] = useState(false);
   const [localSubUrl, setLocalSubUrl] = useState<string | undefined>(subtitleUrl);
   const [localSubName, setLocalSubName] = useState<string>(subtitleName);
@@ -95,6 +97,7 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
     if (!video || !src) return;
 
     setHlsError(null);
+    setLoadError(null);
     const isHlsStream = src.includes('.m3u8') || src.includes('/hls') || src.includes('application/x-mpegURL');
 
     // Clean up previous instance
@@ -170,7 +173,31 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
       setIsHlsActive(false);
       video.src = src;
     }
-  }, [src]);
+  }, [src, retryKey]);
+
+  // Aucune donnée reçue au bout de 15 s : on le dit au lieu de laisser une image figée à 0:00
+  useEffect(() => {
+    if (!src) {
+      setLoadError('Aucune source vidéo n’est définie pour cette séance. L’hôte peut en choisir une avec « Changer vidéo ».');
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const v = videoRef.current;
+      if (v && v.readyState === 0 && !v.error) {
+        setLoadError('La vidéo ne se charge pas. Vérifiez que le lien mène directement à un fichier vidéo (mp4, webm ou m3u8) autorisé à être lu sur d’autres sites.');
+      }
+    }, 15000);
+    return () => window.clearTimeout(timer);
+  }, [src, retryKey, videoRef]);
+
+  const describeMediaError = (code?: number) => {
+    switch (code) {
+      case 2: return 'Erreur réseau : la vidéo n’a pas pu être téléchargée en entier.';
+      case 3: return 'Cette vidéo est corrompue ou son format de codage n’est pas pris en charge par votre navigateur.';
+      case 4: return 'Ce lien ne mène pas à une vidéo lisible. Utilisez un lien direct vers un fichier vidéo (mp4, webm, m3u8) ou un lien YouTube. Les pages de Netflix, Disney+ et autres plateformes protégées ne sont pas lisibles.';
+      default: return 'La lecture de cette vidéo a été interrompue.';
+    }
+  };
 
   const selectQuality = (levelIndex: number) => {
     if (!hlsRef.current) return;
@@ -192,7 +219,7 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
         ref={videoRef}
         poster={poster}
         playsInline
-        crossOrigin="anonymous"
+        crossOrigin={localSubUrl && !localSubUrl.startsWith('blob:') ? 'anonymous' : undefined}
         className="w-full h-full object-contain"
         onTimeUpdate={() => {
           if (videoRef.current) onTimeUpdate(videoRef.current.currentTime);
@@ -201,6 +228,8 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
           if (videoRef.current) onDurationChange(videoRef.current.duration);
         }}
         onEnded={onEnded}
+        onLoadedData={() => setLoadError(null)}
+        onError={() => setLoadError(describeMediaError(videoRef.current?.error?.code))}
       >
         {localSubUrl && externalSubActive && (
           <track
@@ -228,6 +257,26 @@ export const HlsPlayer: React.FC<HlsPlayerProps> = ({
         <div className="absolute top-4 inset-x-4 max-w-md mx-auto p-3 bg-red-950/90 border border-red-800 text-red-200 text-xs rounded-xl flex items-center gap-2 backdrop-blur-md z-30 shadow-xl">
           <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
           <span>{hlsError}</span>
+        </div>
+      )}
+
+      {/* Vidéo impossible à lire : message clair au lieu d'une image figée */}
+      {loadError && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 p-5 text-center">
+          <div className="max-w-sm space-y-3">
+            <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+            <p className="text-xs sm:text-sm text-gray-200 leading-relaxed">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setLoadError(null);
+                setRetryKey((k) => k + 1);
+              }}
+              className="px-4 py-2 rounded-xl bg-[#232326] text-white text-xs font-semibold border border-[#383840] hover:bg-[#303036]"
+            >
+              Réessayer
+            </button>
+          </div>
         </div>
       )}
 
