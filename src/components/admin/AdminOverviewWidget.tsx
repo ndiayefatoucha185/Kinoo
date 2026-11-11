@@ -32,6 +32,7 @@ interface AdminOverviewWidgetProps {
     totalComptesInscrits: number;
     comptesParForfait: {
       GRATUIT: number;
+      DECOUVERTE?: number;
       STANDARD: number;
       PREMIUM: number;
     };
@@ -236,10 +237,14 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
 
       {/* REPARTITION DES COMPTES PAR FORFAIT & WEBSOCKET EN DIRECT */}
       {overviewMetrics?.comptesParForfait && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-2xl bg-[#111219] border border-[#1E202B] text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4 rounded-2xl bg-[#111219] border border-[#1E202B] text-xs">
           <div className="space-y-0.5">
-            <span className="text-gray-400 text-[11px]">Forfait Gratuit</span>
+            <span className="text-gray-400 text-[11px]">Essai gratuit</span>
             <p className="text-base font-bold text-white">{overviewMetrics.comptesParForfait.GRATUIT || 0}</p>
+          </div>
+          <div className="space-y-0.5">
+            <span className="text-gray-400 text-[11px]">Forfait Découverte</span>
+            <p className="text-base font-bold text-white">{overviewMetrics.comptesParForfait.DECOUVERTE || 0}</p>
           </div>
           <div className="space-y-0.5">
             <span className="text-gray-400 text-[11px]">Forfait Standard</span>
@@ -460,7 +465,7 @@ export const AdminOverviewWidget: React.FC<AdminOverviewWidgetProps> = ({
 
             <div className="space-y-3 text-xs">
               {/* Plan progress bars */}
-              {(['GRATUIT', 'STANDARD', 'PREMIUM'] as UserPlan[]).map((plan) => {
+              {(['GRATUIT', 'DECOUVERTE', 'STANDARD', 'PREMIUM'] as UserPlan[]).map((plan) => {
                 const count = clientUsers.filter((u) => u.forfait === plan).length;
                 const pct = clientUsers.length > 0 ? Math.round((count / clientUsers.length) * 100) : 0;
                 return (

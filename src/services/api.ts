@@ -236,7 +236,7 @@ export const ApiClient = {
     return apiRequest('/api/messages', { method: 'POST', body: JSON.stringify({ toUserId, body }) });
   },
 
-  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }> {
+  async getMyActiveRoomIds(): Promise<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number; trial?: { active: boolean; used: boolean; locked: boolean } }> {
     return apiRequest<{ activeRoomIds: string[]; history: any[]; monthlyCreated: number }>('/api/rooms/mine/active');
   },
 
@@ -291,6 +291,7 @@ export const ApiClient = {
     totalComptesInscrits: number;
     comptesParForfait: {
       GRATUIT: number;
+      DECOUVERTE?: number;
       STANDARD: number;
       PREMIUM: number;
     };

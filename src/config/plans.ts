@@ -9,7 +9,7 @@ export interface PlanConfig {
   priceXofMonthly: number;
   priceXofAnnual: number;
   maxParticipants: number;
-  maxMonthlyRooms: number; // 3 Gratuit, 10 Standard, 25 Premium
+  maxMonthlyRooms: number; // 3 Découverte, 10 Standard, 25 Premium (l'essai gratuit n'offre qu'une séance au total)
   allowLocalFiles: boolean;
   allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
   allowVoiceDebrief: boolean;
@@ -36,9 +36,11 @@ export function formatPriceDual(fcfa: number): { fcfa: string; eur: string } {
 }
 
 export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
+  // Essai : une séance offerte à l'inscription, avec les limites du forfait Découverte.
+  // Après cette séance, un forfait payant est obligatoire (voir server/trial.ts).
   GRATUIT: {
     id: 'GRATUIT',
-    name: 'Gratuit',
+    name: 'Essai gratuit',
     priceEurMonthly: 0,
     priceEurAnnual: 0,
     priceXofMonthly: 0,
@@ -49,8 +51,24 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowCatalogue: false,
     allowVoiceDebrief: false,
     allowAddFriends: false,
-    badgeLabel: 'Gratuit',
-    description: 'Idéal pour découvrir le visionnage synchronisé et lancer de petites séances entre proches.',
+    badgeLabel: 'Essai',
+    description: 'Une première séance offerte pour découvrir le visionnage synchronisé, avant de choisir un forfait.',
+  },
+  DECOUVERTE: {
+    id: 'DECOUVERTE',
+    name: 'Découverte',
+    priceEurMonthly: 1.83, // 1 200 FCFA / 655.957 ≈ 1,83 €
+    priceEurAnnual: 1.46,
+    priceXofMonthly: 1200,
+    priceXofAnnual: 960,
+    maxParticipants: 8,
+    maxMonthlyRooms: 3,
+    allowLocalFiles: false,
+    allowCatalogue: false,
+    allowVoiceDebrief: false,
+    allowAddFriends: false,
+    badgeLabel: 'Découverte',
+    description: 'Idéal pour lancer de petites séances synchronisées entre proches.',
   },
   STANDARD: {
     id: 'STANDARD',
@@ -88,12 +106,14 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
 
 export const PLAN_PRICES_EUR: Record<UserPlan, number> = {
   GRATUIT: 0,
+  DECOUVERTE: 1.83,
   STANDARD: 4.27,
   PREMIUM: 7.24,
 };
 
 export const PLAN_PRICES_XOF: Record<UserPlan, number> = {
   GRATUIT: 0,
+  DECOUVERTE: 1200,
   STANDARD: 2800,
   PREMIUM: 4750,
 };

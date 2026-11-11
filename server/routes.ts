@@ -34,6 +34,7 @@ import { EmailService, generateIcsCalendar } from './email.js';
 import { globalWsServer } from './websocket.js';
 import { socialRouter } from './social.js';
 import { sourceNotAllowedReason } from './sourceGuard.js';
+import { getTrialState, SUBSCRIPTION_REQUIRED_MESSAGE } from './trial.js';
 import { accrueWatchTime } from './watchtime.js';
 import {
   validateBody,
@@ -84,6 +85,7 @@ function publicUser(u: any) {
     pseudo: u.pseudo,
     email: u.email,
     forfait: u.forfait,
+    essaiActif: u.essaiActif === true,
     role: u.role,
     statutCompte: u.statutCompte,
     avatar: u.avatar,
@@ -201,6 +203,7 @@ apiRouter.post(
             email: cleanEmail,
             passwordHash,
             forfait: 'GRATUIT',
+            essaiActif: true, // une séance offerte, puis abonnement obligatoire
             role: 'UTILISATEUR',
             statutCompte: 'ACTIF',
             avatar: initialAvatar,
@@ -976,7 +979,9 @@ apiRouter.get('/rooms/mine/active', authenticate, async (req: AuthenticatedReque
       .select({ count: sql<number>`count(*)::int` })
       .from(monthlyRoomCreations)
       .where(and(eq(monthlyRoomCreations.userId, userId), gte(monthlyRoomCreations.creeLe, startOfMonth)));
+    const trial = await getTrialState(req.user!);
     res.json({
+      trial,
       monthlyCreated: monthly[0]?.count || 0,
       activeRoomIds: all.filter((r) => r.statut !== 'TERMINEE').map((r) => r.id),
       history: all.slice(0, 200).map((r) => ({
@@ -1062,6 +1067,11 @@ apiRouter.post('/rooms', authenticate, validateBody(createRoomSchema), async (re
   try {
     const user = req.user!;
     const planConfig = getPlanConfig(user.forfait);
+    // Essai d'une séance offerte : une fois utilisée, un forfait payant est obligatoire
+    const trial = await getTrialState(user);
+    if (trial.used) {
+      return res.status(403).json({ error: SUBSCRIPTION_REQUIRED_MESSAGE, code: 'SUBSCRIPTION_REQUIRED' });
+    }
     // Vérification du quota mensuel de séances créées par l'hôte selon son forfait
     if (Number.isFinite(planConfig.maxMonthlyRooms)) {
       const now = new Date();
@@ -1210,6 +1220,12 @@ apiRouter.post('/rooms/:id/join', rateLimitJoin, optionalAuth, async (req: Authe
 
     const secret = room.codeAccesHash || room.codeAcces;
     const isHostUser = Boolean(req.user && req.user.id === room.hoteId);
+    if (req.user && !isHostUser) {
+      const trial = await getTrialState(req.user);
+      if (trial.locked) {
+        return res.status(403).json({ error: SUBSCRIPTION_REQUIRED_MESSAGE, code: 'SUBSCRIPTION_REQUIRED' });
+      }
+    }
     if (room.estPrivee && secret && !isHostUser) {
       const ok = await verifyRoomPassword(typeof codeAcces === 'string' ? codeAcces : '', secret);
       if (!ok) {
@@ -1529,7 +1545,7 @@ apiRouter.get(
 
       const wsStats = globalWsServer?.getActiveConnectionsCount() || { totalConnectedSockets: 0, uniqueConnectedUsers: 0, activeRoomsCount: 0 };
 
-      const forfaitMap: Record<string, number> = { GRATUIT: 0, STANDARD: 0, PREMIUM: 0 };
+      const forfaitMap: Record<string, number> = { GRATUIT: 0, DECOUVERTE: 0, STANDARD: 0, PREMIUM: 0 };
       for (const row of forfaitsRes) {
         if (row.forfait && row.forfait in forfaitMap) {
           forfaitMap[row.forfait] = Number(row.count) || 0;
@@ -1727,7 +1743,7 @@ apiRouter.patch(
       const { id } = req.params;
       const { forfait } = req.body;
 
-      if (!['GRATUIT', 'STANDARD', 'PREMIUM'].includes(forfait)) {
+      if (!['GRATUIT', 'DECOUVERTE', 'STANDARD', 'PREMIUM'].includes(forfait)) {
         return res.status(400).json({ error: 'Forfait invalide.' });
       }
 

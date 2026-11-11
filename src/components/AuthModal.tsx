@@ -112,6 +112,39 @@ interface AuthModalProps {
   onOpenLegal: (page: 'cgu' | 'confidentialite') => void;
 }
 
+function TrialPlansInfo() {
+  const rows = [
+    { name: 'Découverte', price: '1 200 FCFA', desc: '3 séances / mois, jusqu’à 8 participants, lecteur web synchronisé et chat texte.' },
+    { name: 'Standard', price: '2 800 FCFA', desc: '10 séances / mois, 15 participants, import de fichiers locaux, salon débrief micro.' },
+    { name: 'Premium', price: '4 750 FCFA', desc: '25 séances / mois, 25 participants, catalogue, carnet d’amis et messagerie privée.' },
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="p-3.5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10">
+        <div className="flex items-center gap-2">
+          <IconShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+          <h3 className="font-bold text-sm text-white">Votre première séance est offerte</h3>
+        </div>
+        <p className="text-[11px] text-[#B8B4C0] mt-1.5">
+          Aucune carte bancaire requise. Une fois cette séance utilisée, vous choisirez l’un des trois forfaits ci-dessous pour continuer à utiliser Kinoo.
+        </p>
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} className="p-3 rounded-2xl border border-[#232326] bg-[#09090B]">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-white">Kinoo {r.name}</h3>
+            <div className="text-right">
+              <span className="text-xs font-extrabold text-white">{r.price}</span>
+              <span className="text-[10px] text-gray-400"> / mois</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-[#B8B4C0] mt-1">{r.desc}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialMode = 'login',
@@ -1104,106 +1137,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* ========================================================================= */}
           {mode === 'signup' && signupStep === 'plan' && (
             <div className="space-y-4">
-              <div className="space-y-3">
-                {/* Plan Gratuit */}
-                <div
-                  onClick={() => setSelectedForfait('GRATUIT')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'GRATUIT'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-lg shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'GRATUIT'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'GRATUIT' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Gratuit</h3>
-                    </div>
-                    <span className="text-xs font-extrabold text-white">0 FCFA</span>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    3 séances / mois, jusqu’à 10 participants, lecteur web synchronisé et chat texte discret.
-                  </p>
-                </div>
-
-                {/* Plan Standard */}
-                <div
-                  onClick={() => setSelectedForfait('STANDARD')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'STANDARD'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-lg shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-[10px] font-bold text-white shadow-sm">
-                    Le plus populaire
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'STANDARD'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'STANDARD' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Standard</h3>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-extrabold text-white">2 800 FCFA</span>
-                      <span className="text-[10px] text-gray-400">/mois</span>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    10 séances / mois, 15 participants, import local, salon débrief micro et 100% sans pub.
-                  </p>
-                </div>
-
-                {/* Plan Premium */}
-                <div
-                  onClick={() => setSelectedForfait('PREMIUM')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'PREMIUM'
-                      ? 'bg-[#3B82F6]/10 border-[#3B82F6] shadow-lg shadow-[#3B82F6]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-[#3B82F6] text-[10px] font-bold text-white shadow-sm">
-                    Tout le confort
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'PREMIUM'
-                            ? 'border-[#3B82F6] bg-[#3B82F6] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'PREMIUM' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Premium</h3>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-extrabold text-white">4 750 FCFA</span>
-                      <span className="text-[10px] text-gray-400">/mois</span>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    25 séances / mois, 25 participants, assistant IA dédié, messagerie privée et débit prioritaire.
-                  </p>
-                </div>
-              </div>
+              <TrialPlansInfo />
 
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
                 <button
@@ -1225,13 +1159,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     'Création du compte...'
                   ) : (
                     <span>
-                      Valider mon inscription (
-                      {selectedForfait === 'GRATUIT'
-                        ? 'Forfait Gratuit'
-                        : selectedForfait === 'STANDARD'
-                        ? 'Forfait Standard'
-                        : 'Forfait Premium'}
-                      )
+                      Créer mon compte (1ère séance offerte)
                     </span>
                   )}
                 </button>
@@ -1341,99 +1269,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <p className="text-[10px] text-gray-400">Pré-rempli avec votre nom Google, modifiable à votre convenance.</p>
               </div>
 
-              {/* 3. Choix du Forfait */}
-              <div className="space-y-2 pt-1">
-                <label className="text-xs font-bold text-white block">
-                  Choisissez votre formule d'accès Kinoo :
-                </label>
-
-                {/* Plan Gratuit */}
-                <div
-                  onClick={() => setSelectedForfait('GRATUIT')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'GRATUIT'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-md shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'GRATUIT'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'GRATUIT' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Gratuit</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">0 FCFA</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    3 séances / mois, jusqu’à 10 participants, chat texte synchronisé.
-                  </p>
-                </div>
-
-                {/* Plan Standard */}
-                <div
-                  onClick={() => setSelectedForfait('STANDARD')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'STANDARD'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-md shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'STANDARD'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'STANDARD' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Standard</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">2 800 FCFA / mois</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    10 séances / mois, 15 participants, import local, salon débrief micro.
-                  </p>
-                </div>
-
-                {/* Plan Premium */}
-                <div
-                  onClick={() => setSelectedForfait('PREMIUM')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'PREMIUM'
-                      ? 'bg-[#3B82F6]/10 border-[#3B82F6] shadow-md shadow-[#3B82F6]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'PREMIUM'
-                            ? 'border-[#3B82F6] bg-[#3B82F6] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'PREMIUM' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Premium</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">4 750 FCFA / mois</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    25 séances / mois, 25 participants, IA dédiée, débit prioritaire.
-                  </p>
-                </div>
-              </div>
+              {/* 3. Essai offert puis forfait */}
+              <TrialPlansInfo />
 
               {/* 4. Cases obligatoires (16+ et CGU/Confidentialité) */}
               <div className="space-y-2 pt-1">
@@ -1490,13 +1327,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   'Création de votre compte...'
                 ) : (
                   <span>
-                    Finaliser mon inscription (
-                    {selectedForfait === 'GRATUIT'
-                      ? 'Forfait Gratuit'
-                      : selectedForfait === 'STANDARD'
-                      ? 'Forfait Standard'
-                      : 'Forfait Premium'}
-                    )
+                    Finaliser mon inscription (1ère séance offerte)
                   </span>
                 )}
               </button>

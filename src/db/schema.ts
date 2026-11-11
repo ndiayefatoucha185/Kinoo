@@ -6,7 +6,9 @@ export const users = pgTable('users', {
   pseudo: varchar('pseudo', { length: 100 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: text('password_hash'),
-  forfait: varchar('forfait', { length: 20 }).notNull().default('GRATUIT'), // GRATUIT, STANDARD, PREMIUM
+  forfait: varchar('forfait', { length: 20 }).notNull().default('GRATUIT'), // GRATUIT (essai), DECOUVERTE, STANDARD, PREMIUM
+  // Vrai pour les comptes créés avec l'essai d'une séance offerte (les anciens comptes de test restent à faux)
+  essaiActif: boolean('essai_actif').notNull().default(false),
   role: varchar('role', { length: 20 }).notNull().default('UTILISATEUR'), // UTILISATEUR, ADMIN, MODERATEUR, SUPER_ADMIN
   statutCompte: varchar('statut_compte', { length: 20 }).notNull().default('ACTIF'), // ACTIF, SUSPENDU
   avatar: text('avatar'),

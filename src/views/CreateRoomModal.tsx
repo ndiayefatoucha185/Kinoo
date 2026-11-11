@@ -35,7 +35,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onRoomCreated,
   onRequireAuth,
 }) => {
-  const isGratuit = currentUser?.forfait === 'GRATUIT';
+  const isGratuit = currentUser?.forfait === 'GRATUIT' || currentUser?.forfait === 'DECOUVERTE'; // pas de fichiers locaux
   const isStandard = currentUser?.forfait === 'STANDARD';
   const isPremium = currentUser?.forfait === 'PREMIUM';
 
@@ -432,7 +432,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             </div>
             <p className="text-[11px] text-[#B8B4C0] leading-snug">
               Vous + {totalPersonnes - 1} invité{totalPersonnes - 1 > 1 ? 's' : ''}. Quand ces {totalPersonnes} personnes seront dans la salle, elle se verrouille : personne d'autre ne pourra entrer.
-              Maximum {maxAllowedParticipants} avec la formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'}.
+              Maximum {maxAllowedParticipants} avec la formule {planConfig.name}.
             </p>
 
             <label className="flex items-start gap-2 cursor-pointer select-none">
@@ -473,7 +473,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               <label className="font-semibold text-white block">Source vidéo de la séance</label>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="text-[#B8B4C0]">
-                  Formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'} ({maxAllowedParticipants} places max)
+                  Formule {planConfig.name} ({maxAllowedParticipants} places max)
                 </span>
                 <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
                   isQuotaExceeded
@@ -756,7 +756,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
               <div className="text-[#B8B4C0] flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-[#3B82F6]" />
-                <span>Max {maxAllowedParticipants} personnes (Forfait {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'})</span>
+                <span>Max {maxAllowedParticipants} personnes (Forfait {planConfig.name})</span>
               </div>
             </div>
           </div>

@@ -56,6 +56,7 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
   const freeUsers = clientUsers.filter((u) => u.forfait === 'GRATUIT');
   const standardUsers = clientUsers.filter((u) => u.forfait === 'STANDARD');
   const premiumUsers = clientUsers.filter((u) => u.forfait === 'PREMIUM');
+  const decouverteUsers = clientUsers.filter((u) => u.forfait === 'DECOUVERTE');
 
   const freePct = Math.round((freeUsers.length / totalUsersCount) * 100);
   const standardPct = Math.round((standardUsers.length / totalUsersCount) * 100);
@@ -292,7 +293,7 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
           {/* Formule Gratuit */}
           <div className="p-4 rounded-2xl bg-[#161724] border border-[#232536] space-y-3">
             <div className="flex items-center justify-between">
-              <UserPlanBadge plan="GRATUIT" size="sm" />
+              <span className="text-xs font-bold text-white">Essai gratuit</span>
               <span className="text-xs font-mono font-bold text-gray-300">
                 {freeUsers.length} ({freePct}%)
               </span>
@@ -301,7 +302,11 @@ export const AdminBillingWidget: React.FC<AdminBillingWidgetProps> = ({
             <div className="space-y-1 text-xs">
               <div className="flex items-center justify-between text-gray-400 text-[11px]">
                 <span>Tarif abonnement :</span>
-                <span className="font-semibold text-gray-200">0 FCFA <span className="text-gray-500 font-normal">(0 €)</span></span>
+                <span className="font-semibold text-gray-200">1 séance offerte <span className="text-gray-500 font-normal">(0 €)</span></span>
+              </div>
+              <div className="flex items-center justify-between text-gray-400 text-[11px]">
+                <span>Comptes Découverte (1 200 FCFA) :</span>
+                <span className="font-semibold text-gray-200">{decouverteUsers.length}</span>
               </div>
               <div className="flex items-center justify-between text-gray-400 text-[11px]">
                 <span>Plafond séances :</span>

@@ -81,3 +81,19 @@ test('catalogue réservé au Premium, fichier local réservé à Standard et Pre
   assert.equal(sourceNotAllowedReason('STANDARD', { typeSource: 'FICHIER_LOCAL' }), null);
   assert.equal(sourceNotAllowedReason('GRATUIT', { typeSource: 'URL_WEB' }), null);
 });
+
+test('forfait Découverte : 1 200 FCFA, mêmes limites que l’ancien Gratuit, sans fichiers locaux', () => {
+  const d = KINOO_PLANS.DECOUVERTE;
+  assert.equal(d.priceXofMonthly, 1200);
+  assert.equal(d.maxParticipants, 8);
+  assert.equal(d.maxMonthlyRooms, 3);
+  assert.equal(d.allowLocalFiles, false);
+  assert.notEqual(sourceNotAllowedReason('DECOUVERTE', { typeSource: 'FICHIER_LOCAL' }), null);
+  assert.equal(sourceNotAllowedReason('DECOUVERTE', { typeSource: 'URL_WEB' }), null);
+});
+
+test('les trois forfaits payants sont ordonnés par prix', () => {
+  assert.ok(KINOO_PLANS.DECOUVERTE.priceXofMonthly < KINOO_PLANS.STANDARD.priceXofMonthly);
+  assert.ok(KINOO_PLANS.STANDARD.priceXofMonthly < KINOO_PLANS.PREMIUM.priceXofMonthly);
+  assert.equal(KINOO_PLANS.GRATUIT.priceXofMonthly, 0); // essai : une séance offerte
+});

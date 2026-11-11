@@ -60,7 +60,8 @@ export interface AuthenticatedUser {
   pseudo: string;
   avatar?: string;
   role: UserRole;
-  forfait: 'GRATUIT' | 'STANDARD' | 'PREMIUM';
+  forfait: 'GRATUIT' | 'DECOUVERTE' | 'STANDARD' | 'PREMIUM';
+  essaiActif?: boolean;
   statutCompte: 'ACTIF' | 'SUSPENDU';
   sessionToken?: string;
   tokenVersion?: number;
@@ -303,6 +304,7 @@ export async function authenticate(req: AuthenticatedRequest, res: Response, nex
       pseudo: dbUser.pseudo,
       role: dbUser.role as any,
       forfait: dbUser.forfait as any,
+      essaiActif: dbUser.essaiActif === true,
       statutCompte: dbUser.statutCompte as any,
       sessionToken: payload.sessionToken,
       tokenVersion: dbUser.tokenVersion ?? 0,
@@ -337,6 +339,7 @@ export async function optionalAuth(req: AuthenticatedRequest, res: Response, nex
             pseudo: dbUser.pseudo,
             role: dbUser.role as any,
             forfait: dbUser.forfait as any,
+            essaiActif: dbUser.essaiActif === true,
             statutCompte: dbUser.statutCompte as any,
             tokenVersion: dbUser.tokenVersion ?? 0,
           };

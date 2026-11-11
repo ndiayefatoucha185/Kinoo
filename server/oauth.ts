@@ -333,6 +333,7 @@ function publicUser(u: typeof users.$inferSelect) {
     email: u.email,
     role: u.role,
     forfait: u.forfait,
+    essaiActif: u.essaiActif === true,
     statutCompte: u.statutCompte,
     avatar: u.avatar,
   };
@@ -426,6 +427,7 @@ async function createGoogleUser(
         email,
         passwordHash: PASSWORD_MARKER_GOOGLE,
         forfait: 'GRATUIT',
+        essaiActif: true, // une séance offerte, puis abonnement obligatoire
         role: 'UTILISATEUR',
         statutCompte: 'ACTIF',
         emailVerifiedAt: new Date(), // adresse certifiée par Google

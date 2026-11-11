@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   email                     varchar(255) NOT NULL UNIQUE,
   password_hash             text,
   forfait                   varchar(20)  NOT NULL DEFAULT 'GRATUIT',
+  essai_actif               boolean      NOT NULL DEFAULT false,
   role                      varchar(20)  NOT NULL DEFAULT 'UTILISATEUR',
   statut_compte             varchar(20)  NOT NULL DEFAULT 'ACTIF',
   avatar                    text,

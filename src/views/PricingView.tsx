@@ -58,17 +58,11 @@ export const PricingView: React.FC<PricingViewProps> = ({
       return;
     }
 
-    const updatedUser: User = {
-      ...currentUser,
-      forfait: plan,
-    };
-    StorageService.setCurrentUser(updatedUser);
-    StorageService.updateUserProfile(currentUser.id, { forfait: plan });
-    if (onPlanChanged) {
-      onPlanChanged(plan);
-    }
-    setActionFeedback(`Félicitations ! Vous êtes passé à la formule Kinoo ${plan.toLowerCase()}.`);
-    setTimeout(() => setActionFeedback(null), 4000);
+    // Le paiement en ligne n'est pas encore branché : on n'active jamais un forfait payant sans paiement confirmé.
+    setActionFeedback(
+      `Le paiement en ligne du forfait ${KINOO_PLANS[plan]?.name || plan} sera disponible très bientôt. Notre équipe peut activer votre forfait en attendant : contactez-nous.`
+    );
+    setTimeout(() => setActionFeedback(null), 6000);
   };
 
   const handleSwitchToTestAccount = (email: string) => {
@@ -106,6 +100,18 @@ export const PricingView: React.FC<PricingViewProps> = ({
         <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight">
           Choisissez votre formule
         </h1>
+        {!currentUser && (
+          <p className="inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Inscrivez-vous : votre première séance est offerte</span>
+          </p>
+        )}
+        {currentUser?.forfait === 'GRATUIT' && currentUser?.essaiActif && (
+          <p className="inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Votre séance d'essai gratuite est limitée : choisissez un forfait pour continuer après.</span>
+          </p>
+        )}
 
         <p className="text-base sm:text-lg font-medium text-transparent bg-clip-text bg-gradient-to-r from-[#7C3AED] via-[#EC4899] to-[#3B82F6]">
           « Même à distance, ensemble. »
@@ -147,12 +153,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
       </div>
 
       {/* ============================================================ */}
-      {/* 2. LES 3 CARTES DE TARIFICATION (GRATUIT / STANDARD / PREMIUM) */}
+      {/* 2. LES 3 CARTES DE TARIFICATION (DÉCOUVERTE / STANDARD / PREMIUM) */}
       {/* ============================================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch pt-2">
         
         {/* ------------------------------------------------------------ */}
-        {/* FORMULE 1 — GRATUIT */}
+        {/* FORMULE 1 — DÉCOUVERTE */}
         {/* ------------------------------------------------------------ */}
         <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative transition-all duration-300 hover:border-[#383842]">
           <div className="space-y-6">
@@ -162,27 +168,36 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-[#B8B4C0] px-2.5 py-1 rounded-lg bg-[#1D1D23] border border-[#282830]">
                   Formule 1
                 </span>
-                {currentUser?.forfait === 'GRATUIT' && (
+                {currentUser?.forfait === 'DECOUVERTE' && (
                   <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                     Votre forfait actif
                   </span>
                 )}
               </div>
-              <h3 className="text-2xl font-bold text-white">Gratuit</h3>
+              <h3 className="text-2xl font-bold text-white">Découverte</h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
-                Idéal pour découvrir le visionnage synchronisé et lancer de petites séances entre proches.
+                Idéal pour lancer de petites séances synchronisées entre proches, au meilleur prix.
               </p>
             </div>
 
             {/* Prix */}
             <div className="pt-2 border-t border-[#232326]/60">
               <div className="flex flex-col">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">0 FCFA</span>
-                  <span className="text-xs text-[#8E8A99] font-medium">/ pour toujours</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                    {billingCycle === 'MONTHLY' ? '1 200 FCFA' : '960 FCFA'}
+                  </span>
+                  <span className="text-xs text-[#8E8A99] font-medium">/ mois</span>
                 </div>
-                <span className="text-xs text-[#8E8A99] mt-0.5">0 € / mois · Aucune carte bancaire requise</span>
+                <span className="text-xs text-[#8E8A99] mt-0.5">
+                  {billingCycle === 'MONTHLY' ? '≈ 1,83 €/mois' : '≈ 1,46 €/mois'}
+                </span>
               </div>
+              <p className="text-[11px] text-[#8E8A99] mt-1">
+                {billingCycle === 'ANNUAL'
+                  ? 'Facturé 11 520 FCFA par an (≈ 17,56 € · 2 mois offerts)'
+                  : 'Sans engagement, résiliable à tout moment'}
+              </p>
             </div>
 
             {/* Liste des fonctionnalités */}
@@ -196,7 +211,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>3 films ou épisodes</strong> de série par mois</span>
+                  <span><strong>3 séances</strong> par mois</span>
                 </li>
 
                 {/* Invitation jusqu'à 10 personnes via URL */}
@@ -204,7 +219,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 10 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 8 personnes</strong></span>
                 </li>
 
                 {/* Uniquement lien URL */}
@@ -247,12 +262,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span className="line-through text-[#7A7684]">Débriefing d'après-séance (salon micro/caméra)</span>
                 </li>
 
-                {/* Contient des publicités */}
-                <li className="flex items-start gap-2.5 text-[#EAB308]">
-                  <div className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Radio className="w-3.5 h-3.5" />
+                {/* Sans publicité */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>Contient des publicités</strong> discrètes</span>
+                  <span><strong>Sans publicité</strong></span>
                 </li>
 
                 {/* Pas d'accès communication réseau amis */}
@@ -269,10 +284,10 @@ export const PricingView: React.FC<PricingViewProps> = ({
           {/* Bouton d'action */}
           <div className="pt-8">
             <button
-              onClick={() => handleSelectPlan('GRATUIT')}
+              onClick={() => handleSelectPlan('DECOUVERTE')}
               className="w-full py-3.5 rounded-2xl font-bold text-xs text-white bg-[#1F1F26] hover:bg-[#282832] border border-[#2E2E38] transition-all flex items-center justify-center gap-2 shadow-sm"
             >
-              <span>{currentUser?.forfait === 'GRATUIT' ? 'Forfait actuel' : 'Commencer gratuitement — 0 FCFA'}</span>
+              <span>{currentUser?.forfait === 'DECOUVERTE' ? 'Forfait actuel' : 'Choisir Découverte — 1 200 FCFA'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -343,7 +358,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>25 films ou épisodes</strong> de série par mois</span>
+                  <span><strong>10 séances</strong> par mois</span>
                 </li>
 
                 {/* Invitation jusqu'à 15 personnes */}

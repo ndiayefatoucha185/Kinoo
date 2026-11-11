@@ -252,7 +252,7 @@ export default function App() {
       home: 'Plateforme web et mobile de visionnage collectif synchronisé à distance en haute fidélité sans extension.',
       how_it_works: 'Découvrez comment créer une salle privée, inviter vos proches et synchroniser vos films à la milliseconde.',
       media_sources: 'Consultez la matrice des formats vidéo compatibles : fichiers locaux, liens MP4/HLS et intégrations vérifiées.',
-      pricing: 'Découvrez les forfaits Kinoo Gratuit, Standard et Premium pour des séances synchronisées sans limite.',
+      pricing: 'Découvrez les forfaits Kinoo Découverte, Standard et Premium pour des séances synchronisées sans limite.',
       legal: 'Conditions Générales d’Utilisation, politique de confidentialité RGPD et politique de gestion des droits.',
       status: 'Supervision en temps réel de l’infrastructure, des serveurs API, WebSockets et de la synchronisation Kinoo.',
       dashboard: 'Gérez vos séances programmées, retrouvez vos amis et rejoignez vos salons de visionnage privés.',

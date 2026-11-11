@@ -56,6 +56,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     totalComptesInscrits: number;
     comptesParForfait: {
       GRATUIT: number;
+      DECOUVERTE?: number;
       STANDARD: number;
       PREMIUM: number;
     };
@@ -506,7 +507,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             <ErrorBoundary moduleName="Gestion des Utilisateurs">
             <AdminUsersWidget
               users={users}
-              onUpdateStatus={handleUpdateUserStatus}
+              onSetUserStatus={handleUpdateUserStatus}
               onUpdatePlan={handleUpdateUserPlan}
               prefillSearch={globalSearchTerm}
             />

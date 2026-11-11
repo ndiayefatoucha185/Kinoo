@@ -72,7 +72,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-xl shadow-[#7C3AED]/25 transition-all flex items-center justify-center gap-2.5 transform hover:-translate-y-0.5"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Créer une séance gratuite</span>
+            <span>Essayer : 1ère séance offerte</span>
           </button>
 
           <button
@@ -386,7 +386,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             Tarifs & Abonnements Clairs
           </span>
           <h2 className="text-2xl sm:text-3xl font-bold text-white">
-            Un forfait gratuit et des options pour tous
+            Votre première séance est offerte, puis 3 forfaits au choix
           </h2>
           <p className="text-xs sm:text-sm text-[#B8B4C0]">
             Paiements adaptés à l'Afrique et à l'international : Wave, Orange Money, Carte Bancaire et PayPal.
@@ -397,14 +397,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Gratuit */}
           <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 space-y-5 flex flex-col justify-between relative shadow-lg">
             <div className="space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#B8B4C0]">Découverte</span>
-              <h3 className="text-xl font-bold text-white">Kinoo Gratuit</h3>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#B8B4C0]">Entrée de gamme</span>
+              <h3 className="text-xl font-bold text-white">Kinoo Découverte</h3>
               <div className="flex flex-col">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-extrabold text-white">0 FCFA</span>
-                  <span className="text-xs text-gray-400">/ pour toujours</span>
+                  <span className="text-3xl font-extrabold text-white">1 200 FCFA</span>
+                  <span className="text-xs text-gray-400">/ mois</span>
                 </div>
-                <span className="text-[11px] text-gray-500">0 € / mois · Sans carte bancaire</span>
+                <span className="text-[11px] text-gray-500">≈ 1,83 € / mois · Sans engagement</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>3 séances par mois</span></li>
@@ -417,7 +417,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               onClick={onOpenCreateRoom}
               className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-[#232326] hover:bg-[#303038] border border-[#383840]"
             >
-              Démarrer gratuitement
+              Essayer : 1ère séance offerte
             </button>
           </div>
 

@@ -128,6 +128,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [sessionTimeInput, setSessionTimeInput] = useState<string>('20:30');
   const [sessionBadgeInput, setSessionBadgeInput] = useState<string>('Watch Party');
 
+  // Essai d'une séance offerte (source de vérité : serveur)
+  const [trial, setTrial] = useState<{ active: boolean; used: boolean; locked: boolean } | null>(null);
+
   // In-dashboard subscription details modal
   const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
 
@@ -156,8 +159,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   useEffect(() => {
     let cancelled = false;
     ApiClient.getMyActiveRoomIds()
-      .then(({ activeRoomIds, history }) => {
+      .then(({ activeRoomIds, history, trial: trialState }) => {
         if (cancelled) return;
+        if (trialState) setTrial(trialState);
         const active = new Set(activeRoomIds);
         const serverById = new Map<string, any>((history || []).map((h: any) => [h.id, h]));
         // 1. Séances connues du serveur mais absentes de ce navigateur
@@ -549,8 +553,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
+  // Séance gratuite utilisée : l'accès à la plateforme exige un forfait payant
+  if (trial?.locked) {
+    return (
+      <div className="w-full my-6 sm:my-10 flex justify-center px-4">
+        <div className="max-w-xl w-full bg-[#16161B] border border-[#232328] rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-[#7C3AED] to-[#EC4899] flex items-center justify-center text-white">
+            <IconCheck className="w-7 h-7" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-white">Votre séance gratuite est terminée</h2>
+            <p className="text-xs sm:text-sm text-[#B8B4C0] leading-relaxed">
+              Merci d'avoir testé Kinoo ! Pour continuer à créer et rejoindre des séances, choisissez l'un de nos trois forfaits :
+              Découverte (1 200 FCFA/mois), Standard (2 800 FCFA/mois) ou Premium (4 750 FCFA/mois).
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => onNavigate('pricing')}
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white text-xs font-bold hover:opacity-90 transition-opacity"
+            >
+              Voir les forfaits
+            </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="px-6 py-3 rounded-xl bg-[#232328] text-gray-300 text-xs font-semibold hover:text-white transition-colors"
+              >
+                Se déconnecter
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full my-2 sm:my-4">
+      {trial?.active && !trial.used && (
+        <div className="mb-3 px-4 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+          <IconCheck className="w-4 h-4 shrink-0" />
+          <span>Votre première séance est offerte. Ensuite, un forfait sera nécessaire pour continuer.</span>
+        </div>
+      )}
+      {trial?.active && trial.used && !trial.locked && (
+        <div className="mb-3 px-4 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-between gap-3">
+          <span>Votre séance gratuite est en cours. Une fois terminée, un forfait sera nécessaire pour continuer.</span>
+          <button onClick={() => onNavigate('pricing')} className="underline shrink-0">Voir les forfaits</button>
+        </div>
+      )}
       {/* Outer Dashboard Card Wrapper replicating the reference layout */}
       <div className="bg-[#121215] border border-[#232326] rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row min-h-[760px]">
         
@@ -2923,12 +2975,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* P0 : Gratuit */}
               <div className="bg-[#1C1C22] border border-[#2B2B32] rounded-2xl p-5 space-y-3 flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">P0 Découverte</span>
-                  <h3 className="text-base font-bold text-white mt-1">Kinoo Gratuit</h3>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase">P0 Entrée de gamme</span>
+                  <h3 className="text-base font-bold text-white mt-1">Kinoo Découverte</h3>
                   <div className="mt-2">
-                    <span className="text-xl font-extrabold text-white">0 FCFA</span>
+                    <span className="text-xl font-extrabold text-white">1 200 FCFA</span>
                     <span className="text-xs text-gray-400 ml-1">/ mois</span>
-                    <div className="text-[11px] text-gray-500">0 € / pour toujours</div>
+                    <div className="text-[11px] text-gray-500">≈ 1,83 € / mois</div>
                   </div>
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
@@ -2937,7 +2989,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Jusqu'à 10 participants</span>
+                      <span>Jusqu'à 8 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -2950,7 +3002,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </ul>
                 </div>
                 <span className="w-full py-2 text-center rounded-xl text-xs font-bold bg-[#292934] text-emerald-400 block">
-                  {currentUser.forfait === 'GRATUIT' ? 'Forfait actif' : 'Offre gratuite'}
+                  {currentUser.forfait === 'DECOUVERTE' ? 'Forfait actif' : 'Forfait d’entrée'}
                 </span>
               </div>
 

@@ -19,6 +19,7 @@ export async function ensureSecuritySchema(): Promise<void> {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version integer NOT NULL DEFAULT 0`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz`);
   await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS code_acces_hash text`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS essai_actif boolean NOT NULL DEFAULT false`);
   await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS participants_attendus integer`);
   await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS demarrage_auto boolean NOT NULL DEFAULT true`);
   await pool.query(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS demarree_le timestamptz`);

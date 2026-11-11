@@ -11,7 +11,7 @@ export interface SignupData {
   dateNaissance?: string;
   avatar?: string;
   photoProfil?: string;
-  forfait?: 'GRATUIT' | 'STANDARD' | 'PREMIUM';
+  forfait?: 'GRATUIT' | 'DECOUVERTE' | 'STANDARD' | 'PREMIUM';
 }
 
 export interface LoginData {

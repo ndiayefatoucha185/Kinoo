@@ -32,7 +32,7 @@ export const registerSchema = z.object({
   email: z.string().email('Adresse e-mail invalide').max(255).trim(),
   password: z.string().min(10, 'Le mot de passe doit contenir au moins 10 caractères').max(200),
   avatar: z.string().optional().nullable(),
-  forfait: z.enum(['GRATUIT', 'STANDARD', 'PREMIUM']).optional().default('GRATUIT'),
+  forfait: z.enum(['GRATUIT', 'DECOUVERTE', 'STANDARD', 'PREMIUM']).optional().default('GRATUIT'),
   honeypot: z.string().optional(),
 });
 

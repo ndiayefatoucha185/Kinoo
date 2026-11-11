@@ -4,7 +4,7 @@ export type PlaybackState = 'LECTURE' | 'PAUSE' | 'BUFFERING';
 export type ReportTarget = 'PARTICIPANT' | 'MESSAGE' | 'CONTENU';
 export type ReportStatus = 'OUVERT' | 'EN_COURS' | 'TRAITE' | 'REJETE';
 
-export type UserPlan = 'GRATUIT' | 'STANDARD' | 'PREMIUM';
+export type UserPlan = 'GRATUIT' | 'DECOUVERTE' | 'STANDARD' | 'PREMIUM';
 export type AccountRole = 'UTILISATEUR' | 'ADMIN' | 'MODERATEUR' | 'SUPER_ADMIN';
 export type AccountStatus = 'ACTIF' | 'SUSPENDU';
 
@@ -24,6 +24,8 @@ export interface User {
   statutAbonnement?: 'ACTIF' | 'RENOUVELLEMENT_REQUIS' | 'RETROGRADE';
   joursRestants?: number;
   hasPassword?: boolean;
+  /** Compte avec essai d'une séance offerte (forfait GRATUIT) */
+  essaiActif?: boolean;
 }
 
 export interface SupportTicket {
