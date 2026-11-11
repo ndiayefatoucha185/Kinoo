@@ -527,7 +527,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Connexion de <strong>plateformes de streaming externes</strong> comme source</span>
+                  <span>Liens <strong>YouTube et vidéos directes</strong> comme source</span>
                 </li>
 
                 {/* Communication réseau d'amis débloqué */}

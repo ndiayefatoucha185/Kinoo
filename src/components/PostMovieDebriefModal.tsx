@@ -24,7 +24,7 @@ interface PostMovieDebriefModalProps {
   room: Room;
   currentUser: User | null;
   participations: Participation[];
-  onChangeMedia: () => void;
+  onChangeMedia?: () => void; // conservé pour compatibilité : une salle ne projette qu'un seul film
   onLeaveRoom: () => void;
 }
 
@@ -34,7 +34,7 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   room,
   currentUser,
   participations,
-  onChangeMedia,
+  onChangeMedia: _onChangeMedia,
   onLeaveRoom,
 }) => {
   const [isMicOn, setIsMicOn] = useState(true);
@@ -48,7 +48,6 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   ]);
   const [customComment, setCustomComment] = useState('');
   const [sharedComments, setSharedComments] = useState<Array<{ pseudo: string; text: string; stars: number }>>([
-    { pseudo: 'Léa', text: 'Incroyable, j’ai adoré la fin ! On enchaîne sur quoi ?', stars: 5 },
   ]);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -272,19 +271,6 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
             <span>Quitter la séance</span>
           </button>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onChangeMedia();
-              }}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md flex items-center justify-center gap-2"
-            >
-              <Film className="w-4 h-4" />
-              <span>Lancer un autre film ensemble</span>
-            </button>
-          </div>
         </div>
 
       </div>

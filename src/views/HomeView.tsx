@@ -222,14 +222,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <Youtube className="w-6 h-6" />
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">Option 2</span>
-              <h3 className="text-lg font-bold text-white">Liens URL &/ou Plateforme de streaming</h3>
+              <h3 className="text-lg font-bold text-white">Lien vidéo direct ou YouTube</h3>
               <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                Collez simplement le lien d'un film, d'une série, d'une vidéo YouTube ou d'un flux web. Kinoo synchronise automatiquement la lecture pour tout le salon.
+                Collez le lien d'une vidéo YouTube ou d'un fichier vidéo hébergé (mp4, webm, m3u8). Kinoo synchronise automatiquement la lecture pour tout le salon.
               </p>
             </div>
             <div className="pt-3 border-t border-[#232326] flex items-center justify-between text-xs text-gray-400">
               <span>Prise en charge</span>
-              <span className="text-white font-semibold">URL directes & Plateformes</span>
+              <span className="text-white font-semibold">Liens directs & YouTube</span>
             </div>
           </div>
 

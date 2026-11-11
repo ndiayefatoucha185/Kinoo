@@ -40,6 +40,8 @@ import { PostMovieDebriefModal } from '../components/PostMovieDebriefModal';
 import { UserPlanBadge } from '../components/UserPlanBadge';
 import { HlsPlayer } from '../components/HlsPlayer';
 import { ScreenControls } from '../components/ScreenControls';
+import { getPlanConfig } from '../config/plans';
+import { X } from 'lucide-react';
 import { WebRTCControls } from '../components/WebRTCControls';
 import { InviteModal } from '../components/InviteModal';
 import { webrtcMesh } from '../services/webrtcMesh';
@@ -168,6 +170,28 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const isHostRef = useRef(false);
   isHostRef.current = isHost;
   const handleStartDebriefRef = useRef<() => void>(() => {});
+  const handleFilmEndedRef = useRef<() => void>(() => {});
+
+  // Temps de lecture cumulé : le changement de vidéo n'est possible que pendant la 1re minute
+  const [watchedSec, setWatchedSec] = useState(0);
+  const watchedInitRef = useRef(false);
+  useEffect(() => {
+    if (room && !watchedInitRef.current) {
+      watchedInitRef.current = true;
+      setWatchedSec(Math.max(0, Math.floor(room.lectureTotaleSec || 0)));
+    }
+  }, [room]);
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = window.setInterval(() => setWatchedSec((v) => v + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [isPlaying]);
+  const canChangeMedia = watchedSec < 60;
+
+  // Fin de film : l'hôte choisit entre lancer le débrief ou quitter la salle (exécuté à la fin du visionnage)
+  const [endChoice, setEndChoice] = useState<'DEBRIEF' | 'LEAVE' | null>(null);
+  const [endPromptDismissed, setEndPromptDismissed] = useState(false);
+  const [filmEnded, setFilmEnded] = useState(false);
 
   // Helper to resolve user plan for badge display
   const getUserPlan = (userId?: string, pseudo?: string) => {
@@ -451,7 +475,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 }
               } else if (event.data === YTState.ENDED) {
                 setIsPlaying(false);
-                if (isHostRef.current) handleStartDebriefRef.current();
+                handleFilmEndedRef.current();
               }
               isInternalYTEventRef.current = false;
             },
@@ -1250,6 +1274,44 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   };
   handleStartDebriefRef.current = handleStartDebrief;
 
+  // Fin de la séance par l'hôte (sans confirmation : il a déjà choisi de quitter)
+  const endSessionNow = () => {
+    if (!isHost || !room) return;
+    const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
+    StorageService.saveRoom(updated);
+    syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
+    onToast('Séance terminée.', 'success');
+    onLeaveRoom();
+  };
+
+  // Le film se termine : on applique le choix de l'hôte, ou on lui demande de choisir
+  const handleFilmEnded = () => {
+    if (!isHost) return;
+    setFilmEnded(true);
+    if (endChoice === 'LEAVE') endSessionNow();
+    else if (endChoice === 'DEBRIEF') handleStartDebrief();
+  };
+  handleFilmEndedRef.current = handleFilmEnded;
+
+  const handleEndChoice = (choice: 'DEBRIEF' | 'LEAVE') => {
+    setEndChoice(choice);
+    if (filmEnded) {
+      if (choice === 'LEAVE') endSessionNow();
+      else handleStartDebrief();
+      return;
+    }
+    onToast(
+      choice === 'DEBRIEF'
+        ? 'Le débrief s’ouvrira pour tout le monde à la fin du film.'
+        : 'La séance se terminera automatiquement à la fin du film.',
+      'info'
+    );
+  };
+
+  const filmAlmostOver = duration > 0 && currentTime > 0 && duration - currentTime <= 90;
+  const showEndPrompt = isHost && !showDebriefModal && !endPromptDismissed && (filmEnded || (filmAlmostOver && endChoice === null));
+
   const handleCopyInvite = () => {
     navigator.clipboard.writeText(inviteUrl);
     setIsCopied(true);
@@ -1497,7 +1559,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 subtitleUrl={room.sourceContenu?.subtitleUrl}
                 subtitleName={room.sourceContenu?.subtitleName || 'Sous-titres FR'}
                 isPlaying={isPlaying}
-                onEnded={() => { if (isHost) handleStartDebrief(); }}
+                onEnded={() => handleFilmEnded()}
                 onTimeUpdate={(t) => setCurrentTime(t)}
                 onDurationChange={(d) => setDuration(d)}
               />
@@ -1720,7 +1782,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
               {/* Host Specific Management Controls & Debrief */}
               <div className="flex items-center gap-2">
-                {isHost && (
+                {isHost && canChangeMedia && (
                   <button
                     onClick={() => setShowChangeMediaModal(true)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#232326] hover:bg-[#303038] text-white border border-[#383840] text-xs font-semibold transition-colors"
@@ -1947,6 +2009,48 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         </div>
       </div>
 
+      {/* Fin de film : choix de l'hôte (débrief ou quitter) */}
+      {showEndPrompt && (
+        <div className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-6 sm:w-[380px] z-[60] bg-[#16161B] border border-[#EC4899]/40 rounded-2xl p-4 shadow-2xl space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-white">
+                {filmEnded ? 'Le film est terminé' : 'Le film se termine bientôt'}
+              </h3>
+              <p className="text-[11px] text-[#B8B4C0] mt-0.5">
+                Que souhaitez-vous faire ? Votre choix s’appliquera {filmEnded ? 'maintenant' : 'à la fin du film'}.
+              </p>
+            </div>
+            {!filmEnded && (
+              <button
+                type="button"
+                onClick={() => setEndPromptDismissed(true)}
+                className="text-gray-500 hover:text-white p-1 rounded-lg"
+                aria-label="Masquer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={() => handleEndChoice('DEBRIEF')}
+              className="flex-1 px-3 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95"
+            >
+              Lancer le débrief
+            </button>
+            <button
+              type="button"
+              onClick={() => handleEndChoice('LEAVE')}
+              className="flex-1 px-3 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#232326] border border-[#383840] hover:bg-[#303036]"
+            >
+              Quitter la salle
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Invite Modal Dialog */}
       <InviteModal
         isOpen={showInviteModal}
@@ -1975,7 +2079,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showChangeMediaModal}
         onClose={() => setShowChangeMediaModal(false)}
         onMediaSelected={handleHostMediaChange}
-        canUseCatalogue={currentUser?.forfait === 'PREMIUM'}
+        canUseCatalogue={getPlanConfig(currentUser?.forfait).allowCatalogue}
+        canUseLocalFiles={getPlanConfig(currentUser?.forfait).allowLocalFiles}
       />
 
       {/* Post-Movie Debrief Lounge Modal */}
@@ -1985,7 +2090,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         room={room}
         currentUser={currentUser}
         participations={participations}
-        onChangeMedia={() => setShowChangeMediaModal(true)}
+        onChangeMedia={() => { if (canChangeMedia) setShowChangeMediaModal(true); }}
         onLeaveRoom={onLeaveRoom}
       />
 

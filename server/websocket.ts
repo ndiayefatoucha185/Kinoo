@@ -1291,6 +1291,26 @@ export class KinooWebSocketServer {
           break;
         }
 
+        // Une salle ne projette qu'un seul film : le changement n'est plus possible après 1 minute de lecture
+        try {
+          const [state] = await db
+            .select({ total: rooms.lectureTotaleSec, playback: rooms.playbackState, last: rooms.lastPlaybackUpdate })
+            .from(rooms)
+            .where(eq(rooms.id, roomId))
+            .limit(1);
+          let watched = state?.total || 0;
+          if (state?.playback === 'LECTURE' && state.last) {
+            watched += Math.max(0, (now - new Date(state.last).getTime()) / 1000);
+          }
+          if (watched >= 60) {
+            this.sendError(client, 'MEDIA_LOCKED', 'Le film a commencé depuis plus d’une minute : il n’est plus possible de changer de vidéo dans cette salle.');
+            break;
+          }
+        } catch {
+          this.sendError(client, 'INTERNAL', 'Vérification de la séance impossible.');
+          break;
+        }
+
         // La formule de l'hôte détermine les sources autorisées (catalogue : Premium uniquement)
         try {
           const [hostUser] = await db.select({ forfait: users.forfait }).from(users).where(eq(users.id, client.userId)).limit(1);

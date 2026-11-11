@@ -3,7 +3,7 @@ import { User, Room, Invitation, Participation, ContentSource, SourceKind, Catal
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
 import { getPlanConfig } from '../config/plans';
-import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC } from '../utils/mediaHelper';
+import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC, unsupportedLinkWarning } from '../utils/mediaHelper';
 import {
   X,
   Film,
@@ -514,7 +514,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 )}
               </button>
 
-              {/* Option 2: Lien URL &/ou Plateforme de streaming */}
+              {/* Option 2: Lien vidéo direct ou YouTube */}
               <button
                 type="button"
                 onClick={() => setSourceType('URL_WEB')}
@@ -625,7 +625,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 <div className="space-y-1.5">
                   <label className="font-semibold text-white block flex items-center gap-2">
                     <Link className="w-3.5 h-3.5 text-[#EC4899]" />
-                    <span>Lien URL &/ou Plateforme de streaming (YouTube, flux web, direct...)</span>
+                    <span>Lien vidéo direct ou YouTube</span>
                   </label>
                   <input
                     type="url"
@@ -634,6 +634,11 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                     placeholder="Ex: https://www.youtube.com/watch?v=... ou https://monsite.com/film.mp4"
                     className="w-full bg-[#141417] border border-[#232326] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED]"
                   />
+                  {unsupportedLinkWarning(urlInput) && (
+                    <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5">
+                      {unsupportedLinkWarning(urlInput)}
+                    </p>
+                  )}
                 </div>
 
                 {detectedYouTubeId && (
