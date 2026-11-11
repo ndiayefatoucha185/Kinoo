@@ -581,7 +581,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     Critères & Fonctionnalités
                   </th>
                   <th className="py-4 px-4 text-xs font-bold text-center text-white bg-[#141417]/70 w-1/5">
-                    Gratuit
+                    Découverte
                   </th>
                   <th className="py-4 px-4 text-xs font-bold text-center text-[#EC4899] bg-[#EC4899]/5 border-x border-[#EC4899]/20 w-1/5">
                     <div className="inline-flex items-center gap-1">
@@ -595,6 +595,16 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#232326] text-xs">
+                {/* 0. Essai offert */}
+                <tr className="hover:bg-[#1A1A22] transition-colors">
+                  <td className="py-3.5 px-5 font-semibold text-[#FAFAFA]">
+                    Première séance offerte à l'inscription
+                  </td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400"><Check className="w-4 h-4 mx-auto" /></td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20"><Check className="w-4 h-4 mx-auto" /></td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#3B82F6]/5"><Check className="w-4 h-4 mx-auto" /></td>
+                </tr>
+
                 {/* 1. Tarif mensuel */}
                 <tr className="hover:bg-[#1A1A22] transition-colors">
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
@@ -602,8 +612,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <span>Tarif mensuel</span>
                   </td>
                   <td className="py-3.5 px-4 text-center">
-                    <div className="font-extrabold text-sm text-white">0 FCFA</div>
-                    <div className="text-[11px] text-gray-400 font-normal">0 € / mois</div>
+                    <div className="font-extrabold text-sm text-white">1 200 FCFA</div>
+                    <div className="text-[11px] text-gray-400 font-normal">≈ 1,83 € / mois</div>
                   </td>
                   <td className="py-3.5 px-4 text-center bg-[#EC4899]/5 border-x border-[#EC4899]/20">
                     <div className="font-extrabold text-sm text-[#EC4899]">2 800 FCFA</div>
@@ -621,12 +631,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Film className="w-4 h-4 text-[#EC4899]" />
                     <span>Quota mensuel de visionnage</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">3 films / épisodes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">3 séances / mois</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    25 films / épisodes
+                    10 séances / mois
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    25 / mois
+                    25 séances / mois
                   </td>
                 </tr>
 
@@ -748,8 +758,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA]">
                     Publicité
                   </td>
-                  <td className="py-3.5 px-4 text-center text-amber-400 font-medium">
-                    Avec publicités
+                  <td className="py-3.5 px-4 text-center font-bold text-emerald-400">
+                    Sans publicité
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
                     Sans publicité
@@ -780,23 +790,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
                     <Bot className="w-4 h-4 text-[#7C3AED]" />
                     <span>Assistant IA personnel pour l'utilisateur</span>
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-emerald-400 font-bold bg-[#3B82F6]/5">
-                    <Check className="w-4 h-4 mx-auto" />
-                  </td>
-                </tr>
-
-                {/* 13. Plateformes de streaming externes */}
-                <tr className="hover:bg-[#1A1A22] transition-colors">
-                  <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
-                    <Tv className="w-4 h-4 text-[#3B82F6]" />
-                    <span>Connexion plateformes streaming externes</span>
                   </td>
                   <td className="py-3.5 px-4 text-center text-red-400">
                     <XIcon className="w-4 h-4 mx-auto" />

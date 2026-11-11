@@ -1,6 +1,7 @@
 import { X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import { PosterImage } from '../components/PosterImage';
+import { getPlanConfig } from '../config/plans';
 import { TvCastGuide } from '../components/TvCastGuide';
 import { User, Room, UserContact, ScheduledSession, UserPlan, Advertisement } from '../types/kinoo';
 import { StorageService } from '../services/storage';
@@ -942,7 +943,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     }`}
                     title="Gérer ou changer de formule"
                   >
-                    Formule {currentUser.forfait === 'STANDARD' ? 'Standard' : currentUser.forfait === 'PREMIUM' ? 'Premium' : 'Gratuit'}
+                    {getPlanConfig(currentUser.forfait).name}
                   </button>
                 </div>
               </div>
@@ -1244,7 +1245,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-bold text-white truncate">{currentAd.titre}</h4>
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#2A2638] text-amber-300 font-semibold border border-amber-400/20">
-                          Sponsorisé • Formule Gratuite
+                          Sponsorisé • Essai gratuit
                         </span>
                       </div>
                       {currentAd.description && (
@@ -1873,7 +1874,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold text-white">Réseau d'amis réservé à la formule Premium</h2>
                   <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{currentUser.forfait === 'STANDARD' ? 'Standard' : 'Gratuit'}</span>) ne donne pas accès au carnet d'amis et aux invitations directes.
+                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{getPlanConfig(currentUser.forfait).name}</span>) ne donne pas accès au carnet d'amis et aux invitations directes.
                   </p>
                 </div>
                 <div className="bg-[#141417] border border-[#232326] rounded-2xl p-5 text-left text-xs space-y-3">
@@ -2352,7 +2353,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold text-white">Messagerie privée réservée à la formule Premium</h2>
                   <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{currentUser.forfait === 'STANDARD' ? 'Standard' : 'Gratuit'}</span>) ne donne pas accès au système de messagerie privée instantanée de Kinoo.
+                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{getPlanConfig(currentUser.forfait).name}</span>) ne donne pas accès au système de messagerie privée instantanée de Kinoo.
                   </p>
                 </div>
                 <div className="bg-[#141417] border border-[#232326] rounded-2xl p-5 text-left text-xs space-y-3">

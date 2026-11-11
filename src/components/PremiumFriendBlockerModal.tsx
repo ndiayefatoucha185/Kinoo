@@ -29,7 +29,7 @@ export const PremiumFriendBlockerModal: React.FC<PremiumFriendBlockerModalProps>
 
   if (!isOpen) return null;
 
-  const planLabel = currentPlan === 'STANDARD' ? 'Standard' : 'Gratuit';
+  const planLabel = currentPlan === 'STANDARD' ? 'Standard' : currentPlan === 'DECOUVERTE' ? 'Découverte' : 'Essai gratuit';
 
   return (
     <div

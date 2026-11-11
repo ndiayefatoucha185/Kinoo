@@ -272,7 +272,7 @@ export const AdminAdsWidget: React.FC<AdminAdsWidgetProps> = ({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase bg-[#EC4899]/15 text-[#EC4899] border border-[#EC4899]/30">
-                Monétisation Formule Gratuit
+                Monétisation Essai gratuit
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 100% Côté Serveur
@@ -358,7 +358,7 @@ export const AdminAdsWidget: React.FC<AdminAdsWidgetProps> = ({
         <ShieldAlert className="w-4 h-4 text-purple-400 mt-0.5 shrink-0" />
         <div className="text-xs text-[#A6A2B3]">
           <strong className="text-white font-semibold">Règle de Monétisation Intouchable : </strong>
-          Seuls les membres en formule <span className="text-amber-300 font-bold">Gratuit</span> sont exposés à ces publicités. Les comptes <strong>Standard</strong> et <strong>Premium</strong> disposent d'une isolation totale garantie par contrat, sans aucune injection publicitaire.
+          Seuls les membres en <span className="text-amber-300 font-bold">essai gratuit</span> sont exposés à ces publicités. Les comptes <strong>Standard</strong> et <strong>Premium</strong> disposent d'une isolation totale garantie par contrat, sans aucune injection publicitaire.
         </div>
       </div>
 

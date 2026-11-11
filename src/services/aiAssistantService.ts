@@ -493,7 +493,7 @@ Voici l'état consolidé ${periodTitle} :
       text += `- **Revenu mensuel récurrent (MRR)** : **${mrr.toLocaleString('fr-FR')} €**\n\n`;
 
       if (paidUsers.length === 0) {
-        text += `_Actuellement, 100% des comptes utilisent l'offre gratuite. Aucun abonnement payant n'a encore converti ce mois-ci._\n\n**Conseil d'optimisation de l'Assistant :**\nProposer un message in-app lors de la 3ème séance pour inviter les utilisateurs à souscrire à la formule Standard ou Premium pour bénéficier du salon vocal et lever les limites de participants.`;
+        text += `_Actuellement, 100% des comptes sont en essai gratuit. Aucun abonnement payant n'a encore converti ce mois-ci._\n\n**Conseil d'optimisation de l'Assistant :**\nProposer un message in-app lors de la 3ème séance pour inviter les utilisateurs à souscrire à la formule Standard ou Premium pour bénéficier du salon vocal et lever les limites de participants.`;
       } else {
         text += `**Répartition des offres payantes :**\n`;
         const standardCount = paidUsers.filter((u) => u.forfait === 'STANDARD').length;
