@@ -122,6 +122,8 @@ export interface Room {
   statut: RoomStatus;
   hoteId: string;
   hotePseudo: string;
+  /** Renseigné pour une soirée ciné de couple (salle à deux, sans publicité) */
+  coupleId?: string | null;
   sourceContenuId: string;
   sourceContenu: ContentSource;
   estPrivee: boolean;

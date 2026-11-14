@@ -18,6 +18,7 @@ import { HowItWorksView } from './views/HowItWorksView';
 import { PricingView } from './views/PricingView';
 import { MediaSourcesView } from './views/MediaSourcesView';
 import { LegalViews } from './views/LegalViews';
+import { CoupleSpaceView } from './views/CoupleSpaceView';
 import { DashboardView } from './views/DashboardView';
 import { WatchPartyView } from './views/WatchPartyView';
 import { SuperAdminDashboard } from './views/SuperAdminDashboard';
@@ -47,6 +48,8 @@ export default function App() {
     return user ? 'dashboard' : 'home';
   });
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  // Vue où revenir en quittant une salle (les soirées de couple reviennent à l'espace Couple)
+  const [roomReturnView, setRoomReturnView] = useState<string>('dashboard');
 
   // Le dossier technique (architecture, modèle de menaces) n'est visible que du Super Admin
   useEffect(() => {
@@ -380,7 +383,8 @@ export default function App() {
                 currentUser={currentUser}
                 onLeaveRoom={() => {
                   setActiveRoomId(null);
-                  setCurrentView('dashboard');
+                  setCurrentView(roomReturnView);
+                  setRoomReturnView('dashboard');
                 }}
                 onToast={addToast}
               />
@@ -393,6 +397,7 @@ export default function App() {
                   setAuthMode(mode || 'login');
                   setIsAuthModalOpen(true);
                 }}
+                onOpenCouple={() => setCurrentView('couple')}
                 onPlanChanged={(newPlan) => {
                   setCurrentUser({ ...currentUser, forfait: newPlan });
                   addToast(`Formule ${newPlan} activée avec succès !`, 'success');
@@ -430,6 +435,18 @@ export default function App() {
                 </div>
                 <ArchitectureView />
               </div>
+            ) : currentView === 'couple' ? (
+              <ErrorBoundary moduleName="Espace Couple">
+              <CoupleSpaceView
+                currentUser={currentUser}
+                onEnterRoom={(id) => {
+                  setActiveRoomId(id);
+                  setRoomReturnView('couple');
+                  setCurrentView('watchparty');
+                }}
+                onBack={() => setCurrentView('dashboard')}
+              />
+              </ErrorBoundary>
             ) : currentView === 'dashboard' ? (
               <ErrorBoundary moduleName="Tableau de bord utilisateur">
               <DashboardView

@@ -2079,8 +2079,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showChangeMediaModal}
         onClose={() => setShowChangeMediaModal(false)}
         onMediaSelected={handleHostMediaChange}
-        canUseCatalogue={getPlanConfig(currentUser?.forfait).allowCatalogue}
-        canUseLocalFiles={getPlanConfig(currentUser?.forfait).allowLocalFiles}
+        canUseCatalogue={Boolean(room?.coupleId) || getPlanConfig(currentUser?.forfait).allowCatalogue}
+        canUseLocalFiles={Boolean(room?.coupleId) || getPlanConfig(currentUser?.forfait).allowLocalFiles}
       />
 
       {/* Post-Movie Debrief Lounge Modal */}

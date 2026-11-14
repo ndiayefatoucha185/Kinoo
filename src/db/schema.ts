@@ -45,6 +45,8 @@ export const rooms = pgTable('rooms', {
   demarrageAuto: boolean('demarrage_auto').notNull().default(true),
   // Heure de démarrage de la séance (null = salle d'attente)
   demarreeLe: timestamp('demarree_le', { withTimezone: true }),
+  // Renseigné pour une soirée ciné d'un couple (salle à deux, réservée aux deux membres du couple)
+  coupleId: varchar('couple_id', { length: 128 }),
   sourceContenu: jsonb('source_contenu'),
   playbackState: varchar('playback_state', { length: 20 }).notNull().default('PAUSE'),
   currentPositionSec: real('current_position_sec').notNull().default(0),

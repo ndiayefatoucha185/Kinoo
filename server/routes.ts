@@ -33,6 +33,8 @@ import { KINOO_PLANS, getPlanConfig } from '../src/config/plans.js';
 import { EmailService, generateIcsCalendar } from './email.js';
 import { globalWsServer } from './websocket.js';
 import { socialRouter } from './social.js';
+import { coupleRouter } from './couple.js';
+import { isActiveCoupleMember } from './coupleAccess.js';
 import { sourceNotAllowedReason } from './sourceGuard.js';
 import { getTrialState, SUBSCRIPTION_REQUIRED_MESSAGE } from './trial.js';
 import { accrueWatchTime } from './watchtime.js';
@@ -117,6 +119,7 @@ export async function purgeExpiredModerationArchives(): Promise<number> {
 
 export const apiRouter = Router();
 apiRouter.use(socialRouter);
+apiRouter.use(coupleRouter);
 
 // Limiteurs spécifiques (par IP ou par adresse e-mail ciblée)
 const rateLimitForgotPassword = rateLimitKv('forgot', {
@@ -1007,6 +1010,10 @@ apiRouter.get('/rooms/:idOrCode', rateLimitRoomSearch, optionalAuth, async (req:
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
+    if (room.coupleId && !(req.user && (await isActiveCoupleMember(room.coupleId, req.user.id)))) {
+      return res.status(403).json({ error: 'Cette soirée est réservée aux deux membres du couple.', code: 'COUPLE_ONLY' });
+    }
+
     if (room.estVerrouillee && !(await isKnownMember(room.id, req.user?.id, room.hoteId))) {
       return res.status(423).json({
         error: room.participantsAttendus
@@ -1210,6 +1217,10 @@ apiRouter.post('/rooms/:id/join', rateLimitJoin, optionalAuth, async (req: Authe
       return res.status(404).json({ error: "Cette salle n'existe pas ou la séance est terminée" });
     }
 
+    if (room.coupleId && !(req.user && (await isActiveCoupleMember(room.coupleId, req.user.id)))) {
+      return res.status(403).json({ error: 'Cette soirée est réservée aux deux membres du couple.', code: 'COUPLE_ONLY' });
+    }
+
     if (room.estVerrouillee && !(await isKnownMember(room.id, req.user?.id, room.hoteId))) {
       return res.status(423).json({
         error: room.participantsAttendus
@@ -1220,7 +1231,7 @@ apiRouter.post('/rooms/:id/join', rateLimitJoin, optionalAuth, async (req: Authe
 
     const secret = room.codeAccesHash || room.codeAcces;
     const isHostUser = Boolean(req.user && req.user.id === room.hoteId);
-    if (req.user && !isHostUser) {
+    if (req.user && !isHostUser && !room.coupleId) {
       const trial = await getTrialState(req.user);
       if (trial.locked) {
         return res.status(403).json({ error: SUBSCRIPTION_REQUIRED_MESSAGE, code: 'SUBSCRIPTION_REQUIRED' });

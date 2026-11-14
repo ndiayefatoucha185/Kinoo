@@ -1,5 +1,6 @@
 import { pool } from '../src/db/index.js';
 import { hashRoomPassword } from './security.js';
+import { COUPLE_SCHEMA_SQL } from './coupleSchema.js';
 
 /**
  * Migration idempotente des éléments ajoutés par le durcissement de sécurité.
@@ -60,6 +61,10 @@ export async function ensureSecuritySchema(): Promise<void> {
   await pool.query(`ALTER TABLE contacts ENABLE ROW LEVEL SECURITY`);
   await pool.query(`ALTER TABLE scheduled_sessions ENABLE ROW LEVEL SECURITY`);
   await pool.query(`ALTER TABLE private_messages ENABLE ROW LEVEL SECURITY`);
+  // Espace Couple (forfait Couple)
+  for (const stmt of COUPLE_SCHEMA_SQL) {
+    await pool.query(stmt);
+  }
   // Les salles créées avant cette fonction n'ont pas de salle d'attente : elles sont déjà démarrées
   await pool.query(`UPDATE rooms SET demarree_le = date_creation WHERE demarree_le IS NULL AND participants_attendus IS NULL`);
 

@@ -1,4 +1,4 @@
-import { X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
+import { Heart as IconHeart, X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
 import { PosterImage } from '../components/PosterImage';
 import { getPlanConfig } from '../config/plans';
@@ -635,6 +635,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button onClick={() => onNavigate('pricing')} className="underline shrink-0">Voir les forfaits</button>
         </div>
       )}
+      <button
+        type="button"
+        onClick={() => onNavigate('couple')}
+        className="mb-3 w-full text-left px-4 py-3 rounded-2xl bg-gradient-to-r from-rose-600/25 to-purple-700/25 border border-rose-400/30 hover:border-rose-400/60 transition-colors flex items-center gap-3"
+      >
+        <span className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+          <IconHeart className="w-5 h-5 text-white" fill="currentColor" />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm font-bold text-white">Kinoo Couple</span>
+          <span className="block text-xs text-rose-100/80">Un espace à deux : discussion privée, souvenirs, sorties et soirées ciné. 3 000 FCFA / mois pour le couple.</span>
+        </span>
+        <span className="text-xs font-bold text-rose-300 shrink-0">Ouvrir</span>
+      </button>
       {/* Outer Dashboard Card Wrapper replicating the reference layout */}
       <div className="bg-[#121215] border border-[#232326] rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row min-h-[760px]">
         

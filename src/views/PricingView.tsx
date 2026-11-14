@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Lock,
   UserCheck,
+  Heart,
 } from 'lucide-react';
 import { User, UserPlan } from '../types/kinoo';
 import { StorageService } from '../services/storage';
@@ -30,6 +31,7 @@ interface PricingViewProps {
   onOpenAuth?: (mode?: 'login' | 'signup') => void;
   onPlanChanged?: (newPlan: UserPlan) => void;
   onQuickLogin?: (email: string) => void;
+  onOpenCouple?: () => void;
 }
 
 export const PricingView: React.FC<PricingViewProps> = ({
@@ -38,6 +40,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
   onOpenAuth,
   onPlanChanged,
   onQuickLogin,
+  onOpenCouple,
 }) => {
   const [billingCycle, setBillingCycle] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
@@ -565,6 +568,33 @@ export const PricingView: React.FC<PricingViewProps> = ({
           </div>
         </div>
 
+      </div>
+
+      {/* FORFAIT COUPLE */}
+      <div className="rounded-3xl p-6 sm:p-8 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 flex flex-col lg:flex-row lg:items-center gap-6">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+          <Heart className="w-7 h-7 text-white" fill="currentColor" />
+        </div>
+        <div className="flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-xl font-extrabold text-white">Forfait Couple</h3>
+            <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-200 text-[11px] font-bold">Nouveau</span>
+          </div>
+          <p className="text-sm text-[#D9D4E3]">
+            Un espace à deux avec sa propre interface : compteur de jours, discussion privée avec photos, question du jour, souvenirs et sorties — et des soirées ciné synchronisées sans publicité, fichiers locaux et catalogue inclus.
+          </p>
+          <p className="text-sm text-white">
+            <strong>3 000 FCFA / mois pour le couple</strong>{' '}
+            <span className="text-[#B8B4C0]">· Galanterie (un seul paie) ou 50/50 (1 500 FCFA chacun)</span>
+          </p>
+        </div>
+        <button
+          onClick={() => (currentUser ? onOpenCouple?.() : onOpenAuth?.('signup'))}
+          className="px-6 py-3.5 rounded-2xl font-bold text-xs text-white bg-gradient-to-r from-rose-500 to-pink-500 hover:opacity-95 shadow-md shadow-rose-500/20 inline-flex items-center justify-center gap-2 shrink-0"
+        >
+          <span>{currentUser ? 'Ouvrir l’espace Couple' : 'Créer un compte'}</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* ============================================================ */}

@@ -29,6 +29,8 @@ async function startServer() {
   // Parse cookies, JSON and form bodies (limite réduite ; 10 Mo uniquement pour l'import de données locales)
   app.use(cookieParser());
   app.use('/api/migrate/import-local-data', express.json({ limit: '10mb' }));
+  // Espace Couple : photos du chat et des souvenirs (images compressées côté navigateur)
+  app.use('/api/couple', express.json({ limit: '4mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 

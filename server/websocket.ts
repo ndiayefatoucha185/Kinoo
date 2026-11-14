@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import { accrueWatchTime } from './watchtime.js';
 import { sourceNotAllowedReason } from './sourceGuard.js';
+import { isActiveCoupleMember } from './coupleAccess.js';
 import { db } from '../src/db/index.js';
 import { rooms, messages, participations, users } from '../src/db/schema.js';
 import { eq, and, sql } from 'drizzle-orm';
@@ -547,6 +548,11 @@ export class KinooWebSocketServer {
       const isHost = room.hoteId === userId;
       if (client) {
         client.role = isHost ? 'HOTE' : 'PARTICIPANT';
+      }
+
+      // Soirée ciné d'un couple : réservée aux deux membres, abonnement du couple actif
+      if (room.coupleId && !(await isActiveCoupleMember(room.coupleId, userId))) {
+        return { allowed: false, reason: 'Cette soirée est réservée aux deux membres du couple.', errorCode: 4403 };
       }
 
       // 0. Participant expulsé par l'hôte
@@ -1314,7 +1320,9 @@ export class KinooWebSocketServer {
         // La formule de l'hôte détermine les sources autorisées (catalogue : Premium uniquement)
         try {
           const [hostUser] = await db.select({ forfait: users.forfait }).from(users).where(eq(users.id, client.userId)).limit(1);
-          const notAllowed = sourceNotAllowedReason(hostUser?.forfait, source);
+          // Salle de couple : fichiers locaux et catalogue inclus dans le forfait Couple
+          const [roomRow] = await db.select({ coupleId: rooms.coupleId }).from(rooms).where(eq(rooms.id, roomId)).limit(1);
+          const notAllowed = roomRow?.coupleId ? null : sourceNotAllowedReason(hostUser?.forfait, source);
           if (notAllowed) {
             this.sendError(client, 'PLAN_REQUIRED', notAllowed);
             break;

@@ -1,6 +1,7 @@
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { db } from '../src/db/index.js';
 import { rooms, monthlyRoomCreations } from '../src/db/schema.js';
+import { getCoupleOf, statusOf } from './coupleAccess.js';
 
 export interface TrialState {
   /** Le compte est en essai (forfait GRATUIT créé avec l'essai d'une séance offerte). */
@@ -31,7 +32,11 @@ export async function getTrialState(user: { id: string; forfait?: string; essaiA
     .from(rooms)
     .where(and(eq(rooms.hoteId, user.id), ne(rooms.statut, 'TERMINEE')))
     .limit(1);
-  return { active: true, used: true, locked: open.length === 0 };
+  if (open.length > 0) return { active: true, used: true, locked: false };
+  // Un couple dont le forfait Couple est actif garde l'accès à la plateforme (espace Couple)
+  const couple = await getCoupleOf(user.id);
+  if (couple && statusOf(couple) === 'ACTIF') return { active: true, used: true, locked: false };
+  return { active: true, used: true, locked: true };
 }
 
 export const SUBSCRIPTION_REQUIRED_MESSAGE =

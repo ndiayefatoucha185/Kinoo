@@ -1,3 +1,4 @@
+import type { CoupleState, CoupleEvent, CoupleMessage, CoupleDaily, CoupleWatchItem, CoupleMemory, CoupleRoomInfo, CoupleMode } from '../types/couple';
 import { User, Room, Signalement, SupportTicket, UserPlan, AccountStatus, AccountRole, CatalogItem, Advertisement } from '../types/kinoo';
 
 const TOKEN_KEY = 'kinoo_auth_token_v3';
@@ -467,6 +468,34 @@ export const ApiClient = {
       method: 'DELETE',
     });
   },
+
+  // --- ESPACE COUPLE ---
+  coupleState: () => apiRequest<CoupleState>('/api/couple'),
+  coupleCreate: (mode: CoupleMode) => apiRequest<CoupleState>('/api/couple', { method: 'POST', body: JSON.stringify({ mode }) }),
+  coupleJoin: (code: string) => apiRequest<CoupleState>('/api/couple/join', { method: 'POST', body: JSON.stringify({ code }) }),
+  coupleLeave: () => apiRequest<{ ok: boolean }>('/api/couple/leave', { method: 'POST', body: JSON.stringify({ confirm: true }) }),
+  coupleSetStartDate: (startDate: string | null) => apiRequest<CoupleState>('/api/couple/settings', { method: 'PUT', body: JSON.stringify({ startDate }) }),
+  couplePay: () => apiRequest<{ ok: boolean }>('/api/couple/pay', { method: 'POST', body: '{}' }),
+  coupleActivate: () => apiRequest<CoupleState>('/api/couple/activate', { method: 'POST', body: '{}' }),
+  coupleEvents: () => apiRequest<CoupleEvent[]>('/api/couple/events'),
+  coupleAddEvent: (data: Partial<CoupleEvent>) => apiRequest<{ id: string }>('/api/couple/events', { method: 'POST', body: JSON.stringify(data) }),
+  coupleDeleteEvent: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/events/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  coupleMessages: (after?: string) => apiRequest<CoupleMessage[]>(`/api/couple/messages${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+  coupleSendMessage: (body: string, image?: string | null) => apiRequest<CoupleMessage>('/api/couple/messages', { method: 'POST', body: JSON.stringify({ body, image: image || undefined }) }),
+  coupleDaily: () => apiRequest<CoupleDaily>('/api/couple/daily'),
+  coupleAnswerDaily: (answer: string) => apiRequest<{ ok: boolean }>('/api/couple/daily', { method: 'POST', body: JSON.stringify({ answer }) }),
+  coupleWatchlist: () => apiRequest<CoupleWatchItem[]>('/api/couple/watchlist'),
+  coupleAddWatch: (title: string, kind: 'FILM' | 'SERIE') => apiRequest<{ id: string }>('/api/couple/watchlist', { method: 'POST', body: JSON.stringify({ title, kind }) }),
+  coupleToggleWatched: (id: string, watched: boolean) => apiRequest<{ ok: boolean }>(`/api/couple/watchlist/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ watched }) }),
+  coupleDeleteWatch: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/watchlist/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  coupleMemories: () => apiRequest<CoupleMemory[]>('/api/couple/memories'),
+  couplePhotos: (id: string) => apiRequest<{ photos: string[] }>(`/api/couple/memories/${encodeURIComponent(id)}`),
+  coupleAddMemory: (data: { title: string; date: string; place?: string; lat?: number | null; lng?: number | null; note?: string; photos: string[] }) =>
+    apiRequest<{ id: string }>('/api/couple/memories', { method: 'POST', body: JSON.stringify(data) }),
+  coupleDeleteMemory: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/memories/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  coupleRoom: () => apiRequest<{ room: CoupleRoomInfo | null }>('/api/couple/room'),
+  coupleCreateRoom: (titre: string, sourceContenu?: Record<string, unknown> | null) =>
+    apiRequest<{ room: CoupleRoomInfo; reused?: boolean }>('/api/couple/room', { method: 'POST', body: JSON.stringify({ titre, sourceContenu: sourceContenu ?? null }) }),
 
   // --- WEBRTC ICE SERVERS ---
   async getIceServers(): Promise<{ iceServers: RTCIceServer[] }> {
