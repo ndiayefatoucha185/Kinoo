@@ -219,7 +219,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 8 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 5 personnes</strong></span>
                 </li>
 
                 {/* Uniquement lien URL */}
@@ -262,12 +262,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span className="line-through text-[#7A7684]">Débriefing d'après-séance (salon micro/caméra)</span>
                 </li>
 
-                {/* Sans publicité */}
+                {/* Publicités fréquentes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5" />
+                  <div className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Radio className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>Sans publicité</strong></span>
+                  <span><strong>Publicités fréquentes</strong> (formule d'entrée)</span>
                 </li>
 
                 {/* Pas d'accès communication réseau amis */}
@@ -323,7 +323,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
-                Pour profiter pleinement de vos soirées cinéma avec chat vocal, import vidéo et sans publicité.
+                Pour profiter pleinement de vos soirées cinéma avec chat vocal, import vidéo et peu de publicités.
               </p>
             </div>
 
@@ -393,12 +393,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>Débriefing d'après-séance</strong> disponible (micro & vidéo)</span>
                 </li>
 
-                {/* Sans publicité */}
-                <li className="flex items-start gap-2.5 text-emerald-400 font-medium">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5" />
+                {/* Publicités occasionnelles */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
+                  <div className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Radio className="w-3.5 h-3.5" />
                   </div>
-                  <span>Expérience <strong>100% sans publicité</strong></span>
+                  <span><strong>Publicités occasionnelles</strong> (bien moins fréquentes)</span>
                 </li>
 
                 {/* Pas d'accès communication réseau amis */}
@@ -482,6 +482,14 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 Tout ce qui est inclus :
               </span>
               <ul className="space-y-3 text-xs">
+                {/* Sans publicité */}
+                <li className="flex items-start gap-2.5 text-emerald-400 font-medium">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span>Expérience <strong>100% sans publicité</strong></span>
+                </li>
+
                 {/* Visionnage illimité */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
@@ -646,7 +654,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Users className="w-4 h-4 text-[#3B82F6]" />
                     <span>Capacité d'invitation par séance</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 8 personnes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 5 personnes</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
                     Jusqu'à 15 personnes
                   </td>
@@ -758,11 +766,11 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA]">
                     Publicité
                   </td>
-                  <td className="py-3.5 px-4 text-center font-bold text-emerald-400">
-                    Sans publicité
+                  <td className="py-3.5 px-4 text-center font-bold text-amber-400">
+                    Fréquentes
                   </td>
-                  <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    Sans publicité
+                  <td className="py-3.5 px-4 text-center font-bold text-amber-300 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
+                    Occasionnelles
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
                     Sans publicité

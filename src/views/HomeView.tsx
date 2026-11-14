@@ -408,9 +408,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>3 séances par mois</span></li>
-                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 8 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 5 participants</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Liens URL & YouTube directs</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat textuel en direct</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" /><span>Publicités fréquentes</span></li>
               </ul>
             </div>
             <button
@@ -438,7 +439,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 15 participants</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Import de fichiers vidéo locaux</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat vocal & débriefing micro</span></li>
-                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>100% sans publicité</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Publicités occasionnelles</span></li>
               </ul>
             </div>
             <button

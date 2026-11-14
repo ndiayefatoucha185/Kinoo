@@ -136,14 +136,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // In-dashboard subscription details modal
   const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
 
-  // Active Ads (Diffusées EXCLUSIVEMENT à la formule GRATUIT)
+  // Publicités : fréquentes (Essai / Découverte), occasionnelles (Standard), aucune (Premium)
+  const adPlan = getPlanConfig(currentUser.forfait);
+  const adsAllowed = adPlan.adFrequency !== 'NONE';
   const [activeAds, setActiveAds] = useState<Advertisement[]>(() => {
-    if (currentUser.forfait !== 'GRATUIT') return [];
+    if (!adsAllowed) return [];
     return StorageService.getAds().filter((a) => a.statut === 'ACTIF');
+  });
+  const [adIndex, setAdIndex] = useState(0);
+  const adStorageKey = `kinoo_ad_last_shown_${currentUser.id}`;
+  // Standard : la bannière n'apparaît qu'une fois par délai (30 min), puis disparaît
+  const [occasionalAdVisible, setOccasionalAdVisible] = useState<boolean>(() => {
+    if (adPlan.adFrequency !== 'OCCASIONAL') return false;
+    try {
+      const last = Number(localStorage.getItem(adStorageKey) || 0);
+      return Date.now() - last >= adPlan.adCooldownMinutes * 60_000;
+    } catch {
+      return true;
+    }
   });
 
   useEffect(() => {
-    if (currentUser.forfait === 'GRATUIT') {
+    if (adPlan.adFrequency !== 'OCCASIONAL' || !occasionalAdVisible) return;
+    try {
+      localStorage.setItem(adStorageKey, String(Date.now()));
+    } catch {}
+    const hide = window.setTimeout(() => setOccasionalAdVisible(false), 20_000);
+    return () => window.clearTimeout(hide);
+  }, [adPlan.adFrequency, occasionalAdVisible, adStorageKey]);
+
+  // Découverte / Essai : rotation des annonces toutes les 15 secondes
+  useEffect(() => {
+    if (adPlan.adFrequency !== 'FREQUENT' || activeAds.length < 2) return;
+    const timer = window.setInterval(() => setAdIndex((i) => (i + 1) % activeAds.length), 15_000);
+    return () => window.clearInterval(timer);
+  }, [adPlan.adFrequency, activeAds.length]);
+
+  useEffect(() => {
+    if (adsAllowed) {
       ApiClient.getPublicAds('BANNIERE_ACCUEIL')
         .then((serverAds) => {
           if (Array.isArray(serverAds) && serverAds.length > 0) {
@@ -155,7 +185,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           // Utilise les pubs en cache/storage local
         });
     }
-  }, [currentUser.forfait]);
+  }, [currentUser.forfait, adsAllowed]);
 
   // Synchronise l'historique avec le serveur (source de vérité : statut, date de fin, séances d'un autre appareil)
   useEffect(() => {
@@ -1221,10 +1251,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           )}
 
-          {/* Bannière publicitaire sponsorisée (Formule Gratuite exclusivement - uniquement si des annonces sont créées et actives) */}
-          {currentUser.forfait === 'GRATUIT' && activeAds.length > 0 && (
+          {/* Bannière publicitaire : fréquente (Essai/Découverte), occasionnelle (Standard), absente (Premium) */}
+          {adsAllowed && activeAds.length > 0 && (adPlan.adFrequency === 'FREQUENT' || occasionalAdVisible) && (
             (() => {
-              const currentAd = activeAds[0];
+              const currentAd = activeAds[adIndex % activeAds.length];
               return (
                 <div className="mt-4 p-4 rounded-3xl bg-gradient-to-r from-[#181824] via-[#14141A] to-[#201826] border border-[#2E2840] flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg overflow-hidden relative group">
                   <div className="flex items-center gap-3.5 flex-1 min-w-0">
@@ -1245,7 +1275,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-bold text-white truncate">{currentAd.titre}</h4>
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#2A2638] text-amber-300 font-semibold border border-amber-400/20">
-                          Sponsorisé • Essai gratuit
+                          Sponsorisé
                         </span>
                       </div>
                       {currentAd.description && (
@@ -1275,10 +1305,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <button
                       onClick={() => onNavigate('pricing')}
                       className="px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white bg-[#1A1A24] hover:bg-[#252535] border border-[#2B2B3C] transition-all whitespace-nowrap"
-                      title="Passer à Standard pour supprimer les publicités"
+                      title="Passer à Premium pour supprimer les publicités"
                     >
                       Sans pub ?
                     </button>
+                    {adPlan.adFrequency === 'OCCASIONAL' && (
+                      <button
+                        onClick={() => setOccasionalAdVisible(false)}
+                        className="p-2 rounded-xl text-gray-400 hover:text-white bg-[#1A1A24] border border-[#2B2B3C]"
+                        aria-label="Masquer la publicité"
+                      >
+                        <IconX className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -2659,7 +2698,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div>
                     <h4 className="text-xs font-bold text-white">Forfait actif</h4>
                     <p className="text-[11px] text-[#EC4899]">
-                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — 25 séances/mois' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 10 séances/mois' : 'Gratuit (P0) — 8 participants max'}
+                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — 25 séances/mois' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 10 séances/mois' : 'Découverte (P0) — 5 participants max'}
                     </p>
                   </div>
                   <button
@@ -2994,7 +3033,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Jusqu'à 8 participants</span>
+                      <span>Jusqu'à 5 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -3043,7 +3082,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>100% sans publicité</span>
+                      <span>Publicités occasionnelles</span>
                     </li>
                   </ul>
                 </div>

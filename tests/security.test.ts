@@ -60,8 +60,8 @@ test('comparaison en temps constant', () => {
   assert.equal(safeEqual('abc', 'abcd'), false);
 });
 
-test('formules : 8/15/25 participants et 3/10/25 séances par mois', () => {
-  assert.equal(KINOO_PLANS.GRATUIT.maxParticipants, 8);
+test('formules : 5/15/25 participants et 3/10/25 séances par mois', () => {
+  assert.equal(KINOO_PLANS.GRATUIT.maxParticipants, 5);
   assert.equal(KINOO_PLANS.STANDARD.maxParticipants, 15);
   assert.equal(KINOO_PLANS.PREMIUM.maxParticipants, 25);
   assert.equal(KINOO_PLANS.GRATUIT.maxMonthlyRooms, 3);
@@ -85,7 +85,7 @@ test('catalogue réservé au Premium, fichier local réservé à Standard et Pre
 test('forfait Découverte : 1 200 FCFA, mêmes limites que l’ancien Gratuit, sans fichiers locaux', () => {
   const d = KINOO_PLANS.DECOUVERTE;
   assert.equal(d.priceXofMonthly, 1200);
-  assert.equal(d.maxParticipants, 8);
+  assert.equal(d.maxParticipants, 5);
   assert.equal(d.maxMonthlyRooms, 3);
   assert.equal(d.allowLocalFiles, false);
   assert.notEqual(sourceNotAllowedReason('DECOUVERTE', { typeSource: 'FICHIER_LOCAL' }), null);
@@ -96,4 +96,12 @@ test('les trois forfaits payants sont ordonnés par prix', () => {
   assert.ok(KINOO_PLANS.DECOUVERTE.priceXofMonthly < KINOO_PLANS.STANDARD.priceXofMonthly);
   assert.ok(KINOO_PLANS.STANDARD.priceXofMonthly < KINOO_PLANS.PREMIUM.priceXofMonthly);
   assert.equal(KINOO_PLANS.GRATUIT.priceXofMonthly, 0); // essai : une séance offerte
+});
+
+test('publicités : fréquentes (Essai/Découverte), occasionnelles (Standard), aucune (Premium)', () => {
+  assert.equal(KINOO_PLANS.GRATUIT.adFrequency, 'FREQUENT');
+  assert.equal(KINOO_PLANS.DECOUVERTE.adFrequency, 'FREQUENT');
+  assert.equal(KINOO_PLANS.STANDARD.adFrequency, 'OCCASIONAL');
+  assert.ok(KINOO_PLANS.STANDARD.adCooldownMinutes > 0);
+  assert.equal(KINOO_PLANS.PREMIUM.adFrequency, 'NONE');
 });

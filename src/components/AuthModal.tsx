@@ -114,9 +114,9 @@ interface AuthModalProps {
 
 function TrialPlansInfo() {
   const rows = [
-    { name: 'Découverte', price: '1 200 FCFA', desc: '3 séances / mois, jusqu’à 8 participants, lecteur web synchronisé et chat texte.' },
-    { name: 'Standard', price: '2 800 FCFA', desc: '10 séances / mois, 15 participants, import de fichiers locaux, salon débrief micro.' },
-    { name: 'Premium', price: '4 750 FCFA', desc: '25 séances / mois, 25 participants, catalogue, carnet d’amis et messagerie privée.' },
+    { name: 'Découverte', price: '1 200 FCFA', desc: '3 séances / mois, jusqu’à 5 participants, publicités fréquentes, lecteur web synchronisé et chat texte.' },
+    { name: 'Standard', price: '2 800 FCFA', desc: '10 séances / mois, 15 participants, publicités occasionnelles, import de fichiers locaux, salon débrief micro.' },
+    { name: 'Premium', price: '4 750 FCFA', desc: '25 séances / mois, 25 participants, sans publicité, catalogue, carnet d’amis et messagerie privée.' },
   ];
   return (
     <div className="space-y-3">

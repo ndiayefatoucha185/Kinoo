@@ -8,12 +8,16 @@ export interface PlanConfig {
   priceEurAnnual: number;
   priceXofMonthly: number;
   priceXofAnnual: number;
-  maxParticipants: number;
+  maxParticipants: number; // 5 Découverte/Essai, 15 Standard, 25 Premium
   maxMonthlyRooms: number; // 3 Découverte, 10 Standard, 25 Premium (l'essai gratuit n'offre qu'une séance au total)
   allowLocalFiles: boolean;
   allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
   allowVoiceDebrief: boolean;
   allowAddFriends: boolean;
+  /** Publicités : FREQUENT (Essai/Découverte), OCCASIONAL (Standard : une fois par délai), NONE (Premium) */
+  adFrequency: 'FREQUENT' | 'OCCASIONAL' | 'NONE';
+  /** Délai minimum entre deux affichages pour OCCASIONAL (en minutes) */
+  adCooldownMinutes: number;
   badgeLabel: string;
   description: string;
 }
@@ -45,12 +49,14 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 0,
     priceXofMonthly: 0,
     priceXofAnnual: 0,
-    maxParticipants: 8,
+    maxParticipants: 5,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
     allowCatalogue: false,
     allowVoiceDebrief: false,
     allowAddFriends: false,
+    adFrequency: 'FREQUENT',
+    adCooldownMinutes: 0,
     badgeLabel: 'Essai',
     description: 'Une première séance offerte pour découvrir le visionnage synchronisé, avant de choisir un forfait.',
   },
@@ -61,12 +67,14 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 1.46,
     priceXofMonthly: 1200,
     priceXofAnnual: 960,
-    maxParticipants: 8,
+    maxParticipants: 5,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
     allowCatalogue: false,
     allowVoiceDebrief: false,
     allowAddFriends: false,
+    adFrequency: 'FREQUENT',
+    adCooldownMinutes: 0,
     badgeLabel: 'Découverte',
     description: 'Idéal pour lancer de petites séances synchronisées entre proches.',
   },
@@ -83,6 +91,8 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowCatalogue: false,
     allowVoiceDebrief: true,
     allowAddFriends: false,
+    adFrequency: 'OCCASIONAL',
+    adCooldownMinutes: 30,
     badgeLabel: 'Standard',
     description: 'Pour les cinéphiles réguliers et les cercles d’amis qui veulent le confort vocal et l’import local.',
   },
@@ -99,6 +109,8 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowCatalogue: true,
     allowVoiceDebrief: true,
     allowAddFriends: true,
+    adFrequency: 'NONE',
+    adCooldownMinutes: 0,
     badgeLabel: 'Premium',
     description: 'L’expérience ultime sans limite : grandes salles, communauté, carnet d’amis et qualité maximale.',
   },
