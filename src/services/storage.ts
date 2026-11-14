@@ -389,6 +389,16 @@ export const StorageService = {
     localStorage.setItem(`kinoo_contacts_${userId}`, JSON.stringify(list));
   },
 
+  // Efface les anciennes données sociales gardées dans le navigateur (après leur import en base)
+  clearLegacySocialData(userId: string): void {
+    try {
+      localStorage.removeItem(`kinoo_contacts_${userId}`);
+      localStorage.removeItem(`kinoo_schedule_${userId}`);
+    } catch {
+      /* ignore */
+    }
+  },
+
   // --- USER SCHEDULED SESSIONS ---
   getScheduledSessions(userId: string): ScheduledSession[] {
     try {

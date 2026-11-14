@@ -123,3 +123,226 @@ html.light textarea::placeholder {
   color: #94a3b8 !important;
 }
 
+
+/* ==========================================================================
+   LIGHT THEME — COMPLÉMENT : fonds sombres non couverts plus haut
+   (généré à partir des couleurs utilisées dans les fichiers .tsx ; la casse des classes est respectée)
+   ========================================================================== */
+html.light .bg-\[\#08090D\],
+html.light .bg-\[\#08090E\]\/95,
+html.light .bg-\[\#09090B\]\/60,
+html.light .bg-\[\#09090B\]\/95,
+html.light .bg-\[\#090A11\],
+html.light .bg-\[\#0C0D13\],
+html.light .bg-\[\#0C0D14\],
+html.light .bg-\[\#0D0D12\],
+html.light .bg-\[\#0D0E14\],
+html.light .bg-\[\#0E0E12\] {
+  background-color: rgb(248 250 252) !important;
+}
+html.light .bg-\[\#0D0E15\]\/80,
+html.light .bg-\[\#0D0E16\],
+html.light .bg-\[\#0E0F16\],
+html.light .bg-\[\#0E0F17\],
+html.light .bg-\[\#101016\],
+html.light .bg-\[\#101118\],
+html.light .bg-\[\#10111A\],
+html.light .bg-\[\#10121D\],
+html.light .bg-\[\#11121A\],
+html.light .bg-\[\#11121C\]\/90,
+html.light .bg-\[\#121216\],
+html.light .bg-\[\#12131C\],
+html.light .bg-\[\#12131D\],
+html.light .bg-\[\#13141C\],
+html.light .bg-\[\#13141D\],
+html.light .bg-\[\#13141E\],
+html.light .bg-\[\#141417\]\/50,
+html.light .bg-\[\#141417\]\/70,
+html.light .bg-\[\#141417\]\/95,
+html.light .bg-\[\#14141B\],
+html.light .bg-\[\#14151E\],
+html.light .bg-\[\#14151F\],
+html.light .bg-\[\#141520\],
+html.light .bg-\[\#141523\],
+html.light .bg-\[\#151620\],
+html.light .bg-\[\#151622\],
+html.light .bg-\[\#16161C\],
+html.light .bg-\[\#161722\],
+html.light .bg-\[\#17141C\],
+html.light .bg-\[\#17171C\],
+html.light .bg-\[\#181622\],
+html.light .bg-\[\#18181D\],
+html.light .bg-\[\#181820\] {
+  background-color: rgb(255 255 255) !important;
+}
+html.light .bg-\[\#161725\],
+html.light .bg-\[\#171824\],
+html.light .bg-\[\#181924\],
+html.light .bg-\[\#181926\],
+html.light .bg-\[\#181A26\],
+html.light .bg-\[\#1A1826\],
+html.light .bg-\[\#1A1A20\],
+html.light .bg-\[\#1A1A24\],
+html.light .bg-\[\#1A1B28\],
+html.light .bg-\[\#1A1C29\],
+html.light .bg-\[\#1B1B24\],
+html.light .bg-\[\#1B1D2B\],
+html.light .bg-\[\#1C1C22\]\/40,
+html.light .bg-\[\#1C1C22\]\/50,
+html.light .bg-\[\#1C1C22\]\/60,
+html.light .bg-\[\#1C1C22\]\/80,
+html.light .bg-\[\#1C1E2A\],
+html.light .bg-\[\#1D1D23\],
+html.light .bg-\[\#1D1F2C\],
+html.light .bg-\[\#1E1E28\],
+html.light .bg-\[\#1E1E2A\],
+html.light .bg-\[\#1F1F26\],
+html.light .bg-\[\#1F1F27\],
+html.light .bg-\[\#1F2130\],
+html.light .bg-\[\#1F2132\],
+html.light .bg-\[\#1a1a1f\],
+html.light .bg-\[\#1f1f24\],
+html.light .bg-\[\#202230\],
+html.light .bg-\[\#202232\],
+html.light .bg-\[\#202234\],
+html.light .bg-\[\#212330\],
+html.light .bg-\[\#212332\],
+html.light .bg-\[\#212334\],
+html.light .bg-\[\#22222B\],
+html.light .bg-\[\#222436\],
+html.light .bg-\[\#222438\],
+html.light .bg-\[\#23232C\],
+html.light .bg-\[\#232535\],
+html.light .bg-\[\#24242C\],
+html.light .bg-\[\#242432\],
+html.light .bg-\[\#242636\],
+html.light .bg-\[\#25252E\],
+html.light .bg-\[\#292934\],
+html.light .bg-\[\#2A2638\] {
+  background-color: rgb(241 245 249) !important;
+}
+html.light .from-\[\#101118\] {
+  --tw-gradient-from: rgb(255 255 255) !important;
+}
+html.light .from-\[\#131422\] {
+  --tw-gradient-from: rgb(255 255 255) !important;
+}
+html.light .from-\[\#14141B\] {
+  --tw-gradient-from: rgb(255 255 255) !important;
+}
+html.light .from-\[\#141522\] {
+  --tw-gradient-from: rgb(255 255 255) !important;
+}
+html.light .from-\[\#171626\] {
+  --tw-gradient-from: rgb(241 245 249) !important;
+}
+html.light .from-\[\#171720\] {
+  --tw-gradient-from: rgb(255 255 255) !important;
+}
+html.light .from-\[\#181528\] {
+  --tw-gradient-from: rgb(241 245 249) !important;
+}
+html.light .from-\[\#181824\] {
+  --tw-gradient-from: rgb(241 245 249) !important;
+}
+html.light .from-\[\#1E1928\] {
+  --tw-gradient-from: rgb(241 245 249) !important;
+}
+html.light .from-\[\#201c2e\] {
+  --tw-gradient-from: rgb(241 245 249) !important;
+}
+html.light .to-\[\#0E0F18\] {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+html.light .to-\[\#12121B\] {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+html.light .to-\[\#12131D\] {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+html.light .to-\[\#16161B\] {
+  --tw-gradient-to: rgb(255 255 255) !important;
+}
+html.light .to-\[\#1C1C22\] {
+  --tw-gradient-to: rgb(241 245 249) !important;
+}
+html.light .to-\[\#1F1728\] {
+  --tw-gradient-to: rgb(241 245 249) !important;
+}
+html.light .to-\[\#201428\] {
+  --tw-gradient-to: rgb(241 245 249) !important;
+}
+html.light .to-\[\#201826\] {
+  --tw-gradient-to: rgb(241 245 249) !important;
+}
+html.light .to-\[\#261c28\] {
+  --tw-gradient-to: rgb(241 245 249) !important;
+}
+html.light .via-\[\#14121F\] {
+  --tw-gradient-via: rgb(255 255 255) !important;
+}
+html.light .via-\[\#141417\] {
+  --tw-gradient-via: rgb(255 255 255) !important;
+}
+html.light .via-\[\#14141A\] {
+  --tw-gradient-via: rgb(255 255 255) !important;
+}
+html.light .via-\[\#141520\] {
+  --tw-gradient-via: rgb(255 255 255) !important;
+}
+html.light .via-\[\#1A1828\] {
+  --tw-gradient-via: rgb(241 245 249) !important;
+}
+/* Pistes sombres des jauges circulaires et autres éléments à couleur codée en dur */
+html.light circle[stroke="#232326"] {
+  stroke: #e2e8f0 !important;
+}
+html.light .bg-gray-800 {
+  background-color: #e2e8f0 !important;
+}
+
+
+/* LIGHT THEME — bandeau d'état backend (admin) */
+html.light .kinoo-status-banner {
+  background-color: rgb(236 253 245) !important;
+  border-color: rgb(110 231 183) !important;
+  color: rgb(4 120 87) !important;
+}
+html.light .kinoo-status-banner span,
+html.light .kinoo-status-banner svg {
+  color: rgb(6 95 70) !important;
+}
+html.light .kinoo-status-banner .text-purple-300 {
+  color: rgb(109 40 217) !important;
+  background-color: rgb(245 243 255) !important;
+  border-color: rgb(196 181 253) !important;
+}
+html.light .kinoo-status-banner .text-gray-400 {
+  color: rgb(71 85 105) !important;
+}
+
+/* LIGHT THEME — pastilles et boutons colorés (statuts, Fermer, alertes) */
+html.light .text-emerald-300,
+html.light .text-emerald-400 { color: rgb(4 120 87) !important; }
+html.light .text-rose-300,
+html.light .text-rose-400 { color: rgb(190 18 60) !important; }
+html.light .text-amber-300,
+html.light .text-amber-400 { color: rgb(180 83 9) !important; }
+html.light .text-purple-300,
+html.light .text-purple-400 { color: rgb(109 40 217) !important; }
+html.light .text-blue-300,
+html.light .text-blue-400 { color: rgb(29 78 216) !important; }
+html.light .text-pink-300,
+html.light .text-pink-400 { color: rgb(190 24 93) !important; }
+html.light .bg-emerald-500\/20,
+html.light .bg-emerald-500\/15,
+html.light .bg-emerald-500\/10 { background-color: rgb(209 250 229) !important; }
+html.light .bg-rose-500\/15,
+html.light .bg-rose-500\/20,
+html.light .bg-rose-500\/10 { background-color: rgb(255 228 230) !important; }
+html.light .bg-amber-500\/10,
+html.light .bg-amber-500\/20 { background-color: rgb(254 243 199) !important; }
+html.light .bg-purple-500\/10,
+html.light .bg-purple-500\/20 { background-color: rgb(237 233 254) !important; }
+html.light .bg-emerald-950\/20 { background-color: rgb(236 253 245) !important; }
+html.light .kinoo-status-banner .font-mono { color: rgb(6 78 59) !important; }

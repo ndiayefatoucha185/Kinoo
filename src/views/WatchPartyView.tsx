@@ -39,6 +39,9 @@ import { ChangeMediaModal } from '../components/ChangeMediaModal';
 import { PostMovieDebriefModal } from '../components/PostMovieDebriefModal';
 import { UserPlanBadge } from '../components/UserPlanBadge';
 import { HlsPlayer } from '../components/HlsPlayer';
+import { ScreenControls } from '../components/ScreenControls';
+import { getPlanConfig } from '../config/plans';
+import { X } from 'lucide-react';
 import { WebRTCControls } from '../components/WebRTCControls';
 import { InviteModal } from '../components/InviteModal';
 import { webrtcMesh } from '../services/webrtcMesh';
@@ -82,9 +85,18 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
   // Video and Sync States
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playerBoxRef = useRef<HTMLDivElement | null>(null);
   const ytPlayerRef = useRef<any>(null);
   const ytPlayerReadyRef = useRef<boolean>(false);
   const isInternalYTEventRef = useRef<boolean>(false);
+  const bufferingTimerRef = useRef<any>(null);
+  const poorNetworkSentRef = useRef<boolean>(false);
+  const enforceTimerRef = useRef<any>(null);
+  const lastEnforceToastRef = useRef<number>(0);
+  const softRateActiveRef = useRef<boolean>(false);
+  // Toujours la version la plus récente du gestionnaire (évite qu'il garde l'état d'un ancien rendu)
+  const handleHostPlayRef = useRef<() => void>(() => {});
+  const handleSyncPacketRef = useRef<(packet: SyncPacket) => void>(() => {});
   const isWarmingUpRef = useRef<boolean>(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
@@ -93,6 +105,12 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'SYNCHRONISE' | 'RECALAGE' | 'ATTENTE'>('SYNCHRONISE');
   const [driftSec, setDriftSec] = useState(0);
+  const [hostAway, setHostAway] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(true);
+  const [expectedTotal, setExpectedTotal] = useState<number | null>(null);
+  const [autoStart, setAutoStart] = useState(true);
+  const [myNetworkPoor, setMyNetworkPoor] = useState(false);
+  const [poorNetworkUserIds, setPoorNetworkUserIds] = useState<string[]>([]);
   const [ytCaptionsActive, setYtCaptionsActive] = useState<boolean>(true);
   const [showYtCaptionsMenu, setShowYtCaptionsMenu] = useState<boolean>(false);
   const [ytCaptionLang, setYtCaptionLang] = useState<string>('fr');
@@ -149,6 +167,31 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     : (typeof window !== 'undefined' && sessionStorage.getItem('kinoo_guest_pseudo')) || 'Spectateur Invité';
   const isHost = room ? room.hoteId === localUserId : false;
   const userRole: UserRole = isHost ? 'HOTE' : 'PARTICIPANT';
+  const isHostRef = useRef(false);
+  isHostRef.current = isHost;
+  const handleStartDebriefRef = useRef<() => void>(() => {});
+  const handleFilmEndedRef = useRef<() => void>(() => {});
+
+  // Temps de lecture cumulé : le changement de vidéo n'est possible que pendant la 1re minute
+  const [watchedSec, setWatchedSec] = useState(0);
+  const watchedInitRef = useRef(false);
+  useEffect(() => {
+    if (room && !watchedInitRef.current) {
+      watchedInitRef.current = true;
+      setWatchedSec(Math.max(0, Math.floor(room.lectureTotaleSec || 0)));
+    }
+  }, [room]);
+  useEffect(() => {
+    if (!isPlaying) return;
+    const timer = window.setInterval(() => setWatchedSec((v) => v + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [isPlaying]);
+  const canChangeMedia = watchedSec < 60;
+
+  // Fin de film : l'hôte choisit entre lancer le débrief ou quitter la salle (exécuté à la fin du visionnage)
+  const [endChoice, setEndChoice] = useState<'DEBRIEF' | 'LEAVE' | null>(null);
+  const [endPromptDismissed, setEndPromptDismissed] = useState(false);
+  const [filmEnded, setFilmEnded] = useState(false);
 
   // Helper to resolve user plan for badge display
   const getUserPlan = (userId?: string, pseudo?: string) => {
@@ -226,7 +269,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       syncEngine.connect(
         roomId,
         { id: localUserId, pseudo: localPseudo, role: userRole, ageCertifie: true },
-        handleSyncPacket
+        (packet: SyncPacket) => handleSyncPacketRef.current(packet)
       );
 
       // Announce join
@@ -234,8 +277,24 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     };
 
     const localRoom = StorageService.getRoomById(roomId);
-    if (localRoom) {
-      handleRoomLoaded(localRoom);
+    if (localRoom && localRoom.statut === 'TERMINEE') {
+      onToast('Cette séance est terminée.', 'info');
+      onLeaveRoom();
+    } else if (localRoom) {
+      // Toujours vérifier auprès du serveur : une séance terminée n'est plus accessible
+      ApiClient.getRoom(roomId)
+        .then(() => handleRoomLoaded(localRoom))
+        .catch((err) => {
+          if (!isMounted) return;
+          const msg = String(err?.message || '');
+          if (/termin|n'existe pas/i.test(msg)) {
+            StorageService.saveRoom({ ...localRoom, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() });
+            onToast('Cette séance est terminée.', 'info');
+            onLeaveRoom();
+          } else {
+            handleRoomLoaded(localRoom);
+          }
+        });
     } else {
       ApiClient.getRoom(roomId)
         .then((res) => {
@@ -260,7 +319,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               estVerrouillee: r.estVerrouillee,
               chatActif: true,
               reactionsActives: true,
-              maxParticipants: r.maxParticipants || 10,
+              maxParticipants: r.maxParticipants || 8,
               dateCreation: (r as any).dateCreation || new Date().toISOString(),
             };
             handleRoomLoaded(mappedRoom);
@@ -321,7 +380,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           videoId: ytId,
           playerVars: {
             autoplay: 0,
-            controls: 1,
+            controls: isHost ? 1 : 0,
+            disablekb: isHost ? 0 : 1,
             enablejsapi: 1,
             modestbranding: 1,
             rel: 0,
@@ -369,6 +429,34 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 return;
               }
 
+              // Réseau : mise en mémoire tampon prolongée = signalée à la salle
+              if (event.data === YTState.BUFFERING) {
+                if (!bufferingTimerRef.current) {
+                  bufferingTimerRef.current = setTimeout(() => {
+                    bufferingTimerRef.current = null;
+                    if (!poorNetworkSentRef.current) {
+                      poorNetworkSentRef.current = true;
+                      setMyNetworkPoor(true);
+                      syncEngine.sendNetworkStatus('POOR');
+                    }
+                  }, 3000);
+                }
+              } else if (bufferingTimerRef.current) {
+                clearTimeout(bufferingTimerRef.current);
+                bufferingTimerRef.current = null;
+              }
+              if (event.data === YTState.PLAYING && poorNetworkSentRef.current) {
+                poorNetworkSentRef.current = false;
+                setMyNetworkPoor(false);
+                syncEngine.sendNetworkStatus('OK');
+                if (!isHost) resyncGuestToHost();
+              }
+
+              // Invité : la lecture appartient à l'hôte, toute pause/lecture locale est annulée
+              if (!isHost && (event.data === YTState.PAUSED || event.data === YTState.PLAYING)) {
+                enforceHostPlaybackState(event.target, event.data === YTState.PLAYING);
+              }
+
               if (event.data === YTState.PLAYING) {
                 setIsPlaying(true);
                 debugSyncLog('▶️ ÉTAT EN LECTURE (YouTube getPlayerState() === 1 / PLAYING)', {
@@ -387,7 +475,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 }
               } else if (event.data === YTState.ENDED) {
                 setIsPlaying(false);
-                setShowDebriefModal(true);
+                handleFilmEndedRef.current();
               }
               isInternalYTEventRef.current = false;
             },
@@ -449,6 +537,45 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     return () => clearInterval(interval);
   }, [isYouTube, duration]);
 
+  // Remet l'invité exactement sur la position de l'hôte
+  const resyncGuestToHost = () => {
+    const expected = syncEngine.calculateCalculatedPosition();
+    try {
+      if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+        isInternalYTEventRef.current = true;
+        ytPlayerRef.current.seekTo(expected, true);
+      } else if (videoRef.current) {
+        videoRef.current.currentTime = expected;
+      }
+    } catch {}
+  };
+
+  // L'invité ne peut ni mettre en pause ni relancer : on rétablit l'état voulu par l'hôte
+  const enforceHostPlaybackState = (player: any, playerIsPlaying: boolean) => {
+    if (isHost || isWarmingUpRef.current) return;
+    const hostWantsPlay = syncEngine.getState().etatLecture === 'LECTURE';
+    if (playerIsPlaying === hostWantsPlay) return;
+    clearTimeout(enforceTimerRef.current);
+    enforceTimerRef.current = setTimeout(() => {
+      const stillWantsPlay = syncEngine.getState().etatLecture === 'LECTURE';
+      try {
+        if (stillWantsPlay) {
+          const expected = syncEngine.calculateCalculatedPosition();
+          const cur = player?.getCurrentTime ? player.getCurrentTime() : 0;
+          if (Math.abs(cur - expected) > 1) player.seekTo(expected, true);
+          player.playVideo();
+        } else {
+          player.pauseVideo();
+        }
+      } catch {}
+      const nowTs = Date.now();
+      if (nowTs - lastEnforceToastRef.current > 8000) {
+        lastEnforceToastRef.current = nowTs;
+        onToast("Seul l'hôte contrôle la lecture : vous restez synchronisé avec lui.", 'info');
+      }
+    }, 150);
+  };
+
   // Handle incoming real-time packets
   const handleSyncPacket = (packet: SyncPacket) => {
     switch (packet.type) {
@@ -456,8 +583,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'INITIAL_SYNC_SNAPSHOT': {
         const payload = packet.payload;
         if (!payload) break;
+        if (typeof payload.demarree === 'boolean') setSessionStarted(payload.demarree);
+        if (typeof payload.participantsAttendus === 'number') setExpectedTotal(payload.participantsAttendus);
+        if (typeof payload.demarrageAuto === 'boolean') setAutoStart(payload.demarrageAuto);
         const targetPos = typeof payload.currentPositionSec === 'number' ? payload.currentPositionSec : 0;
         const targetPlaying = payload.playbackState === 'LECTURE';
+        // L'hôte est la référence : il ne se recale jamais sur un instantané (sauf à son arrivée dans la salle)
+        if (isHost && ytPlayerReadyRef.current && packet.type === 'STATE_PULSE' && (ytPlayerRef.current?.getCurrentTime?.() || 0) > 1) break;
 
         if (payload.sourceContenu && (!room?.sourceContenu || room.sourceContenu.id !== payload.sourceContenu.id)) {
           setRoom((prev) => (prev ? { ...prev, sourceContenu: payload.sourceContenu, sourceContenuId: payload.sourceContenu.id } : null));
@@ -471,15 +603,15 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             isInternalYTEventRef.current = true;
             try {
               const cur = ytPlayerRef.current.getCurrentTime() || 0;
-              if (Math.abs(cur - targetPos) > 0.6) {
+              if (Math.abs(cur - targetPos) > 1.5) {
                 ytPlayerRef.current.seekTo(targetPos, true);
               }
-              ytPlayerRef.current.playVideo();
+              if (ytPlayerRef.current.getPlayerState?.() !== 1) ytPlayerRef.current.playVideo();
             } catch {}
             setIsPlaying(true);
             setSyncStatus('SYNCHRONISE');
           } else if (videoRef.current) {
-            if (Math.abs(videoRef.current.currentTime - targetPos) > 0.6) {
+            if (Math.abs(videoRef.current.currentTime - targetPos) > 1.5) {
               videoRef.current.currentTime = targetPos;
             }
             videoRef.current.play().catch((err: any) => { if (err?.name === 'NotAllowedError' || String(err).includes('play')) { setIsAutoplayBlocked(true); } });
@@ -508,10 +640,15 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'PREPARE_PLAY': {
         const prepPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
         debugSyncLog('📥 SIGNAL PREPARE_PLAY REÇU DU SERVEUR', { positionSec: prepPos });
-        if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-          try { ytPlayerRef.current.seekTo(prepPos, true); } catch {}
-        } else if (videoRef.current) {
-          videoRef.current.currentTime = prepPos;
+        if (!isHost) {
+          if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
+            try {
+              const curPrep = ytPlayerRef.current.getCurrentTime() || 0;
+              if (Math.abs(curPrep - prepPos) > 1) ytPlayerRef.current.seekTo(prepPos, true);
+            } catch {}
+          } else if (videoRef.current) {
+            if (Math.abs(videoRef.current.currentTime - prepPos) > 1) videoRef.current.currentTime = prepPos;
+          }
         }
         // Répondre CLIENT_READY au serveur
         syncEngine.sendEvent('CLIENT_READY', { id: localUserId, pseudo: localPseudo, role: userRole });
@@ -527,18 +664,19 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         });
         const targetPos = typeof packet.payload?.positionSec === 'number' ? packet.payload.positionSec : 0;
         const startAt = packet.payload?.scheduledStartTime;
-        const now = Date.now();
+        const now = syncEngine.getServerNow();
         const delay = startAt ? Math.max(0, startAt - now) : 0;
+        if (isHost) break; // l'hôte joue déjà : ne jamais le faire reculer
 
         const executePlay = (pos: number) => {
           if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
             isInternalYTEventRef.current = true;
             try {
               const cur = ytPlayerRef.current.getCurrentTime() || 0;
-              if (Math.abs(cur - pos) > 0.5) {
+              if (Math.abs(cur - pos) > 1) {
                 ytPlayerRef.current.seekTo(pos, true);
               }
-              ytPlayerRef.current.unMute();
+              if (!isMuted) ytPlayerRef.current.unMute();
               ytPlayerRef.current.playVideo();
             } catch (err: any) {
               if (err?.name === 'NotAllowedError' || String(err).includes('play')) {
@@ -548,10 +686,10 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             setIsPlaying(true);
             setSyncStatus('SYNCHRONISE');
           } else if (videoRef.current) {
-            if (Math.abs(videoRef.current.currentTime - pos) > 0.5) {
+            if (Math.abs(videoRef.current.currentTime - pos) > 1) {
               videoRef.current.currentTime = pos;
             }
-            videoRef.current.muted = false;
+            videoRef.current.muted = isMuted;
             videoRef.current.play().catch((err: any) => {
               if (err?.name === 'NotAllowedError' || String(err).includes('play')) {
                 setIsAutoplayBlocked(true);
@@ -576,6 +714,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       }
 
       case 'PAUSE': {
+        if (isHost && packet.senderId !== 'server') break;
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
           isInternalYTEventRef.current = true;
           try {
@@ -596,6 +735,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       }
 
       case 'SEEK': {
+        if (isHost) break;
         const targetSeekPos = packet.payload?.positionSec ?? 0;
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
           isInternalYTEventRef.current = true;
@@ -613,6 +753,12 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'USER_JOIN':
         setParticipations((prev) => {
           if (prev.some((p) => p.utilisateurId === packet.senderId)) return prev;
+          if (packet.senderId === syncEngine.getCurrentUserId()) {
+            return [...prev.filter((p) => p.utilisateurId !== localUserId), {
+              id: 'part-' + packet.senderId, salleId: roomId, utilisateurId: packet.senderId, pseudo: packet.senderPseudo,
+              role: packet.senderRole, dateRejoint: new Date().toISOString(), estActif: true, estBanni: false,
+            } as Participation];
+          }
           return [
             ...prev,
             {
@@ -629,8 +775,57 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         });
         break;
 
+      case 'ROOM_ROSTER': {
+        const list: any[] = Array.isArray(packet.payload?.participants) ? packet.payload.participants : [];
+        setParticipations(
+          list.map((u) => ({
+            id: 'part-' + u.userId,
+            salleId: roomId,
+            utilisateurId: u.userId,
+            pseudo: u.pseudo,
+            role: u.role === 'HOTE' ? 'HOTE' : 'PARTICIPANT',
+            dateRejoint: new Date().toISOString(),
+            estActif: true,
+            estBanni: false,
+          })) as Participation[]
+        );
+        break;
+      }
+
+      case 'SESSION_STARTED':
+        setSessionStarted(true);
+        onToast('La séance démarre !', 'success');
+        // Le client de l'hôte lance la lecture : tout le monde démarre ensemble via le serveur
+        if (isHost) setTimeout(() => handleHostPlayRef.current(), 700);
+        break;
+
+      case 'HOST_AWAY':
+        if (!isHost) setHostAway(true);
+        break;
+
+      case 'HOST_BACK':
+        setHostAway(false);
+        break;
+
+      case 'PARTICIPANT_NETWORK': {
+        const uid = packet.payload?.userId as string;
+        if (!uid || uid === (syncEngine.getCurrentUserId() || localUserId)) break;
+        const poor = packet.payload?.status === 'POOR';
+        setPoorNetworkUserIds((prev) => (poor ? Array.from(new Set([...prev, uid])) : prev.filter((x) => x !== uid)));
+        if (isHost) {
+          onToast(
+            poor
+              ? `${packet.payload?.pseudo || 'Un participant'} a un problème de réseau. Vous pouvez mettre en pause le temps qu'il revienne.`
+              : `${packet.payload?.pseudo || 'Un participant'} a retrouvé une bonne connexion.`,
+            poor ? 'info' : 'success'
+          );
+        }
+        break;
+      }
+
       case 'USER_LEAVE':
         setParticipations((prev) => prev.filter((p) => p.utilisateurId !== packet.senderId));
+        setPoorNetworkUserIds((prev) => prev.filter((x) => x !== packet.senderId));
         break;
 
       case 'USER_KICKED':
@@ -643,15 +838,30 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         }
         break;
 
-      case 'ROOM_LOCKED':
-        setRoom((prev) => (prev ? { ...prev, estVerrouillee: packet.payload?.isLocked } : null));
-        onToast(packet.payload?.isLocked ? 'Salle verrouillée par l’hôte.' : 'Salle déverrouillée.', 'info');
+      case 'DEBRIEF_START':
+        setShowDebriefModal(true);
+        onToast('L’hôte a ouvert le débrief du film.', 'info');
         break;
 
-      case 'ROOM_TERMINATED':
+      case 'ROOM_LOCKED':
+        setRoom((prev) => (prev ? { ...prev, estVerrouillee: packet.payload?.isLocked } : null));
+        onToast(
+          packet.payload?.isLocked
+            ? packet.payload?.auto
+              ? 'Tout le monde est là : la salle est verrouillée.'
+              : 'Salle verrouillée par l’hôte.'
+            : 'Salle déverrouillée.',
+          'info'
+        );
+        break;
+
+      case 'ROOM_TERMINATED': {
+        const cached = StorageService.getRoomById(roomId);
+        if (cached) StorageService.saveRoom({ ...cached, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() });
         onToast('L’hôte a mis fin à la séance.', 'info');
         onLeaveRoom();
         break;
+      }
 
       case 'CHAT_MESSAGE':
         if (packet.payload?.message) {
@@ -686,6 +896,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     }
   };
 
+  handleSyncPacketRef.current = handleSyncPacket;
+
   // Periodic Drift Monitoring Check (Calcul de Dérive)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -704,12 +916,42 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         return;
       }
 
+      // L'hôte est la référence : jamais corrigé
+      if (isHost) {
+        setDriftSec(0);
+        setSyncStatus('SYNCHRONISE');
+        return;
+      }
+
       const expectedTime = syncEngine.calculateCalculatedPosition();
-      const diff = Math.abs(currentVidTime - expectedTime);
+      const signedDiff = currentVidTime - expectedTime;
+      const diff = Math.abs(signedDiff);
       setDriftSec(Number(diff.toFixed(2)));
 
-      // Auto-correct if drift exceeds 1.2s threshold
-      if (diff > 1.2) {
+      // Petit écart (0,4 s à 2,5 s) : on ajuste très légèrement la vitesse, sans saut ni coupure
+      if (diff > 0.4 && diff <= 2.5) {
+        try {
+          if (isYouTube && ytPlayerRef.current?.setPlaybackRate) {
+            ytPlayerRef.current.setPlaybackRate(signedDiff < 0 ? 1.25 : 0.75);
+            softRateActiveRef.current = true;
+          } else if (videoRef.current) {
+            videoRef.current.playbackRate = signedDiff < 0 ? 1.08 : 0.92;
+            softRateActiveRef.current = true;
+          }
+        } catch {}
+        setSyncStatus('RECALAGE');
+        return;
+      }
+      if (softRateActiveRef.current) {
+        try {
+          if (isYouTube && ytPlayerRef.current?.setPlaybackRate) ytPlayerRef.current.setPlaybackRate(1);
+          else if (videoRef.current) videoRef.current.playbackRate = 1;
+        } catch {}
+        softRateActiveRef.current = false;
+      }
+
+      // Grand écart (plus de 2,5 s) : un seul saut vers la position de l'hôte
+      if (diff > 2.5) {
         setSyncStatus('RECALAGE');
         if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
           isInternalYTEventRef.current = true;
@@ -723,10 +965,50 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       } else {
         setSyncStatus('SYNCHRONISE');
       }
-    }, 1500);
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPlaying, isYouTube]);
+  }, [isPlaying, isYouTube, isHost]);
+
+  // Réseau de cet appareil : coupure / retour
+  useEffect(() => {
+    const goOffline = () => setMyNetworkPoor(true);
+    const goOnline = () => {
+      setMyNetworkPoor(false);
+      syncEngine.sendNetworkStatus('OK');
+      syncEngine.requestAuthoritativeSync();
+      if (!isHost) setTimeout(resyncGuestToHost, 800);
+    };
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, [isHost]);
+
+  // Lecteur HTML5 (fichier / flux) : même règle, l'invité ne contrôle pas la lecture
+  useEffect(() => {
+    if (isHost || isYouTube) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const onPause = () => {
+      if (syncEngine.getState().etatLecture === 'LECTURE' && !v.ended) {
+        setTimeout(() => {
+          if (syncEngine.getState().etatLecture === 'LECTURE') v.play().catch(() => {});
+        }, 150);
+      }
+    };
+    const onPlay = () => {
+      if (syncEngine.getState().etatLecture !== 'LECTURE') v.pause();
+    };
+    v.addEventListener('pause', onPause);
+    v.addEventListener('play', onPlay);
+    return () => {
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('play', onPlay);
+    };
+  }, [isHost, isYouTube, room?.sourceContenu?.id]);
 
   // Host updates the playing media
   const handleHostMediaChange = (newSource: ContentSource) => {
@@ -769,6 +1051,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     setIsPlaying(true);
     debugSyncLog('🖱️ CLIC LECTURE HÔTE EFFECTUÉ', { positionSec: pos });
     syncEngine.sendEvent('PLAY', { id: localUserId, pseudo: localPseudo, role: userRole }, { positionSec: pos });
+  };
+
+  handleHostPlayRef.current = handleHostPlay;
+
+  // Démarrage de la séance depuis la salle d'attente (le serveur vérifie que c'est bien l'hôte)
+  const handleStartSession = () => {
+    if (!isHost) return;
+    syncEngine.sendRaw('START_SESSION');
   };
 
   const handleHostPause = () => {
@@ -885,6 +1175,21 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     );
   };
 
+  // Bouton « Quitter » : pour l'hôte, quitter met fin à la séance ; pour un invité, il quitte simplement
+  const handleLeaveClick = () => {
+    if (!isHost || !room) {
+      onLeaveRoom();
+      return;
+    }
+    if (!window.confirm('En quittant, vous mettez fin à la séance pour tous les participants. Continuer ?')) return;
+    const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
+    StorageService.saveRoom(updated);
+    syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
+    onToast('Séance terminée.', 'success');
+    onLeaveRoom();
+  };
+
   const handleHostTerminateRoom = () => {
     if (!isHost || !room) return;
     if (!window.confirm('Voulez-vous vraiment terminer définitivement cette séance pour tous les participants ?')) return;
@@ -892,6 +1197,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
     StorageService.saveRoom(updated);
     syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
     onToast('Séance clôturée avec succès.', 'success');
     onLeaveRoom();
   };
@@ -960,6 +1266,52 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const isDevPreview = typeof window !== 'undefined' && window.location.origin.includes('ais-dev-');
   const inviteUrl = room ? `${publicBaseUrl}?invite=${room.codePublic || room.id}` : '';
 
+  // Débrief d'après-film : lancé uniquement par l'hôte, puis ouvert chez tous les participants
+  const handleStartDebrief = () => {
+    if (!isHost) return;
+    syncEngine.sendEvent('DEBRIEF_START', { id: localUserId, pseudo: localPseudo, role: userRole }, {});
+    setShowDebriefModal(true);
+  };
+  handleStartDebriefRef.current = handleStartDebrief;
+
+  // Fin de la séance par l'hôte (sans confirmation : il a déjà choisi de quitter)
+  const endSessionNow = () => {
+    if (!isHost || !room) return;
+    const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
+    StorageService.saveRoom(updated);
+    syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
+    ApiClient.closeRoom(room.id).catch(() => {});
+    onToast('Séance terminée.', 'success');
+    onLeaveRoom();
+  };
+
+  // Le film se termine : on applique le choix de l'hôte, ou on lui demande de choisir
+  const handleFilmEnded = () => {
+    if (!isHost) return;
+    setFilmEnded(true);
+    if (endChoice === 'LEAVE') endSessionNow();
+    else if (endChoice === 'DEBRIEF') handleStartDebrief();
+  };
+  handleFilmEndedRef.current = handleFilmEnded;
+
+  const handleEndChoice = (choice: 'DEBRIEF' | 'LEAVE') => {
+    setEndChoice(choice);
+    if (filmEnded) {
+      if (choice === 'LEAVE') endSessionNow();
+      else handleStartDebrief();
+      return;
+    }
+    onToast(
+      choice === 'DEBRIEF'
+        ? 'Le débrief s’ouvrira pour tout le monde à la fin du film.'
+        : 'La séance se terminera automatiquement à la fin du film.',
+      'info'
+    );
+  };
+
+  const filmAlmostOver = duration > 0 && currentTime > 0 && duration - currentTime <= 90;
+  const showEndPrompt = isHost && !showDebriefModal && !endPromptDismissed && (filmEnded || (filmAlmostOver && endChoice === null));
+
   const handleCopyInvite = () => {
     navigator.clipboard.writeText(inviteUrl);
     setIsCopied(true);
@@ -1011,7 +1363,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       auteurId: mockGuestPart.utilisateurId,
       auteurPseudo: guestName,
       roleAuteur: 'PARTICIPANT',
-      contenu: `Coucou ! Je viens de rejoindre la salle avec mon lien. Bien synchro ! 👋`,
+      contenu: `Coucou ! Je viens de rejoindre la salle avec mon lien. Bien synchro !`,
       horodatage: Date.now(),
       estMasque: false,
     };
@@ -1037,6 +1389,16 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               <strong>Aperçu de développement privé :</strong> Les invités ne pourront pas rejoindre depuis cet aperçu de développement (isolé sur la base de test et réservé à votre espace). Pour tester avec des amis, utilisez l'adresse de partage (ais-pre) ou configurez <code>PUBLIC_BASE_URL</code>.
             </p>
           </div>
+        </div>
+      )}
+      {hostAway && !isHost && (
+        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+          L'hôte s'est déconnecté. La lecture est en pause ; la séance sera terminée s'il ne revient pas dans une minute.
+        </div>
+      )}
+      {myNetworkPoor && (
+        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+          Connexion instable : la lecture reprendra automatiquement au même endroit que l'hôte dès que le réseau revient.
         </div>
       )}
       {/* Top Sync & Status Bar */}
@@ -1088,18 +1450,29 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             <span className="hidden sm:inline">Recaler</span>
           </button>
 
-          <button
-            onClick={() => setShowInviteModal(true)}
-            className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Inviter</span>
-          </button>
+          {isHost && !room.estVerrouillee && (
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Inviter</span>
+            </button>
+          )}
+          {isHost && room.estVerrouillee && (
+            <span
+              className="flex items-center gap-1 px-3 py-1 rounded-xl text-xs font-semibold text-[#B8B4C0] bg-[#232326] border border-[#383840]"
+              title="Salle verrouillée : déverrouillez-la pour inviter d'autres personnes"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Salle complète</span>
+            </span>
+          )}
 
           <button
-            onClick={onLeaveRoom}
+            onClick={handleLeaveClick}
             className="p-1.5 text-gray-400 hover:text-white rounded-lg bg-[#232326] border border-[#383840]"
-            title="Quitter la salle"
+            title={isHost ? 'Quitter et terminer la séance' : 'Quitter la salle'}
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -1111,7 +1484,40 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         {/* Left Column: Player & Controls (8 cols on large screens) */}
         <div className="lg:col-span-8 space-y-3">
           {/* Video Player Box */}
-          <div className="bg-black rounded-2xl overflow-hidden border border-[#232326] relative aspect-video flex items-center justify-center group shadow-2xl">
+          <div ref={playerBoxRef} className="bg-black rounded-2xl overflow-hidden border border-[#232326] relative aspect-video flex items-center justify-center group shadow-2xl">
+            {!sessionStarted && (
+              <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-[#09090B]/95 backdrop-blur-md p-6 text-center">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#EC4899] flex items-center justify-center mb-4 shadow-xl animate-pulse">
+                  <Users className="w-7 h-7 text-white" />
+                </div>
+                <h3 className="text-lg sm:text-xl font-bold text-white mb-1">Salle d'attente</h3>
+                <p className="text-sm text-gray-300 mb-1">
+                  {expectedTotal
+                    ? `${participations.length} / ${expectedTotal} personnes présentes`
+                    : `${participations.length} personne(s) présente(s)`}
+                </p>
+                <p className="text-xs text-gray-400 max-w-sm mb-5">
+                  {autoStart
+                    ? 'La séance démarrera automatiquement quand tout le monde sera arrivé.'
+                    : "La séance démarrera quand l'hôte la lancera."}
+                  {!isHost && " L'hôte peut aussi la démarrer avant."}
+                </p>
+                {isHost && (
+                  <button
+                    onClick={handleStartSession}
+                    disabled={participations.length < 2}
+                    className="px-6 py-3 bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white font-bold rounded-xl shadow-lg hover:opacity-95 transition-all text-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>
+                      {participations.length < 2
+                        ? 'En attente d’au moins un invité'
+                        : `Démarrer maintenant avec ${participations.length} personne${participations.length > 1 ? 's' : ''}`}
+                    </span>
+                  </button>
+                )}
+              </div>
+            )}
             {isYouTube ? (
               <div className="w-full h-full relative flex items-center justify-center bg-black [&>iframe]:w-full [&>iframe]:h-full [&>iframe]:border-0">
                 <div id="kinoo-yt-player" className="w-full h-full" />
@@ -1153,7 +1559,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 subtitleUrl={room.sourceContenu?.subtitleUrl}
                 subtitleName={room.sourceContenu?.subtitleName || 'Sous-titres FR'}
                 isPlaying={isPlaying}
-                onEnded={() => setShowDebriefModal(true)}
+                onEnded={() => handleFilmEnded()}
                 onTimeUpdate={(t) => setCurrentTime(t)}
                 onDurationChange={(d) => setDuration(d)}
               />
@@ -1215,7 +1621,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 onClick={() => guestFileInputRef.current?.click()}
                 className="px-3 py-1 rounded-lg bg-[#232326] hover:bg-[#303038] text-white font-semibold text-xs border border-[#383840] shrink-0"
               >
-                {guestLocalFileUrl ? '✓ Fichier lié' : 'Lier mon fichier local'}
+                {guestLocalFileUrl ? 'Fichier lié' : 'Lier mon fichier local'}
               </button>
             </div>
           )}
@@ -1294,6 +1700,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 >
                   {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                 </button>
+
+                <ScreenControls containerRef={playerBoxRef} videoRef={videoRef} isYouTube={isYouTube} />
 
                 {/* YouTube Native Captions (CC) Menu */}
                 {isYouTube && (
@@ -1374,7 +1782,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
               {/* Host Specific Management Controls & Debrief */}
               <div className="flex items-center gap-2">
-                {isHost && (
+                {isHost && canChangeMedia && (
                   <button
                     onClick={() => setShowChangeMediaModal(true)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#232326] hover:bg-[#303038] text-white border border-[#383840] text-xs font-semibold transition-colors"
@@ -1385,14 +1793,16 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                   </button>
                 )}
 
-                <button
-                  onClick={() => setShowDebriefModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED]/20 to-[#EC4899]/20 hover:from-[#7C3AED]/30 hover:to-[#EC4899]/30 text-white border border-[#EC4899]/40 text-xs font-semibold transition-all"
-                  title="Ouvrir le salon Débrief d'après-film"
-                >
-                  <Coffee className="w-3.5 h-3.5 text-[#EC4899]" />
-                  <span className="hidden sm:inline">Débrief film</span>
-                </button>
+                {isHost && (
+                  <button
+                    onClick={handleStartDebrief}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED]/20 to-[#EC4899]/20 hover:from-[#7C3AED]/30 hover:to-[#EC4899]/30 text-white border border-[#EC4899]/40 text-xs font-semibold transition-all"
+                    title="Lancer le salon Débrief d'après-film pour tous les participants"
+                  >
+                    <Coffee className="w-3.5 h-3.5 text-[#EC4899]" />
+                    <span className="hidden sm:inline">Débrief film</span>
+                  </button>
+                )}
 
                 {isHost && (
                   <>
@@ -1423,35 +1833,6 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
 
           {/* WebRTC Audio/Video Controls & Speaking Indicators */}
           <WebRTCControls roomId={room.id} currentUser={currentUser} onToast={onToast} />
-
-          {/* Demo Multi-user Simulator Bar (Preview test helper) */}
-          <div className="bg-[#141417] border border-[#232326] rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="space-y-0.5">
-              <span className="font-bold text-white flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#EC4899]" />
-                Testeur de Synchronisation Multi-Spectateurs
-              </span>
-              <p className="text-[11px] text-[#B8B4C0]">
-                Ouvrez le lien d’invitation dans un second onglet OU simulez un ami pour tester le chat et la synchro en direct.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleAddSimulatedGuest}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-[#232326] text-white hover:bg-[#303036] border border-[#383840] transition-colors whitespace-nowrap"
-              >
-                + Simuler un spectateur test
-              </button>
-
-              <button
-                onClick={handleCopyInvite}
-                className="px-3 py-1.5 rounded-lg font-semibold text-xs bg-gradient-to-r from-[#7C3AED]/30 to-[#EC4899]/30 text-white border border-[#EC4899]/50 hover:opacity-90 transition-all whitespace-nowrap"
-              >
-                Copier lien 2e onglet
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Right Column: Chat & Participants (4 cols on large screens) */}
@@ -1567,7 +1948,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               <div className="space-y-2">
                 {participations.map((part) => {
                   const isPartHost = part.role === 'HOTE';
-                  const isMyself = part.utilisateurId === localUserId;
+                  const isMyself = part.utilisateurId === (syncEngine.getCurrentUserId() || localUserId);
 
                   return (
                     <div
@@ -1583,6 +1964,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                             <span className="font-semibold text-white">{cleanUserPseudo(part.pseudo)}</span>
                             <UserPlanBadge plan={getUserPlan(part.utilisateurId, part.pseudo)} size="xs" />
                             {isMyself && <span className="text-[10px] text-gray-500">(Vous)</span>}
+                            {poorNetworkUserIds.includes(part.utilisateurId) && (
+                              <span className="text-[10px] text-amber-400 font-semibold">• réseau instable</span>
+                            )}
                           </div>
                           <span className="text-[10px] text-gray-400 font-mono">
                             {isPartHost ? 'Hôte de séance' : 'Participant'}
@@ -1625,6 +2009,48 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         </div>
       </div>
 
+      {/* Fin de film : choix de l'hôte (débrief ou quitter) */}
+      {showEndPrompt && (
+        <div className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-6 sm:w-[380px] z-[60] bg-[#16161B] border border-[#EC4899]/40 rounded-2xl p-4 shadow-2xl space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-white">
+                {filmEnded ? 'Le film est terminé' : 'Le film se termine bientôt'}
+              </h3>
+              <p className="text-[11px] text-[#B8B4C0] mt-0.5">
+                Que souhaitez-vous faire ? Votre choix s’appliquera {filmEnded ? 'maintenant' : 'à la fin du film'}.
+              </p>
+            </div>
+            {!filmEnded && (
+              <button
+                type="button"
+                onClick={() => setEndPromptDismissed(true)}
+                className="text-gray-500 hover:text-white p-1 rounded-lg"
+                aria-label="Masquer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={() => handleEndChoice('DEBRIEF')}
+              className="flex-1 px-3 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95"
+            >
+              Lancer le débrief
+            </button>
+            <button
+              type="button"
+              onClick={() => handleEndChoice('LEAVE')}
+              className="flex-1 px-3 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#232326] border border-[#383840] hover:bg-[#303036]"
+            >
+              Quitter la salle
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Invite Modal Dialog */}
       <InviteModal
         isOpen={showInviteModal}
@@ -1653,6 +2079,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showChangeMediaModal}
         onClose={() => setShowChangeMediaModal(false)}
         onMediaSelected={handleHostMediaChange}
+        canUseCatalogue={getPlanConfig(currentUser?.forfait).allowCatalogue}
+        canUseLocalFiles={getPlanConfig(currentUser?.forfait).allowLocalFiles}
       />
 
       {/* Post-Movie Debrief Lounge Modal */}
@@ -1662,7 +2090,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         room={room}
         currentUser={currentUser}
         participations={participations}
-        onChangeMedia={() => setShowChangeMediaModal(true)}
+        onChangeMedia={() => { if (canChangeMedia) setShowChangeMediaModal(true); }}
         onLeaveRoom={onLeaveRoom}
       />
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PosterImage } from '../components/PosterImage';
 import { Room, User, Participation } from '../types/kinoo';
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
@@ -57,7 +58,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
               estVerrouillee: r.estVerrouillee,
               chatActif: true,
               reactionsActives: true,
-              maxParticipants: r.maxParticipants || 10,
+              maxParticipants: r.maxParticipants || 8,
               dateCreation: (r as any).dateCreation || new Date().toISOString(),
             };
             if (mappedRoom.statut !== 'TERMINEE' && !mappedRoom.estVerrouillee) {
@@ -110,7 +111,7 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
           estVerrouillee: r.estVerrouillee,
           chatActif: true,
           reactionsActives: true,
-          maxParticipants: r.maxParticipants || 10,
+          maxParticipants: r.maxParticipants || 8,
           dateCreation: (r as any).dateCreation || new Date().toISOString(),
         };
 
@@ -283,9 +284,11 @@ export const JoinRoomModal: React.FC<JoinRoomModalProps> = ({
               </div>
 
               <div className="p-2.5 bg-[#141417] rounded-lg border border-[#232326] flex items-center gap-3">
-                <img
+                <PosterImage
                   src={previewRoom.sourceContenu?.posterUrl}
-                  alt={previewRoom.sourceContenu?.titre}
+                  youtubeId={previewRoom.sourceContenu?.youtubeId}
+                  alt={previewRoom.sourceContenu?.titre || 'Affiche'}
+                  iconClassName="w-5 h-5"
                   className="w-12 h-12 object-cover rounded-md shrink-0"
                 />
                 <div className="space-y-0.5 overflow-hidden">

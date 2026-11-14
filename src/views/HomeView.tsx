@@ -1,3 +1,4 @@
+import { X as IconX, Check as IconCheck } from 'lucide-react';
 import React from 'react';
 import { COMPATIBLE_SOURCES } from '../data/mockContents';
 import {
@@ -71,7 +72,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-sm text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-xl shadow-[#7C3AED]/25 transition-all flex items-center justify-center gap-2.5 transform hover:-translate-y-0.5"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Créer une séance gratuite</span>
+            <span>Essayer : 1ère séance offerte</span>
           </button>
 
           <button
@@ -129,19 +130,19 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
             <ul className="space-y-3 text-xs text-[#B8B4C0]">
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Image saccadée & pixélisée</strong> : compression vidéo brutale qui dégrade les scènes rapides et l'obscurité.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Son étouffé et micro coupé</strong> : bande-son monophonique, bruits parasites et filtres vocaux inadaptés.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Décalage et spoilers</strong> : plusieurs secondes d'écart entre spectateurs, gâchant les fous rires et le suspense.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="text-red-400 font-bold">✕</span>
+                <IconX className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                 <span><strong>Consommation excessive</strong> de bande passante et surchauffe des ventilateurs d'ordinateurs.</span>
               </li>
             </ul>
@@ -221,14 +222,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <Youtube className="w-6 h-6" />
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">Option 2</span>
-              <h3 className="text-lg font-bold text-white">Liens URL &/ou Plateforme de streaming</h3>
+              <h3 className="text-lg font-bold text-white">Lien vidéo direct ou YouTube</h3>
               <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                Collez simplement le lien d'un film, d'une série, d'une vidéo YouTube ou d'un flux web. Kinoo synchronise automatiquement la lecture pour tout le salon.
+                Collez le lien d'une vidéo YouTube ou d'un fichier vidéo hébergé (mp4, webm, m3u8). Kinoo synchronise automatiquement la lecture pour tout le salon.
               </p>
             </div>
             <div className="pt-3 border-t border-[#232326] flex items-center justify-between text-xs text-gray-400">
               <span>Prise en charge</span>
-              <span className="text-white font-semibold">URL directes & Plateformes</span>
+              <span className="text-white font-semibold">Liens directs & YouTube</span>
             </div>
           </div>
 
@@ -385,7 +386,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             Tarifs & Abonnements Clairs
           </span>
           <h2 className="text-2xl sm:text-3xl font-bold text-white">
-            Un forfait gratuit et des options pour tous
+            Votre première séance est offerte, puis 3 forfaits au choix
           </h2>
           <p className="text-xs sm:text-sm text-[#B8B4C0]">
             Paiements adaptés à l'Afrique et à l'international : Wave, Orange Money, Carte Bancaire et PayPal.
@@ -396,27 +397,28 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Gratuit */}
           <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 space-y-5 flex flex-col justify-between relative shadow-lg">
             <div className="space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#B8B4C0]">Découverte</span>
-              <h3 className="text-xl font-bold text-white">Kinoo Gratuit</h3>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#B8B4C0]">Entrée de gamme</span>
+              <h3 className="text-xl font-bold text-white">Kinoo Découverte</h3>
               <div className="flex flex-col">
                 <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl font-extrabold text-white">0 FCFA</span>
-                  <span className="text-xs text-gray-400">/ pour toujours</span>
+                  <span className="text-3xl font-extrabold text-white">1 200 FCFA</span>
+                  <span className="text-xs text-gray-400">/ mois</span>
                 </div>
-                <span className="text-[11px] text-gray-500">0 € / mois · Sans carte bancaire</span>
+                <span className="text-[11px] text-gray-500">≈ 1,83 € / mois · Sans engagement</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 3 séances par mois</li>
-                <li>✓ Jusqu'à 10 participants</li>
-                <li>✓ Liens URL & YouTube directs</li>
-                <li>✓ Chat textuel en direct</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>3 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 5 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Liens URL & YouTube directs</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat textuel en direct</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" /><span>Publicités fréquentes</span></li>
               </ul>
             </div>
             <button
               onClick={onOpenCreateRoom}
               className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-[#232326] hover:bg-[#303038] border border-[#383840]"
             >
-              Démarrer gratuitement
+              Essayer : 1ère séance offerte
             </button>
           </div>
 
@@ -433,11 +435,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-pink-300/90 font-medium">≈ 4,27 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ 25 séances par mois</li>
-                <li>✓ Jusqu'à 50 participants</li>
-                <li>✓ Import de fichiers vidéo locaux</li>
-                <li>✓ Chat vocal & débriefing micro</li>
-                <li>✓ 100% sans publicité</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>10 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 15 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Import de fichiers vidéo locaux</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Chat vocal & débriefing micro</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Publicités occasionnelles</span></li>
               </ul>
             </div>
             <button
@@ -451,7 +453,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           {/* Premium */}
           <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 space-y-5 flex flex-col justify-between">
             <div className="space-y-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6]">Tout illimité</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#3B82F6]">Tout le confort</span>
               <h3 className="text-xl font-bold text-white">Kinoo Premium</h3>
               <div className="flex flex-col">
                 <div className="flex items-baseline gap-1.5">
@@ -461,11 +463,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="text-[11px] text-blue-300/90 font-medium">≈ 7,24 € / mois</span>
               </div>
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
-                <li>✓ Séances de visionnage illimitées</li>
-                <li>✓ Jusqu'à 250 participants</li>
-                <li>✓ Assistant IA personnel dédié</li>
-                <li>✓ Réseau d'amis & messagerie privée</li>
-                <li>✓ Qualité et débit prioritaires</li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>25 séances par mois</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 25 participants</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Assistant IA personnel dédié</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Réseau d'amis & messagerie privée</span></li>
+                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Qualité et débit prioritaires</span></li>
               </ul>
             </div>
             <button

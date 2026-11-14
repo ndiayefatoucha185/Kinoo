@@ -1,3 +1,4 @@
+import { ArrowLeft as IconArrowLeft } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import { User, Room } from './types/kinoo';
@@ -47,6 +48,13 @@ export default function App() {
   });
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
 
+  // Le dossier technique (architecture, modèle de menaces) n'est visible que du Super Admin
+  useEffect(() => {
+    if (currentView === 'specs' && !isSuperAdmin) {
+      setCurrentView(currentUser ? 'dashboard' : 'home');
+    }
+  }, [currentView, isSuperAdmin, currentUser]);
+
   // Safety guard: if currentView is superadmin but user is not Super Admin, redirect immediately
   useEffect(() => {
     if (currentView === 'superadmin' && !isSuperAdmin) {
@@ -56,7 +64,8 @@ export default function App() {
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
+  const [authResetToken, setAuthResetToken] = useState<string>('');
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState<boolean>(false);
   const [isJoinRoomOpen, setIsJoinRoomOpen] = useState<boolean>(false);
   const [joinRoomInitialCode, setJoinRoomInitialCode] = useState<string>('');
@@ -83,6 +92,27 @@ export default function App() {
 
   // URL Invite or Room parameters parsing on first mount
   useEffect(() => {
+    // Liens reçus par e-mail : le jeton est dans le fragment d'URL (#reset-password=… / #verify-email=…),
+    // donc jamais envoyé au serveur dans la requête de page ni conservé dans les journaux.
+    const emailHash = window.location.hash;
+    const resetMatch = emailHash.match(/reset-password=([a-f0-9]{64})/);
+    const verifyMatch = emailHash.match(/verify-email=([a-f0-9]{64})/);
+    if (resetMatch) {
+      setAuthResetToken(resetMatch[1]);
+      setAuthMode('reset');
+      setIsAuthModalOpen(true);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } else if (verifyMatch) {
+      const verifyToken = verifyMatch[1];
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      ApiClient.request<{ message: string }>('/api/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ token: verifyToken }),
+      })
+        .then((res) => addToast(res.message || 'Adresse e-mail vérifiée avec succès.', 'success'))
+        .catch((err) => addToast(err?.message || 'Lien de vérification invalide ou expiré.', 'error'));
+    }
+
     // Vérification du token de déblocage d'urgence Super Admin dans le hash (#unlock-super-admin=token)
     if (window.location.hash.includes('unlock-super-admin=')) {
       const match = window.location.hash.match(/unlock-super-admin=([^&]+)/);
@@ -111,7 +141,7 @@ export default function App() {
     const viewParam = params.get('view');
 
     if (viewParam) {
-      const allowedViews = ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status', 'specs', 'dashboard'];
+      const allowedViews = ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status', 'dashboard'];
       if (allowedViews.includes(viewParam)) {
         setCurrentView(viewParam);
       }
@@ -142,7 +172,7 @@ export default function App() {
                 estVerrouillee: r.estVerrouillee,
                 chatActif: true,
                 reactionsActives: true,
-                maxParticipants: r.maxParticipants || 10,
+                maxParticipants: r.maxParticipants || 8,
                 dateCreation: (r as any).dateCreation || new Date().toISOString(),
               };
               StorageService.saveRoom(mappedRoom);
@@ -222,7 +252,7 @@ export default function App() {
       home: 'Plateforme web et mobile de visionnage collectif synchronisé à distance en haute fidélité sans extension.',
       how_it_works: 'Découvrez comment créer une salle privée, inviter vos proches et synchroniser vos films à la milliseconde.',
       media_sources: 'Consultez la matrice des formats vidéo compatibles : fichiers locaux, liens MP4/HLS et intégrations vérifiées.',
-      pricing: 'Découvrez les forfaits Kinoo Gratuit, Standard et Premium pour des séances synchronisées sans limite.',
+      pricing: 'Découvrez les forfaits Kinoo Découverte, Standard et Premium pour des séances synchronisées sans limite.',
       legal: 'Conditions Générales d’Utilisation, politique de confidentialité RGPD et politique de gestion des droits.',
       status: 'Supervision en temps réel de l’infrastructure, des serveurs API, WebSockets et de la synchronisation Kinoo.',
       dashboard: 'Gérez vos séances programmées, retrouvez vos amis et rejoignez vos salons de visionnage privés.',
@@ -394,7 +424,7 @@ export default function App() {
                     onClick={() => setCurrentView('dashboard')}
                     className="text-xs font-semibold text-[#EC4899] hover:underline flex items-center gap-1.5"
                   >
-                    ← Retour à mon espace
+                    <IconArrowLeft className="w-4 h-4 inline-block align-[-3px] mr-1.5" />Retour à mon espace
                   </button>
                   <span className="text-[11px] text-[#B8B4C0]">Spécifications techniques</span>
                 </div>
@@ -486,7 +516,7 @@ export default function App() {
                     onClick={() => setCurrentView('home')}
                     className="text-xs font-semibold text-[#EC4899] hover:underline flex items-center gap-1.5"
                   >
-                    ← Retour à l'accueil
+                    <IconArrowLeft className="w-4 h-4 inline-block align-[-3px] mr-1.5" />Retour à l'accueil
                   </button>
                   <span className="text-[11px] text-[#B8B4C0]">Spécifications techniques publiques</span>
                 </div>
@@ -532,7 +562,11 @@ export default function App() {
       <AuthModal
         isOpen={isAuthModalOpen}
         initialMode={authMode}
-        onClose={() => setIsAuthModalOpen(false)}
+        resetToken={authResetToken}
+        onClose={() => {
+          setIsAuthModalOpen(false);
+          setAuthResetToken('');
+        }}
         onAuthSuccess={handleAuthSuccess}
         onOpenLegal={handleOpenLegal}
       />

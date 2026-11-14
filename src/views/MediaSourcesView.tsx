@@ -68,7 +68,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
             }`}
           >
             <Youtube className="w-3.5 h-3.5 text-red-400" />
-            <span>Liens URL &/ou Plateforme de streaming</span>
+            <span>Lien vidéo direct ou YouTube</span>
           </button>
           <button
             onClick={() => setActiveTab('catalog')}
@@ -135,15 +135,15 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               </div>
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-red-400">Coller un simple lien</span>
-                <h3 className="text-lg font-bold text-white">Liens URL &/ou Plateforme de streaming</h3>
+                <h3 className="text-lg font-bold text-white">Lien vidéo direct ou YouTube</h3>
               </div>
               <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                Regardez des films, séries, bandes-annonces, vidéos YouTube, flux web ou contenus de vos plateformes préférées simplement en collant l'adresse URL.
+                Regardez vos vidéos YouTube, bandes-annonces, fichiers hébergés ou flux web (mp4, webm, m3u8) simplement en collant l'adresse du lien. Les pages de plateformes protégées (Netflix, etc.) ne sont pas lisibles.
               </p>
               <div className="pt-2 space-y-2 text-xs text-[#FAFAFA]">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Plateformes vidéo, YouTube, Shorts & Lives</span>
+                  <span>YouTube, Shorts & Lives, fichiers vidéo directs</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -228,7 +228,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Ordinateur (PC / Mac / Linux)</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Idéal pour l'Hôte avec commandes avancées, import rapide par glisser-déposer et vue multi-colonnes.
+              Idéal pour l'hôte : commandes avancées, import de fichiers locaux et vue vidéo + chat côte à côte.
             </p>
           </div>
 
@@ -238,7 +238,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Smartphone & Tablette</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Rejoignez une séance depuis votre lit ou en déplacement. Mode paysage plein écran avec chat rétractable.
+              Rejoignez une séance depuis votre lit ou en déplacement. Lecteur plein écran et chat placé sous la vidéo.
             </p>
           </div>
 
@@ -248,7 +248,7 @@ export const MediaSourcesView: React.FC<MediaSourcesViewProps> = ({ onOpenCreate
               <span>Télévision (Chromecast / AirPlay)</span>
             </div>
             <p className="text-xs text-[#B8B4C0]">
-              Diffusez l’image sur votre grand écran de salon tout en conservant le chat et les réactions sur votre téléphone.
+              Envoyez la vidéo sur votre grand écran (Chromecast, AirPlay ou recopie d’écran) et gardez le chat sur votre téléphone.
             </p>
           </div>
         </div>

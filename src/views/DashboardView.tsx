@@ -1,4 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { PosterImage } from '../components/PosterImage';
+import { getPlanConfig } from '../config/plans';
+import { TvCastGuide } from '../components/TvCastGuide';
 import { User, Room, UserContact, ScheduledSession, UserPlan, Advertisement } from '../types/kinoo';
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
@@ -75,9 +79,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [activeMessageFriend, setActiveMessageFriend] = useState<string | null>(null);
 
   // User-specific authentic data from StorageService (no fictitious data)
-  const [userRooms, setUserRooms] = useState<Room[]>(() => StorageService.getUserRooms(currentUser.id));
-  const [friends, setFriends] = useState<UserContact[]>(() => StorageService.getContacts(currentUser.id));
-  const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>(() => StorageService.getScheduledSessions(currentUser.id));
+  // historyRooms = toutes les séances (statistiques, historique) ; userRooms = séances encore actives (on peut y entrer)
+  const sortByDateDesc = (list: Room[]) =>
+    [...list].sort((a, b) => new Date(b.dateCreation || 0).getTime() - new Date(a.dateCreation || 0).getTime());
+  const [historyRooms, setHistoryRooms] = useState<Room[]>(() =>
+    sortByDateDesc(StorageService.getUserRooms(currentUser.id))
+  );
+  const userRooms = historyRooms.filter((r) => r.statut !== 'TERMINEE');
+  const setUserRooms = (_: Room[]) => setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
+  // Amis et séances programmées : stockés en base (le navigateur ne sert plus que d'affichage de secours)
+  const [friends, setFriends] = useState<UserContact[]>([]);
+  const [scheduledSessions, setScheduledSessions] = useState<ScheduledSession[]>([]);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  // Messagerie privée
+  const [convMessages, setConvMessages] = useState<{ id: string; fromMe: boolean; body: string; createdAt: string }[]>([]);
+  const [messageInput, setMessageInput] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const convEndRef = useRef<HTMLDivElement | null>(null);
 
   // Friend search and add state (Search by either email or pseudonym)
   const isPremiumUser = currentUser.forfait === 'PREMIUM';
@@ -111,17 +130,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [sessionTimeInput, setSessionTimeInput] = useState<string>('20:30');
   const [sessionBadgeInput, setSessionBadgeInput] = useState<string>('Watch Party');
 
+  // Essai d'une séance offerte (source de vérité : serveur)
+  const [trial, setTrial] = useState<{ active: boolean; used: boolean; locked: boolean } | null>(null);
+
   // In-dashboard subscription details modal
   const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
 
-  // Active Ads (Diffusées EXCLUSIVEMENT à la formule GRATUIT)
+  // Publicités : fréquentes (Essai / Découverte), occasionnelles (Standard), aucune (Premium)
+  const adPlan = getPlanConfig(currentUser.forfait);
+  const adsAllowed = adPlan.adFrequency !== 'NONE';
   const [activeAds, setActiveAds] = useState<Advertisement[]>(() => {
-    if (currentUser.forfait !== 'GRATUIT') return [];
+    if (!adsAllowed) return [];
     return StorageService.getAds().filter((a) => a.statut === 'ACTIF');
+  });
+  const [adIndex, setAdIndex] = useState(0);
+  const adStorageKey = `kinoo_ad_last_shown_${currentUser.id}`;
+  // Standard : la bannière n'apparaît qu'une fois par délai (30 min), puis disparaît
+  const [occasionalAdVisible, setOccasionalAdVisible] = useState<boolean>(() => {
+    if (adPlan.adFrequency !== 'OCCASIONAL') return false;
+    try {
+      const last = Number(localStorage.getItem(adStorageKey) || 0);
+      return Date.now() - last >= adPlan.adCooldownMinutes * 60_000;
+    } catch {
+      return true;
+    }
   });
 
   useEffect(() => {
-    if (currentUser.forfait === 'GRATUIT') {
+    if (adPlan.adFrequency !== 'OCCASIONAL' || !occasionalAdVisible) return;
+    try {
+      localStorage.setItem(adStorageKey, String(Date.now()));
+    } catch {}
+    const hide = window.setTimeout(() => setOccasionalAdVisible(false), 20_000);
+    return () => window.clearTimeout(hide);
+  }, [adPlan.adFrequency, occasionalAdVisible, adStorageKey]);
+
+  // Découverte / Essai : rotation des annonces toutes les 15 secondes
+  useEffect(() => {
+    if (adPlan.adFrequency !== 'FREQUENT' || activeAds.length < 2) return;
+    const timer = window.setInterval(() => setAdIndex((i) => (i + 1) % activeAds.length), 15_000);
+    return () => window.clearInterval(timer);
+  }, [adPlan.adFrequency, activeAds.length]);
+
+  useEffect(() => {
+    if (adsAllowed) {
       ApiClient.getPublicAds('BANNIERE_ACCUEIL')
         .then((serverAds) => {
           if (Array.isArray(serverAds) && serverAds.length > 0) {
@@ -133,12 +185,175 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           // Utilise les pubs en cache/storage local
         });
     }
-  }, [currentUser.forfait]);
+  }, [currentUser.forfait, adsAllowed]);
+
+  // Synchronise l'historique avec le serveur (source de vérité : statut, date de fin, séances d'un autre appareil)
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getMyActiveRoomIds()
+      .then(({ activeRoomIds, history, trial: trialState }) => {
+        if (cancelled) return;
+        if (trialState) setTrial(trialState);
+        const active = new Set(activeRoomIds);
+        const serverById = new Map<string, any>((history || []).map((h: any) => [h.id, h]));
+        // 1. Séances connues du serveur mais absentes de ce navigateur
+        for (const h of history || []) {
+          if (!StorageService.getRoomById(h.id)) {
+            StorageService.saveRoom({
+              id: h.id,
+              codePublic: h.code || h.id,
+              nom: h.titre || 'Watch Party',
+              statut: h.statut || 'TERMINEE',
+              hoteId: h.hoteId,
+              hotePseudo: h.hotePseudo,
+              sourceContenuId: h.sourceContenu?.id || 'src-default',
+              sourceContenu: h.sourceContenu || {
+                synopsis: '', dureeSec: 0, dureeFormat: '00:00', videoUrl: '', posterUrl: '', genre: '', licence: '',
+                id: 'src-default', titre: 'Vidéo', typeSource: 'URL_WEB', fournisseur: 'Web',
+              },
+              estPrivee: !!h.estPrivee,
+              estVerrouillee: !!h.estVerrouillee,
+              chatActif: true,
+              reactionsActives: true,
+              maxParticipants: h.maxParticipants || 8,
+              dateCreation: h.dateCreation || new Date().toISOString(),
+              dateFinEffective: h.dateFin || undefined,
+              lectureTotaleSec: typeof h.lectureTotaleSec === 'number' ? h.lectureTotaleSec : undefined,
+            } as Room);
+          }
+        }
+        // 2. Statut et date de fin réels pour les séances déjà connues
+        for (const r of StorageService.getUserRooms(currentUser.id)) {
+          const srv = serverById.get(r.id);
+          if (srv && typeof srv.lectureTotaleSec === 'number' && srv.lectureTotaleSec !== r.lectureTotaleSec) {
+            r.lectureTotaleSec = srv.lectureTotaleSec;
+            StorageService.saveRoom({ ...r, lectureTotaleSec: srv.lectureTotaleSec });
+          }
+          if (srv) {
+            if (srv.statut === 'TERMINEE' && (r.statut !== 'TERMINEE' || !r.dateFinEffective)) {
+              StorageService.saveRoom({ ...r, statut: 'TERMINEE', dateFinEffective: srv.dateFin || r.dateFinEffective || new Date().toISOString() });
+            }
+          } else if (r.statut !== 'TERMINEE' && !active.has(r.id)) {
+            StorageService.saveRoom({ ...r, statut: 'TERMINEE', dateFinEffective: r.dateFinEffective || new Date().toISOString() });
+          }
+        }
+        setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
+      })
+      .catch(() => {
+        /* hors ligne : on garde l'affichage local */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser.id]);
+
+  const toContactDto = (c: any): UserContact => ({
+    id: c.id,
+    name: c.name,
+    email: c.email,
+    status: c.status,
+    online: Boolean(c.online),
+    activity: c.activity,
+    avatar: c.avatar,
+    forfait: c.forfait,
+    dateAjout: c.dateAjout,
+    linkedUserId: c.linkedUserId,
+  });
+
+  const loadSocialData = async () => {
+    try {
+      // Import unique des anciennes données gardées dans ce navigateur, puis effacement local
+      const legacySessions = StorageService.getScheduledSessions(currentUser.id);
+      const legacyContacts = StorageService.getContacts(currentUser.id);
+      if (legacySessions.length || legacyContacts.length) {
+        for (const s of legacySessions.slice(0, 50)) {
+          await ApiClient.addScheduledSession({
+            title: s.title,
+            dayOfMonth: s.dayOfMonth,
+            timeStr: s.timeStr,
+            badge: s.badge,
+            dateIso: s.dateIso,
+          }).catch(() => {});
+        }
+        if (isPremiumUser) {
+          for (const c of legacyContacts.slice(0, 100)) {
+            await ApiClient.addContact(c.email || c.name).catch(() => {});
+          }
+        }
+        StorageService.clearLegacySocialData(currentUser.id);
+      }
+      const [c, s] = await Promise.all([ApiClient.getContacts(), ApiClient.getScheduledSessions()]);
+      setFriends(c.contacts.map(toContactDto));
+      setScheduledSessions(s.sessions as ScheduledSession[]);
+      setSocialError(null);
+    } catch (err: any) {
+      setSocialError(err?.message || 'Impossible de charger vos amis et vos séances programmées.');
+    }
+  };
+
+  useEffect(() => {
+    loadSocialData();
+    // Les indicateurs « en ligne » de vos amis se rafraîchissent toutes les 30 secondes
+    const t = setInterval(() => {
+      ApiClient.getContacts().then((c) => setFriends(c.contacts.map(toContactDto))).catch(() => {});
+    }, 30000);
+    return () => clearInterval(t);
+  }, [currentUser.id]);
+
+  // Ami actuellement sélectionné dans la messagerie (seuls les amis ayant un compte Kinoo peuvent recevoir des messages)
+  const activeConversationFriend =
+    friends.find((f) => cleanUserPseudo(f.name) === cleanUserPseudo(activeMessageFriend || friends[0]?.name || '')) ||
+    friends[0];
+  const activeConversationUserId = activeConversationFriend?.linkedUserId;
+
+  useEffect(() => {
+    if (activeTab !== 'messages' || !activeConversationUserId) {
+      setConvMessages([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      ApiClient.getConversation(activeConversationUserId)
+        .then((r) => {
+          if (!cancelled) {
+            setConvMessages(r.messages);
+            setMessageError(null);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) setMessageError(err?.message || 'Conversation indisponible.');
+        });
+    load();
+    const t = setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [activeTab, activeConversationUserId]);
+
+  useEffect(() => {
+    convEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [convMessages.length]);
+
+  const handleSendPrivateMessage = async () => {
+    const body = messageInput.trim();
+    if (!body || !activeConversationUserId || isSendingMessage) return;
+    setIsSendingMessage(true);
+    try {
+      const res = await ApiClient.sendPrivateMessage(activeConversationUserId, body);
+      setConvMessages((prev) => [...prev, res.message]);
+      setMessageInput('');
+      setMessageError(null);
+    } catch (err: any) {
+      setMessageError(err?.message || "Le message n'a pas pu être envoyé.");
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
 
   const refreshAllData = () => {
-    setUserRooms(StorageService.getUserRooms(currentUser.id));
-    setFriends(StorageService.getContacts(currentUser.id));
-    setScheduledSessions(StorageService.getScheduledSessions(currentUser.id));
+    setHistoryRooms(sortByDateDesc(StorageService.getUserRooms(currentUser.id)));
+    loadSocialData();
   };
 
   // Birthday detection helpers
@@ -159,7 +374,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const handleWishHappyBirthday = (friend: UserContact) => {
     setActiveMessageFriend(friend.name);
-    setBirthdayWishToast(`🎉 Vœux d'anniversaire envoyés avec succès à ${friend.name} !`);
+    setBirthdayWishToast(`Vœux d'anniversaire envoyés avec succès à ${friend.name} !`);
     setTimeout(() => {
       setBirthdayWishToast(null);
     }, 4500);
@@ -182,87 +397,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return match?.forfait;
   };
 
-  // Search logic for adding friend by either email or pseudonym
-  const handleAddFriendFromQuery = (targetUser?: User, manualInput?: string) => {
+  // Ajout d'un ami par pseudo ou e-mail : le serveur retrouve le compte et enregistre le lien
+  const handleAddFriendFromQuery = async (targetUser?: User, manualInput?: string) => {
     if (!isPremiumUser) {
       setIsAddFriendOpen(false);
       setIsFriendBlockerModalOpen(true);
       return;
     }
-
-    if (targetUser) {
-      if (
-        friends.some(
-          (f) =>
-            f.email?.toLowerCase() === targetUser.email.toLowerCase() ||
-            cleanUserPseudo(f.name).toLowerCase() === cleanUserPseudo(targetUser.pseudo).toLowerCase()
-        )
-      ) {
-        setBirthdayWishToast(`ℹ️ ${cleanUserPseudo(targetUser.pseudo)} est déjà dans votre carnet d'amis.`);
-        setTimeout(() => setBirthdayWishToast(null), 3000);
-        setIsAddFriendOpen(false);
-        return;
-      }
-      const newFriend: UserContact = {
-        id: 'contact-' + Math.random().toString(36).substring(2, 9),
-        name: cleanUserPseudo(targetUser.pseudo),
-        email: targetUser.email,
-        status: 'En ligne',
-        online: true,
-        activity: 'Prêt pour une séance',
-        forfait: targetUser.forfait,
-        avatar:
-          targetUser.avatar ||
-          targetUser.photoProfil ||
-          `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?q=80&w=150&auto=format&fit=crop`,
-        dateNaissance: targetUser.dateNaissance,
-        dateAjout: new Date().toISOString(),
-      };
-      StorageService.saveContact(currentUser.id, newFriend);
-      setFriends(StorageService.getContacts(currentUser.id));
+    const val = (targetUser ? targetUser.email : manualInput || friendSearchInput).trim();
+    if (!val) return;
+    const shownName = cleanUserPseudo(targetUser ? targetUser.pseudo : val.includes('@') ? val.split('@')[0] : val);
+    const before = friends.length;
+    try {
+      const res = await ApiClient.addContact(val);
+      const list = res.contacts.map(toContactDto);
+      setFriends(list);
       setFriendSearchInput('');
       setFriendsFilterQuery('');
       setIsAddFriendOpen(false);
-      setBirthdayWishToast(`✨ ${cleanUserPseudo(targetUser.pseudo)} a été ajouté à vos amis !`);
-      setTimeout(() => setBirthdayWishToast(null), 3000);
-      return;
+      setBirthdayWishToast(
+        list.length === before
+          ? `ℹ️ ${shownName} est déjà dans votre carnet d'amis.`
+          : `${shownName} a été ajouté à vos amis !`
+      );
+    } catch (err: any) {
+      setBirthdayWishToast(`${err?.message || "Impossible d'ajouter cet ami."}`);
     }
-
-    const val = (manualInput || friendSearchInput).trim();
-    if (!val) return;
-
-    // Check if query matches a registered user in storage
-    const matched = registeredUsers.find(
-      (u) =>
-        u.email.toLowerCase() === val.toLowerCase() ||
-        cleanUserPseudo(u.pseudo).toLowerCase() === cleanUserPseudo(val).toLowerCase()
-    );
-    if (matched) {
-      handleAddFriendFromQuery(matched);
-      return;
-    }
-
-    const isEmail = val.includes('@');
-    const friendName = isEmail ? val.split('@')[0] : val;
-    const friendEmail = isEmail ? val : undefined;
-
-    const newFriend: UserContact = {
-      id: 'contact-' + Math.random().toString(36).substring(2, 9),
-      name: cleanUserPseudo(friendName),
-      email: friendEmail,
-      status: 'En ligne',
-      online: true,
-      activity: 'Invité récemment',
-      avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=150&auto=format&fit=crop`,
-      dateAjout: new Date().toISOString(),
-    };
-    StorageService.saveContact(currentUser.id, newFriend);
-    setFriends(StorageService.getContacts(currentUser.id));
-    setFriendSearchInput('');
-    setFriendsFilterQuery('');
-    setIsAddFriendOpen(false);
-    setBirthdayWishToast(`✨ ${friendName} a été ajouté à vos amis !`);
-    setTimeout(() => setBirthdayWishToast(null), 3000);
+    setTimeout(() => setBirthdayWishToast(null), 3500);
   };
 
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -304,38 +465,47 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleDeleteFriend = (id: string) => {
-    StorageService.deleteContact(currentUser.id, id);
-    setFriends(StorageService.getContacts(currentUser.id));
+    ApiClient.deleteContact(id)
+      .then((res) => setFriends(res.contacts.map(toContactDto)))
+      .catch((err) => setSocialError(err?.message || 'Suppression impossible.'));
   };
 
   const handleAddSchedule = (e: React.FormEvent) => {
     e.preventDefault();
     if (!sessionTitleInput.trim()) return;
-    const newSession: ScheduledSession = {
-      id: 'session-' + Math.random().toString(36).substring(2, 9),
-      userId: currentUser.id,
+    ApiClient.addScheduledSession({
       title: sessionTitleInput.trim(),
-      dateIso: new Date().toISOString(),
       dayOfMonth: Number(sessionDayInput),
       timeStr: sessionTimeInput.trim() || '20:30',
       badge: sessionBadgeInput || 'Watch Party',
-    };
-    StorageService.saveScheduledSession(currentUser.id, newSession);
-    setScheduledSessions(StorageService.getScheduledSessions(currentUser.id));
-    setSessionTitleInput('');
-    setIsScheduleOpen(false);
+      dateIso: new Date().toISOString(),
+    })
+      .then((res) => {
+        setScheduledSessions((prev) => [res.session as ScheduledSession, ...prev]);
+        setSessionTitleInput('');
+        setIsScheduleOpen(false);
+      })
+      .catch((err) => setSocialError(err?.message || 'Programmation impossible.'));
   };
 
   const handleDeleteSchedule = (id: string) => {
-    StorageService.deleteScheduledSession(currentUser.id, id);
-    setScheduledSessions(StorageService.getScheduledSessions(currentUser.id));
+    ApiClient.deleteScheduledSession(id)
+      .then(() => setScheduledSessions((prev) => prev.filter((x) => x.id !== id)))
+      .catch((err) => setSocialError(err?.message || 'Suppression impossible.'));
   };
 
   // Dynamic statistics calculations
-  const totalWatchMinutes = userRooms.reduce((acc, r) => {
-    const dur = r.sourceContenu?.dureeSec ? Math.round(r.sourceContenu.dureeSec / 60) : 45;
-    return acc + dur;
-  }, 0);
+  const roomMinutes = (r: Room): number => {
+    // Temps réellement passé en lecture, mesuré par le serveur
+    if (typeof r.lectureTotaleSec === 'number') return Math.round(r.lectureTotaleSec / 60);
+    const start = new Date(r.dateCreation || 0).getTime();
+    const end = r.dateFinEffective ? new Date(r.dateFinEffective).getTime() : Date.now();
+    if (!start || end <= start) return 0;
+    const elapsedMin = Math.round((end - start) / 60000);
+    const cap = r.sourceContenu?.dureeSec ? Math.ceil(r.sourceContenu.dureeSec / 60) : 360;
+    return Math.max(0, Math.min(elapsedMin, cap, 360));
+  };
+  const totalWatchMinutes = historyRooms.reduce((acc, r) => acc + roomMinutes(r), 0);
   const totalWatchHours = (totalWatchMinutes / 60).toFixed(1);
 
   // Calendar dates representation (Septembre 2026)
@@ -415,8 +585,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
   };
 
+  // Séance gratuite utilisée : l'accès à la plateforme exige un forfait payant
+  if (trial?.locked) {
+    return (
+      <div className="w-full my-6 sm:my-10 flex justify-center px-4">
+        <div className="max-w-xl w-full bg-[#16161B] border border-[#232328] rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-[#7C3AED] to-[#EC4899] flex items-center justify-center text-white">
+            <IconCheck className="w-7 h-7" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-bold text-white">Votre séance gratuite est terminée</h2>
+            <p className="text-xs sm:text-sm text-[#B8B4C0] leading-relaxed">
+              Merci d'avoir testé Kinoo ! Pour continuer à créer et rejoindre des séances, choisissez l'un de nos trois forfaits :
+              Découverte (1 200 FCFA/mois), Standard (2 800 FCFA/mois) ou Premium (4 750 FCFA/mois).
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => onNavigate('pricing')}
+              className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white text-xs font-bold hover:opacity-90 transition-opacity"
+            >
+              Voir les forfaits
+            </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="px-6 py-3 rounded-xl bg-[#232328] text-gray-300 text-xs font-semibold hover:text-white transition-colors"
+              >
+                Se déconnecter
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full my-2 sm:my-4">
+      {trial?.active && !trial.used && (
+        <div className="mb-3 px-4 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+          <IconCheck className="w-4 h-4 shrink-0" />
+          <span>Votre première séance est offerte. Ensuite, un forfait sera nécessaire pour continuer.</span>
+        </div>
+      )}
+      {trial?.active && trial.used && !trial.locked && (
+        <div className="mb-3 px-4 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center justify-between gap-3">
+          <span>Votre séance gratuite est en cours. Une fois terminée, un forfait sera nécessaire pour continuer.</span>
+          <button onClick={() => onNavigate('pricing')} className="underline shrink-0">Voir les forfaits</button>
+        </div>
+      )}
       {/* Outer Dashboard Card Wrapper replicating the reference layout */}
       <div className="bg-[#121215] border border-[#232326] rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row min-h-[760px]">
         
@@ -755,7 +973,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     }`}
                     title="Gérer ou changer de formule"
                   >
-                    Formule {currentUser.forfait === 'STANDARD' ? 'Standard' : currentUser.forfait === 'PREMIUM' ? 'Premium' : 'Gratuit'}
+                    {getPlanConfig(currentUser.forfait).name}
                   </button>
                 </div>
               </div>
@@ -917,7 +1135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     onClick={() => setSearchQuery('')}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white"
                   >
-                    ✕
+                    <IconX className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
@@ -1000,7 +1218,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={() => setBirthdayWishToast(null)}
                 className="text-gray-400 hover:text-white text-xs ml-3"
               >
-                ✕
+                <IconX className="w-3.5 h-3.5" />
               </button>
             </div>
           )}
@@ -1010,13 +1228,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="mt-4 p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-[#EC4899]/15 to-[#7C3AED]/15 border border-amber-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
               <div className="flex items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-400 to-[#EC4899] flex items-center justify-center text-white text-2xl shadow-md shrink-0">
-                  🎂
+                  <IconCake className="w-6 h-6" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <span>Joyeux Anniversaire, {currentUser.pseudo} !</span>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 font-extrabold border border-amber-400/30">
-                      C'est votre jour 🎉
+                      C'est votre jour
                     </span>
                   </h3>
                   <p className="text-xs text-[#CFCBD9] mt-0.5">
@@ -1028,15 +1246,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onClick={onOpenCreateRoom}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] shadow-md hover:opacity-95 transition-all whitespace-nowrap self-start sm:self-center"
               >
-                🎬 Lancer ma séance d'anniversaire
+                <IconFilm className="w-3.5 h-3.5 inline-block align-[-2px] mr-1.5" />Lancer ma séance d'anniversaire
               </button>
             </div>
           )}
 
-          {/* Bannière publicitaire sponsorisée (Formule Gratuite exclusivement - uniquement si des annonces sont créées et actives) */}
-          {currentUser.forfait === 'GRATUIT' && activeAds.length > 0 && (
+          {/* Bannière publicitaire : fréquente (Essai/Découverte), occasionnelle (Standard), absente (Premium) */}
+          {adsAllowed && activeAds.length > 0 && (adPlan.adFrequency === 'FREQUENT' || occasionalAdVisible) && (
             (() => {
-              const currentAd = activeAds[0];
+              const currentAd = activeAds[adIndex % activeAds.length];
               return (
                 <div className="mt-4 p-4 rounded-3xl bg-gradient-to-r from-[#181824] via-[#14141A] to-[#201826] border border-[#2E2840] flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg overflow-hidden relative group">
                   <div className="flex items-center gap-3.5 flex-1 min-w-0">
@@ -1050,14 +1268,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     ) : (
                       <div className="w-10 h-10 rounded-2xl bg-[#EC4899]/15 border border-[#EC4899]/30 flex items-center justify-center text-[#EC4899] font-bold text-sm shrink-0">
-                        📢
+                        <IconMegaphone className="w-4 h-4" />
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-xs font-bold text-white truncate">{currentAd.titre}</h4>
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#2A2638] text-amber-300 font-semibold border border-amber-400/20">
-                          Sponsorisé • Formule Gratuite
+                          Sponsorisé
                         </span>
                       </div>
                       {currentAd.description && (
@@ -1087,10 +1305,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <button
                       onClick={() => onNavigate('pricing')}
                       className="px-3 py-2 rounded-xl text-xs font-medium text-gray-400 hover:text-white bg-[#1A1A24] hover:bg-[#252535] border border-[#2B2B3C] transition-all whitespace-nowrap"
-                      title="Passer à Standard pour supprimer les publicités"
+                      title="Passer à Premium pour supprimer les publicités"
                     >
                       Sans pub ?
                     </button>
+                    {adPlan.adFrequency === 'OCCASIONAL' && (
+                      <button
+                        onClick={() => setOccasionalAdVisible(false)}
+                        className="p-2 rounded-xl text-gray-400 hover:text-white bg-[#1A1A24] border border-[#2B2B3C]"
+                        aria-label="Masquer la publicité"
+                      >
+                        <IconX className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1100,6 +1327,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* ============================================================ */}
           {/* VUE ACTIVE : TABLEAU DE BORD (LAYOUT IDENTIQUE À L'IMAGE) */}
           {/* ============================================================ */}
+          {socialError && (
+            <div className="mb-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
+              {socialError}
+            </div>
+          )}
           {activeTab === 'dashboard' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
               
@@ -1425,7 +1657,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Salles réelles de l'utilisateur ou état vide */}
-                  {userRooms.length === 0 ? (
+                  {historyRooms.length === 0 ? (
                     <div className="p-8 rounded-2xl bg-[#1C1C22]/40 border border-dashed border-[#2B2B32] text-center space-y-3">
                       <div className="w-12 h-12 rounded-2xl bg-[#24242C] flex items-center justify-center mx-auto text-[#EC4899]">
                         <Tv className="w-6 h-6" />
@@ -1446,20 +1678,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {userRooms.slice(0, 4).map((room) => (
+                      {historyRooms.slice(0, 4).map((room) => (
                         <div
                           key={room.id}
-                          onClick={() => onEnterRoom(room.id)}
-                          className="group cursor-pointer space-y-2"
+                          onClick={() => {
+                            if (room.statut === 'TERMINEE') return;
+                            onEnterRoom(room.id);
+                          }}
+                          className={`group space-y-2 ${room.statut === 'TERMINEE' ? 'cursor-default opacity-80' : 'cursor-pointer'}`}
                         >
                           <div className="relative aspect-[16/9] rounded-2xl overflow-hidden bg-[#1C1C22] border border-[#2B2B32] group-hover:border-[#7C3AED] transition-all">
-                            <img
-                              src={
-                                room.sourceContenu?.posterUrl ||
-                                'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=800&auto=format&fit=crop'
-                              }
+                            <PosterImage
+                              src={room.sourceContenu?.posterUrl}
+                              youtubeId={room.sourceContenu?.youtubeId}
                               alt={room.nom}
-                              referrerPolicy="no-referrer"
+                              iconClassName="w-10 h-10"
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1471,7 +1704,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               {room.codePublic}
                             </span>
                             <span className="absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded-full text-[9px] font-semibold bg-[#7C3AED]/80 text-white">
-                              {room.statut === 'EN_COURS' ? 'En direct' : 'Prête'}
+                              {room.statut === 'TERMINEE' ? 'Terminée' : room.statut === 'EN_COURS' ? 'En direct' : 'Prête'}
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -1503,14 +1736,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         Séances créées
                       </h3>
                       {renderCircularGauge(
-                        userRooms.length === 0 ? 0 : Math.min(100, userRooms.length * 25),
-                        `${userRooms.length}`,
+                        historyRooms.length === 0 ? 0 : Math.min(100, historyRooms.length * 25),
+                        `${historyRooms.length}`,
                         'gauge-rooms',
                         '#7C3AED',
                         '#EC4899'
                       )}
                       <p className="text-[10px] text-[#B8B4C0] mt-1">
-                        {userRooms.length === 0 ? '0 séance pour l’instant' : `${userRooms.length} salle(s) dans votre historique`}
+                        {historyRooms.length === 0 ? '0 séance pour l’instant' : `${historyRooms.length} salle(s) dans votre historique`}
                       </p>
                     </div>
 
@@ -1527,7 +1760,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         '#3B82F6'
                       )}
                       <p className="text-[10px] text-[#B8B4C0] mt-1">
-                        {totalWatchMinutes === 0 ? '0 min de visionnage' : 'Temps cumulé estimé'}
+                        {totalWatchMinutes === 0 ? '0 min de visionnage' : 'Temps de lecture réel cumulé'}
                       </p>
                     </div>
 
@@ -1632,6 +1865,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   ))}
                 </div>
               )}
+
+              {historyRooms.some((r) => r.statut === 'TERMINEE') && (
+                <div className="space-y-3 pt-2">
+                  <h3 className="text-sm font-bold text-white">Historique de vos séances</h3>
+                  <div className="space-y-2">
+                    {historyRooms
+                      .filter((r) => r.statut === 'TERMINEE')
+                      .map((room) => (
+                        <div
+                          key={room.id}
+                          className="bg-[#16161B] border border-[#232328] rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white truncate">{room.nom}</p>
+                            <p className="text-[11px] text-[#B8B4C0] truncate">
+                              {room.sourceContenu?.titre || 'Source personnalisée'} •{' '}
+                              {room.dateCreation ? new Date(room.dateCreation).toLocaleDateString('fr-FR') : ''} •{' '}
+                              {roomMinutes(room)} min
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-[11px] font-bold text-[#EC4899] bg-[#232326] px-2 py-0.5 rounded-lg">
+                              {room.codePublic}
+                            </span>
+                            <span className="text-[11px] font-semibold text-gray-300 bg-[#232326] px-2 py-0.5 rounded-full">
+                              Terminée
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1647,7 +1913,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold text-white">Réseau d'amis réservé à la formule Premium</h2>
                   <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{currentUser.forfait === 'STANDARD' ? 'Standard' : 'Gratuit'}</span>) ne donne pas accès au carnet d'amis et aux invitations directes.
+                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{getPlanConfig(currentUser.forfait).name}</span>) ne donne pas accès au carnet d'amis et aux invitations directes.
                   </p>
                 </div>
                 <div className="bg-[#141417] border border-[#232326] rounded-2xl p-5 text-left text-xs space-y-3">
@@ -1706,7 +1972,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         onClick={() => setFriendsFilterQuery('')}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white"
                       >
-                        ✕
+                        <IconX className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -1786,7 +2052,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                     <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
                                     {u.dateNaissance && (
                                       <p className="text-[9px] text-amber-300">
-                                        🎂 Né(e) le {formatBirthday(u.dateNaissance)}
+                                        <IconCake className="w-3 h-3 inline-block align-[-2px] mr-1" />Né(e) le {formatBirthday(u.dateNaissance)}
                                       </p>
                                     )}
                                   </div>
@@ -1857,12 +2123,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                   alt={bFriend.name}
                                   className="w-12 h-12 rounded-full object-cover border-2 border-amber-400 shadow"
                                 />
-                                <span className="absolute -top-1 -right-1 text-sm">🎂</span>
+                                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-400 text-[#09090B] flex items-center justify-center"><IconCake className="w-3 h-3" /></span>
                               </div>
                               <div>
                                 <h4 className="text-sm font-bold text-white">{bFriend.name}</h4>
                                 <p className="text-[11px] text-amber-300 font-semibold">
-                                  🎉 C'est son anniversaire aujourd'hui !
+                                  <IconPartyPopper className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />C'est son anniversaire aujourd'hui !
                                 </p>
                               </div>
                             </div>
@@ -1872,14 +2138,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-[#EC4899] shadow-sm hover:brightness-110 transition-all flex items-center justify-center gap-1.5"
                               >
                                 <Gift className="w-3.5 h-3.5" />
-                                <span>Lui souhaiter Joyeux Anniversaire 🎈</span>
+                                <span>Lui souhaiter Joyeux Anniversaire</span>
                               </button>
                               <button
                                 onClick={onOpenCreateRoom}
                                 className="px-3 py-2 rounded-xl text-xs font-semibold bg-[#242432] text-white hover:bg-[#2E2E3E] border border-[#39394E] transition-all"
                                 title="Créer une salle pour lui"
                               >
-                                🎬 Séance
+                                <IconFilm className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />Séance
                               </button>
                             </div>
                           </div>
@@ -1904,7 +2170,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               key={f.id}
                               className="px-2 py-0.5 rounded-full bg-[#1E1E28] border border-[#2B2B38] text-amber-300/90 font-medium"
                             >
-                              🎂 {cleanUserPseudo(f.name)} ({formatBirthday(f.dateNaissance)})
+                              <IconCake className="w-3 h-3 inline-block align-[-2px] mr-1" />{cleanUserPseudo(f.name)} ({formatBirthday(f.dateNaissance)})
                             </span>
                           ))}
                       </div>
@@ -1965,7 +2231,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                           {hasBirthdayToday && (
                             <div className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
-                              🎂 Anniversaire aujourd'hui !
+                              <IconCake className="w-3 h-3" /> Anniversaire aujourd'hui !
                             </div>
                           )}
 
@@ -1987,7 +2253,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             <h3 className="text-sm font-bold text-white flex items-center justify-center gap-1.5">
                               <span>{cleanUserPseudo(friend.name)}</span>
                               <UserPlanBadge plan={friend.forfait || getPlanForUser(friend.name, friend.email)} size="xs" />
-                              {hasBirthdayToday && <span>🎉</span>}
+                              {hasBirthdayToday && <IconPartyPopper className="w-4 h-4 text-amber-300" />}
                             </h3>
                             <p className="text-xs text-emerald-400">{friend.status}</p>
                             {friend.email && (
@@ -2008,7 +2274,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                                 className="w-full py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-amber-500 to-[#EC4899] shadow hover:brightness-110 transition-all flex items-center justify-center gap-1"
                               >
                                 <Gift className="w-3.5 h-3.5" />
-                                <span>Lui souhaiter Joyeux Anniversaire 🎈</span>
+                                <span>Lui souhaiter Joyeux Anniversaire</span>
                               </button>
                             )}
                             <div className="flex gap-2">
@@ -2126,7 +2392,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold text-white">Messagerie privée réservée à la formule Premium</h2>
                   <p className="text-xs text-[#B8B4C0] leading-relaxed">
-                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{currentUser.forfait === 'STANDARD' ? 'Standard' : 'Gratuit'}</span>) ne donne pas accès au système de messagerie privée instantanée de Kinoo.
+                    Votre formule actuelle (<span className="text-emerald-400 font-bold">{getPlanConfig(currentUser.forfait).name}</span>) ne donne pas accès au système de messagerie privée instantanée de Kinoo.
                   </p>
                 </div>
                 <div className="bg-[#141417] border border-[#232326] rounded-2xl p-5 text-left text-xs space-y-3">
@@ -2203,22 +2469,63 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </select>
                     )}
                   </div>
-                  <div className="h-44 overflow-y-auto space-y-3 pr-2 text-xs flex flex-col justify-center items-center text-center text-[#8E8B99]">
-                    <p>Début de l'échange avec {cleanUserPseudo(activeMessageFriend || friends[0]?.name)}. Vos messages envoyés ici sont privés.</p>
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <input
-                      type="text"
-                      placeholder="Écrire un message..."
-                      className="flex-1 bg-[#1C1C22] border border-[#2B2B32] rounded-xl px-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED]"
-                    />
-                    <button
-                      onClick={() => alert('Message transmis !')}
-                      className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899]"
-                    >
-                      Envoyer
-                    </button>
-                  </div>
+                  {!activeConversationUserId ? (
+                    <div className="h-44 flex items-center justify-center text-center text-xs text-[#8E8B99] px-6">
+                      {cleanUserPseudo(activeConversationFriend?.name)} n'a pas encore de compte Kinoo : vous pourrez lui écrire ici dès qu'il en aura un et que vous l'aurez ajouté par son pseudo ou son e-mail.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="h-56 overflow-y-auto space-y-2 pr-2 text-xs flex flex-col">
+                        {convMessages.length === 0 ? (
+                          <p className="m-auto text-center text-[#8E8B99]">
+                            Début de l'échange avec {cleanUserPseudo(activeConversationFriend?.name)}. Vos messages sont privés.
+                          </p>
+                        ) : (
+                          convMessages.map((m) => (
+                            <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
+                              <div
+                                className={`max-w-[80%] px-3 py-2 rounded-2xl whitespace-pre-wrap break-words ${
+                                  m.fromMe
+                                    ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white rounded-br-sm'
+                                    : 'bg-[#232328] text-white rounded-bl-sm'
+                                }`}
+                              >
+                                {m.body}
+                                <span className="block text-[9px] opacity-70 mt-1">
+                                  {new Date(m.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        <div ref={convEndRef} />
+                      </div>
+                      {messageError && <p className="text-[11px] text-red-400">{messageError}</p>}
+                      <form
+                        className="flex gap-2 pt-2"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleSendPrivateMessage();
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={messageInput}
+                          maxLength={2000}
+                          onChange={(e) => setMessageInput(e.target.value)}
+                          placeholder="Écrire un message..."
+                          className="flex-1 bg-[#1C1C22] border border-[#2B2B32] rounded-xl px-4 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSendingMessage || !messageInput.trim()}
+                          className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] disabled:opacity-50"
+                        >
+                          Envoyer
+                        </button>
+                      </form>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -2230,6 +2537,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* ============================================================ */}
           {activeTab === 'settings' && (
             <div className="space-y-6 pt-6">
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#16161B] border border-[#232328]">
+                <TvCastGuide />
+              </div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-bold text-white">Paramètres du profil</h2>
@@ -2345,7 +2655,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span>Date de naissance (Anniversaires)</span>
                     </label>
                     <span className="text-[10px] text-amber-300 font-medium">
-                      Permet à vos amis de vous souhaiter un joyeux anniversaire 🎂
+                      Permet à vos amis de vous souhaiter un joyeux anniversaire
                     </span>
                   </div>
                   <input
@@ -2356,7 +2666,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   />
                   {editDateNaissance && (
                     <p className="text-[11px] text-amber-300/80 pt-0.5">
-                      🎉 Anniversaire enregistré : {formatBirthday(editDateNaissance)}
+                      <IconCheck className="w-3 h-3 inline-block align-[-2px] mr-1" />Anniversaire enregistré : {formatBirthday(editDateNaissance)}
                     </p>
                   )}
                 </div>
@@ -2388,7 +2698,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div>
                     <h4 className="text-xs font-bold text-white">Forfait actif</h4>
                     <p className="text-[11px] text-[#EC4899]">
-                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — Tout illimité' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 25 séances/mois' : 'Gratuit (P0) — 8 participants max'}
+                      Kinoo {currentUser.forfait === 'PREMIUM' ? 'Premium (P2) — 25 séances/mois' : currentUser.forfait === 'STANDARD' ? 'Standard (P1) — 10 séances/mois' : 'Découverte (P0) — 5 participants max'}
                     </p>
                   </div>
                   <button
@@ -2422,7 +2732,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <div className="p-4 rounded-2xl bg-red-950/20 border border-red-900/40 text-xs text-red-300 space-y-2">
                   <p className="font-semibold text-red-200">
-                    ⚠️ Avertissement : La suppression de votre compte est définitive et irréversible.
+                    <IconAlertTriangle className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />Avertissement : La suppression de votre compte est définitive et irréversible.
                   </p>
                   <p className="text-gray-300 leading-relaxed text-[11px]">
                     Tous vos salons créés, messages de tchat, historiques de participation et données personnelles seront définitivement détruits. Si vous êtes actuellement hôte d'une séance active, les participants connectés seront immédiatement notifiés de la clôture du salon et redirigés vers leur tableau de bord.
@@ -2709,12 +3019,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {/* P0 : Gratuit */}
               <div className="bg-[#1C1C22] border border-[#2B2B32] rounded-2xl p-5 space-y-3 flex flex-col justify-between">
                 <div>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase">P0 Découverte</span>
-                  <h3 className="text-base font-bold text-white mt-1">Kinoo Gratuit</h3>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase">P0 Entrée de gamme</span>
+                  <h3 className="text-base font-bold text-white mt-1">Kinoo Découverte</h3>
                   <div className="mt-2">
-                    <span className="text-xl font-extrabold text-white">0 FCFA</span>
+                    <span className="text-xl font-extrabold text-white">1 200 FCFA</span>
                     <span className="text-xs text-gray-400 ml-1">/ mois</span>
-                    <div className="text-[11px] text-gray-500">0 € / pour toujours</div>
+                    <div className="text-[11px] text-gray-500">≈ 1,83 € / mois</div>
                   </div>
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
@@ -2723,7 +3033,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Jusqu'à 10 participants</span>
+                      <span>Jusqu'à 5 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -2736,7 +3046,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </ul>
                 </div>
                 <span className="w-full py-2 text-center rounded-xl text-xs font-bold bg-[#292934] text-emerald-400 block">
-                  {currentUser.forfait === 'GRATUIT' ? 'Forfait actif' : 'Offre gratuite'}
+                  {currentUser.forfait === 'DECOUVERTE' ? 'Forfait actif' : 'Forfait d’entrée'}
                 </span>
               </div>
 
@@ -2756,11 +3066,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>25 séances par mois</span>
+                      <span>10 séances par mois</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>Jusqu'à 50 participants</span>
+                      <span>Jusqu'à 15 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
@@ -2772,7 +3082,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-[#EC4899] shrink-0" />
-                      <span>100% sans publicité</span>
+                      <span>Publicités occasionnelles</span>
                     </li>
                   </ul>
                 </div>
@@ -2800,11 +3110,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <ul className="space-y-2 text-xs text-gray-300 mt-4">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
-                      <span>Séances illimitées</span>
+                      <span>25 séances par mois</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
-                      <span>Jusqu'à 250 participants</span>
+                      <span>Jusqu'à 25 participants</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />

@@ -71,3 +71,25 @@ export function sanitizeSubtitlesToPlainVtt(rawText: string): string {
 }
 
 export const convertSrtToVtt = sanitizeSubtitlesToPlainVtt;
+
+const DIRECT_VIDEO_EXTENSIONS = /\.(mp4|m4v|webm|ogv|ogg|mov|mkv|m3u8|mpd)(\?|#|$)/i;
+
+/**
+ * Indique si l'adresse ressemble à un lien lisible par Kinoo : YouTube ou fichier / flux vidéo direct.
+ * Une page web de site de streaming (qui contient un lecteur) n'est PAS une vidéo et ne peut pas être lue.
+ * Renvoie null si le lien paraît correct, sinon un message d'avertissement.
+ */
+export function unsupportedLinkWarning(rawUrl: string): string | null {
+  const value = (rawUrl || '').trim();
+  if (!value) return null;
+  if (extractYouTubeId(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return 'Cette adresse n’est pas valide.';
+  }
+  if (!/^https?:$/.test(url.protocol)) return 'Seules les adresses http(s) sont acceptées.';
+  if (DIRECT_VIDEO_EXTENSIONS.test(url.pathname + url.search)) return null;
+  return 'Ce lien ressemble à une page web, pas à un fichier vidéo : il risque de ne pas se lire. Kinoo lit les liens directs (.mp4, .webm, .m3u8) et YouTube. Les pages de sites de streaming ne peuvent pas être lues.';
+}

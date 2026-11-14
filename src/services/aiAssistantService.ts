@@ -176,7 +176,7 @@ export class AiAssistantService {
     const periodLabel = period === 'daily' ? 'quotidien' : 'hebdomadaire';
     const periodTitle = period === 'daily' ? 'des dernières 24 heures' : 'des 7 derniers jours';
 
-    const text = `### 📊 Synthèse ${periodLabel.toUpperCase()} KINOO — Données réelles de la plateforme
+    const text = `### Synthèse ${periodLabel.toUpperCase()} KINOO — Données réelles de la plateforme
 
 Voici l'état consolidé ${periodTitle} :
 
@@ -198,8 +198,8 @@ Voici l'état consolidé ${periodTitle} :
    - **Signalements en attente** : **${pendingReports.length}** dossier${pendingReports.length > 1 ? 's' : ''}
    - **Statut de conformité** : ${
      pendingReports.length === 0
-       ? '✅ **Impeccable** — Aucune urgence de modération non traitée.'
-       : `⚠️ **${pendingReports.length} signalement(s) requièrent l'attention d'un administrateur.**`
+       ? '**Impeccable** — Aucune urgence de modération non traitée.'
+       : `**${pendingReports.length} signalement(s) requièrent l'attention d'un administrateur.**`
    }
 
 4. **Monétisation & Revenus** :
@@ -215,8 +215,8 @@ Voici l'état consolidé ${periodTitle} :
    - **Services opérationnels** : **${integrations.length - integErrors.length} / ${integrations.length}**
    ${
      integErrors.length > 0
-       ? `⚠️ **Anomalie détectée sur** : ${integErrors.map((i) => `${i.nom} (${i.statut})`).join(', ')}.`
-       : `✅ **Toutes les intégrations externes (YouTube API, WebRTC Mesh, CDN HLS, Stripe) sont au vert.**`
+       ? `**Anomalie détectée sur** : ${integErrors.map((i) => `${i.nom} (${i.statut})`).join(', ')}.`
+       : `**Toutes les intégrations externes (YouTube API, WebRTC Mesh, CDN HLS, Stripe) sont au vert.**`
    }
 
 ---
@@ -315,7 +315,7 @@ Voici l'état consolidé ${periodTitle} :
         }
       });
 
-      let text = `### 🎬 Volume des séances de visionnage\n\n`;
+      let text = `### Volume des séances de visionnage\n\n`;
       if (totalRooms === 0) {
         text += `Actuellement, **0 séance n'a encore été créée sur la plateforme**. Les compteurs restent strictement fidèles aux données réelles.\n\nDès qu'un utilisateur lance un salon depuis le catalogue ou un lien externe, il apparaîtra immédiatement dans la liste des séances en direct.`;
       } else {
@@ -353,7 +353,7 @@ Voici l'état consolidé ${periodTitle} :
         return {
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          text: `### ⏱️ Diagnostic de synchronisation des salles en direct\n\n**Aucune anomalie de synchronisation détectée** car il n'y a actuellement **aucun salon actif** sur la plateforme.\n\nLe moteur de synchronisation WebRTC Mesh surveille en permanence la dérive milliseconde entre l'hôte et les participants lorsque des flux sont actifs. Le seuil d'alerte automatique est fixé à **±120 ms**.`,
+          text: `### Diagnostic de synchronisation des salles en direct\n\n**Aucune anomalie de synchronisation détectée** car il n'y a actuellement **aucun salon actif** sur la plateforme.\n\nLe moteur de synchronisation WebRTC Mesh surveille en permanence la dérive milliseconde entre l'hôte et les participants lorsque des flux sont actifs. Le seuil d'alerte automatique est fixé à **±120 ms**.`,
           timestamp: new Date().toISOString(),
           suggestions: [
             'État des intégrations externes',
@@ -373,7 +373,7 @@ Voici l'état consolidé ${periodTitle} :
         return {
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          text: `### ⏱️ Diagnostic de synchronisation des salles en direct\n\n✅ **Toutes les ${activeRooms.length} salle(s) en direct fonctionnent avec une synchronisation nominale (< 45 ms de dérive).**\n\n- Horodatage moyen de synchronisation : stable\n- Relais WebRTC STUN/TURN : Opérationnel sans perte de paquets\n- Salles vérifiées : ${activeRooms.map((r) => `"${r.nom}"`).join(', ')}`,
+          text: `### Diagnostic de synchronisation des salles en direct\n\n**Toutes les ${activeRooms.length} salle(s) en direct fonctionnent avec une synchronisation nominale (< 45 ms de dérive).**\n\n- Horodatage moyen de synchronisation : stable\n- Relais WebRTC STUN/TURN : Opérationnel sans perte de paquets\n- Salles vérifiées : ${activeRooms.map((r) => `"${r.nom}"`).join(', ')}`,
           timestamp: new Date().toISOString(),
           suggestions: [
             'Résumé de la journée',
@@ -397,7 +397,7 @@ Voici l'état consolidé ${periodTitle} :
       return {
         id: `msg-${Date.now()}`,
         role: 'assistant',
-        text: `### ⚠️ Dérive de synchronisation identifiée sur 1 salon\n\nLe salon **"${targetRoom.nom}"** (Hôte : ${targetRoom.hotePseudo}) présente un volume élevé de participants ou une gigue réseau perceptible (> 120 ms).\n\n**Recommandation de l'Assistant :**\nSi les participants rapportent des micro-coupures ou des désynchronisations de sous-titres/vidéo, vous pouvez forcer la réinitialisation du salon.`,
+        text: `### Dérive de synchronisation identifiée sur 1 salon\n\nLe salon **"${targetRoom.nom}"** (Hôte : ${targetRoom.hotePseudo}) présente un volume élevé de participants ou une gigue réseau perceptible (> 120 ms).\n\n**Recommandation de l'Assistant :**\nSi les participants rapportent des micro-coupures ou des désynchronisations de sous-titres/vidéo, vous pouvez forcer la réinitialisation du salon.`,
         timestamp: new Date().toISOString(),
         proposedAction,
         suggestions: [
@@ -421,7 +421,7 @@ Voici l'état consolidé ${periodTitle} :
         return {
           id: `msg-${Date.now()}`,
           role: 'assistant',
-          text: `### 🛡️ File de modération & Signalements\n\n✅ **Aucun signalement en attente.** La file de modération est totalement propre (0 dossier non traité).\n\nLe système d'auto-modération surveille en direct les filtres textuels des chats publics des salles. Les nouveaux dossiers apparaîtront ici dès qu'un spectateur cliquera sur "Signaler".`,
+          text: `### File de modération & Signalements\n\n**Aucun signalement en attente.** La file de modération est totalement propre (0 dossier non traité).\n\nLe système d'auto-modération surveille en direct les filtres textuels des chats publics des salles. Les nouveaux dossiers apparaîtront ici dès qu'un spectateur cliquera sur "Signaler".`,
           timestamp: new Date().toISOString(),
           suggestions: [
             'Résumé de la journée',
@@ -432,7 +432,7 @@ Voici l'état consolidé ${periodTitle} :
       }
 
       const report = pendingReportsNonResolved[0];
-      let text = `### 🛡️ Analyse & Priorisation des signalements (${pendingReportsNonResolved.length} dossier(s))\n\n`;
+      let text = `### Analyse & Priorisation des signalements (${pendingReportsNonResolved.length} dossier(s))\n\n`;
       text += `Voici le dossier le plus urgent à examiner :\n\n`;
       text += `- **Dossier ID** : \`${report.id}\`\n`;
       text += `- **Cible signalée** : **${report.cibleNom}** (Type : ${report.cibleType})\n`;
@@ -484,7 +484,7 @@ Voici l'état consolidé ${periodTitle} :
         .filter((t) => t.statut === 'SUCCES')
         .reduce((sum, t) => sum + (t.montant || 0), 0);
 
-      let text = `### 💳 Évolution des abonnements & Taux de conversion\n\n`;
+      let text = `### Évolution des abonnements & Taux de conversion\n\n`;
       text += `Sur la base des comptes réels enregistrés sur KINOO :\n\n`;
       text += `- **Base d'utilisateurs totale** : **${totalUsers}** compte(s)\n`;
       text += `- **Abonnements payants actifs (Standard, Premium)** : **${paidUsers.length}**\n`;
@@ -493,7 +493,7 @@ Voici l'état consolidé ${periodTitle} :
       text += `- **Revenu mensuel récurrent (MRR)** : **${mrr.toLocaleString('fr-FR')} €**\n\n`;
 
       if (paidUsers.length === 0) {
-        text += `_Actuellement, 100% des comptes utilisent l'offre gratuite. Aucun abonnement payant n'a encore converti ce mois-ci._\n\n**Conseil d'optimisation de l'Assistant :**\nProposer un message in-app lors de la 3ème séance pour inviter les utilisateurs à souscrire à la formule Standard ou Premium pour bénéficier du salon vocal et lever les limites de participants.`;
+        text += `_Actuellement, 100% des comptes sont en essai gratuit. Aucun abonnement payant n'a encore converti ce mois-ci._\n\n**Conseil d'optimisation de l'Assistant :**\nProposer un message in-app lors de la 3ème séance pour inviter les utilisateurs à souscrire à la formule Standard ou Premium pour bénéficier du salon vocal et lever les limites de participants.`;
       } else {
         text += `**Répartition des offres payantes :**\n`;
         const standardCount = paidUsers.filter((u) => u.forfait === 'STANDARD').length;
@@ -526,22 +526,22 @@ Voici l'état consolidé ${periodTitle} :
       q.includes('quota')
     ) {
       const errors = integrations.filter((i) => i.statut !== 'ACTIF');
-      let text = `### 🌐 État de santé des intégrations externes & API\n\n`;
+      let text = `### État de santé des intégrations externes & API\n\n`;
       text += `Supervision en temps réel des ${integrations.length} connecteurs externes :\n\n`;
 
       integrations.forEach((item) => {
         const badge =
           item.statut === 'ACTIF'
-            ? '🟢 **Opérationnel**'
+            ? '**Opérationnel**'
             : item.statut === 'QUOTA_DEPASSE'
-            ? '🟠 **Quota dépassé**'
-            : '🔴 **En anomalie**';
+            ? '**Quota dépassé**'
+            : '**En anomalie**';
 
         text += `• **${item.nom}** (${item.fournisseur}) : ${badge}\n`;
         text += `  - Latence moyenne : **${item.latenceMs} ms** | Taux de succès : **${item.tauxSucces}%**\n`;
         text += `  - Consommation quota : **${item.quotaUtilisePct}%**\n`;
         if (item.messageErreur) {
-          text += `  - ⚠️ _Rapport d'erreur : ${item.messageErreur}_\n`;
+          text += `  - _Rapport d'erreur : ${item.messageErreur}_\n`;
         }
       });
 
@@ -564,7 +564,7 @@ Voici l'état consolidé ${periodTitle} :
           dangerLevel: 'low',
         };
       } else {
-        text += `\n✅ **Toutes les intégrations sont saines et respectent les seuils de tolérance.**`;
+        text += `\n**Toutes les intégrations sont saines et respectent les seuils de tolérance.**`;
       }
 
       return {
@@ -599,11 +599,11 @@ Voici l'état consolidé ${periodTitle} :
           l.action.includes('ECHEC')
       );
 
-      let text = `### 🔒 Analyse de sécurité & Détection des comportements suspects\n\n`;
+      let text = `### Analyse de sécurité & Détection des comportements suspects\n\n`;
       if (secLogs.length === 0) {
-        text += `✅ **Aucun comportement suspect détecté cette semaine.**\n\nLe journal d'audit ne relève aucune tentative de force brute sur les codes de salons, ni d'échecs répétés de connexion sur les comptes privilégiés.`;
+        text += `**Aucun comportement suspect détecté cette semaine.**\n\nLe journal d'audit ne relève aucune tentative de force brute sur les codes de salons, ni d'échecs répétés de connexion sur les comptes privilégiés.`;
       } else {
-        text += `⚠️ **${secLogs.length} événement(s) de sécurité remarquables identifiés :**\n\n`;
+        text += `**${secLogs.length} événement(s) de sécurité remarquables identifiés :**\n\n`;
         secLogs.slice(0, 3).forEach((l) => {
           text += `• **${l.action}** (${new Date(l.horodatage).toLocaleTimeString('fr-FR')}) :\n`;
           text += `  - Cible : \`${l.cibleId || 'Système'}\` (${l.cibleType})\n`;
@@ -655,7 +655,7 @@ Voici l'état consolidé ${periodTitle} :
       return {
         id: `msg-${Date.now()}`,
         role: 'assistant',
-        text: `### 📈 Évolution des utilisateurs actifs sur 30 jours\n\n- **Utilisateurs inscrits au total** : **${total}**\n- **Utilisateurs actifs au cours des 30 derniers jours (MAU)** : **${active30.length}**\n- **Taux de rétention 30j** : **${total > 0 ? Math.round((active30.length / total) * 100) : 0}%**\n\n*Note : Ces données reflètent les connexions réelles enregistrées dans la base locale. Le graphe d'affluence journalière (DAU) est également consultable dans l'onglet Statistiques.*`,
+        text: `### Évolution des utilisateurs actifs sur 30 jours\n\n- **Utilisateurs inscrits au total** : **${total}**\n- **Utilisateurs actifs au cours des 30 derniers jours (MAU)** : **${active30.length}**\n- **Taux de rétention 30j** : **${total > 0 ? Math.round((active30.length / total) * 100) : 0}%**\n\n*Note : Ces données reflètent les connexions réelles enregistrées dans la base locale. Le graphe d'affluence journalière (DAU) est également consultable dans l'onglet Statistiques.*`,
         timestamp: new Date().toISOString(),
         suggestions: [
           'Résumé de la journée',

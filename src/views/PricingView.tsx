@@ -58,17 +58,11 @@ export const PricingView: React.FC<PricingViewProps> = ({
       return;
     }
 
-    const updatedUser: User = {
-      ...currentUser,
-      forfait: plan,
-    };
-    StorageService.setCurrentUser(updatedUser);
-    StorageService.updateUserProfile(currentUser.id, { forfait: plan });
-    if (onPlanChanged) {
-      onPlanChanged(plan);
-    }
-    setActionFeedback(`Félicitations ! Vous êtes passé à la formule Kinoo ${plan.toLowerCase()}.`);
-    setTimeout(() => setActionFeedback(null), 4000);
+    // Le paiement en ligne n'est pas encore branché : on n'active jamais un forfait payant sans paiement confirmé.
+    setActionFeedback(
+      `Le paiement en ligne du forfait ${KINOO_PLANS[plan]?.name || plan} sera disponible très bientôt. Notre équipe peut activer votre forfait en attendant : contactez-nous.`
+    );
+    setTimeout(() => setActionFeedback(null), 6000);
   };
 
   const handleSwitchToTestAccount = (email: string) => {
@@ -106,6 +100,18 @@ export const PricingView: React.FC<PricingViewProps> = ({
         <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight">
           Choisissez votre formule
         </h1>
+        {!currentUser && (
+          <p className="inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Inscrivez-vous : votre première séance est offerte</span>
+          </p>
+        )}
+        {currentUser?.forfait === 'GRATUIT' && currentUser?.essaiActif && (
+          <p className="inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Votre séance d'essai gratuite est limitée : choisissez un forfait pour continuer après.</span>
+          </p>
+        )}
 
         <p className="text-base sm:text-lg font-medium text-transparent bg-clip-text bg-gradient-to-r from-[#7C3AED] via-[#EC4899] to-[#3B82F6]">
           « Même à distance, ensemble. »
@@ -147,12 +153,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
       </div>
 
       {/* ============================================================ */}
-      {/* 2. LES 3 CARTES DE TARIFICATION (GRATUIT / STANDARD / PREMIUM) */}
+      {/* 2. LES 3 CARTES DE TARIFICATION (DÉCOUVERTE / STANDARD / PREMIUM) */}
       {/* ============================================================ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch pt-2">
         
         {/* ------------------------------------------------------------ */}
-        {/* FORMULE 1 — GRATUIT */}
+        {/* FORMULE 1 — DÉCOUVERTE */}
         {/* ------------------------------------------------------------ */}
         <div className="bg-[#141417] border border-[#232326] rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative transition-all duration-300 hover:border-[#383842]">
           <div className="space-y-6">
@@ -162,27 +168,36 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-[#B8B4C0] px-2.5 py-1 rounded-lg bg-[#1D1D23] border border-[#282830]">
                   Formule 1
                 </span>
-                {currentUser?.forfait === 'GRATUIT' && (
+                {currentUser?.forfait === 'DECOUVERTE' && (
                   <span className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                     Votre forfait actif
                   </span>
                 )}
               </div>
-              <h3 className="text-2xl font-bold text-white">Gratuit</h3>
+              <h3 className="text-2xl font-bold text-white">Découverte</h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
-                Idéal pour découvrir le visionnage synchronisé et lancer de petites séances entre proches.
+                Idéal pour lancer de petites séances synchronisées entre proches, au meilleur prix.
               </p>
             </div>
 
             {/* Prix */}
             <div className="pt-2 border-t border-[#232326]/60">
               <div className="flex flex-col">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">0 FCFA</span>
-                  <span className="text-xs text-[#8E8A99] font-medium">/ pour toujours</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                    {billingCycle === 'MONTHLY' ? '1 200 FCFA' : '960 FCFA'}
+                  </span>
+                  <span className="text-xs text-[#8E8A99] font-medium">/ mois</span>
                 </div>
-                <span className="text-xs text-[#8E8A99] mt-0.5">0 € / mois · Aucune carte bancaire requise</span>
+                <span className="text-xs text-[#8E8A99] mt-0.5">
+                  {billingCycle === 'MONTHLY' ? '≈ 1,83 €/mois' : '≈ 1,46 €/mois'}
+                </span>
               </div>
+              <p className="text-[11px] text-[#8E8A99] mt-1">
+                {billingCycle === 'ANNUAL'
+                  ? 'Facturé 11 520 FCFA par an (≈ 17,56 € · 2 mois offerts)'
+                  : 'Sans engagement, résiliable à tout moment'}
+              </p>
             </div>
 
             {/* Liste des fonctionnalités */}
@@ -196,7 +211,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>3 films ou épisodes</strong> de série par mois</span>
+                  <span><strong>3 séances</strong> par mois</span>
                 </li>
 
                 {/* Invitation jusqu'à 10 personnes via URL */}
@@ -204,7 +219,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 10 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 5 personnes</strong></span>
                 </li>
 
                 {/* Uniquement lien URL */}
@@ -247,12 +262,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span className="line-through text-[#7A7684]">Débriefing d'après-séance (salon micro/caméra)</span>
                 </li>
 
-                {/* Contient des publicités */}
-                <li className="flex items-start gap-2.5 text-[#EAB308]">
+                {/* Publicités fréquentes */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Radio className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>Contient des publicités</strong> discrètes</span>
+                  <span><strong>Publicités fréquentes</strong> (formule d'entrée)</span>
                 </li>
 
                 {/* Pas d'accès communication réseau amis */}
@@ -269,10 +284,10 @@ export const PricingView: React.FC<PricingViewProps> = ({
           {/* Bouton d'action */}
           <div className="pt-8">
             <button
-              onClick={() => handleSelectPlan('GRATUIT')}
+              onClick={() => handleSelectPlan('DECOUVERTE')}
               className="w-full py-3.5 rounded-2xl font-bold text-xs text-white bg-[#1F1F26] hover:bg-[#282832] border border-[#2E2E38] transition-all flex items-center justify-center gap-2 shadow-sm"
             >
-              <span>{currentUser?.forfait === 'GRATUIT' ? 'Forfait actuel' : 'Commencer gratuitement — 0 FCFA'}</span>
+              <span>{currentUser?.forfait === 'DECOUVERTE' ? 'Forfait actuel' : 'Choisir Découverte — 1 200 FCFA'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -308,7 +323,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
-                Pour profiter pleinement de vos soirées cinéma avec chat vocal, import vidéo et sans publicité.
+                Pour profiter pleinement de vos soirées cinéma avec chat vocal, import vidéo et peu de publicités.
               </p>
             </div>
 
@@ -343,15 +358,15 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>25 films ou épisodes</strong> de série par mois</span>
+                  <span><strong>10 séances</strong> par mois</span>
                 </li>
 
-                {/* Invitation jusqu'à 50 personnes */}
+                {/* Invitation jusqu'à 15 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 50 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 15 personnes</strong></span>
                 </li>
 
                 {/* Au choix par lien URL ou par import vidéo */}
@@ -360,14 +375,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Check className="w-3.5 h-3.5" />
                   </div>
                   <span>Diffusion au choix par <strong>lien URL</strong> ou <strong>import vidéo</strong></span>
-                </li>
-
-                {/* Accès catalogue suggestions */}
-                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
-                  <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Accès au catalogue <strong>« Films & séries du moment »</strong></span>
                 </li>
 
                 {/* Chat texte ET vocal disponibles */}
@@ -386,12 +393,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>Débriefing d'après-séance</strong> disponible (micro & vidéo)</span>
                 </li>
 
-                {/* Sans publicité */}
-                <li className="flex items-start gap-2.5 text-emerald-400 font-medium">
-                  <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="w-3.5 h-3.5" />
+                {/* Publicités occasionnelles */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
+                  <div className="w-5 h-5 rounded-md bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Radio className="w-3.5 h-3.5" />
                   </div>
-                  <span>Expérience <strong>100% sans publicité</strong></span>
+                  <span><strong>Publicités occasionnelles</strong> (bien moins fréquentes)</span>
                 </li>
 
                 {/* Pas d'accès communication réseau amis */}
@@ -441,7 +448,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
               <h3 className="text-2xl font-bold text-white flex items-center gap-2">
                 <span>Premium</span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
-                  Tout Illimité
+                  Tout le confort
                 </span>
               </h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
@@ -475,12 +482,20 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 Tout ce qui est inclus :
               </span>
               <ul className="space-y-3 text-xs">
+                {/* Sans publicité */}
+                <li className="flex items-start gap-2.5 text-emerald-400 font-medium">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span>Expérience <strong>100% sans publicité</strong></span>
+                </li>
+
                 {/* Visionnage illimité */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span><strong>Visionnage illimité</strong> de films et séries</span>
+                  <span><strong>25 séances par mois</strong> de films et séries</span>
                 </li>
 
                 {/* Toutes les fonctionnalités Standard incluses */}
@@ -491,12 +506,20 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>Toutes les fonctions Standard incluses</strong> (import vidéo, suggestions, chat + vocal, débriefing, sans pub)</span>
                 </li>
 
-                {/* Invitation jusqu'à 250 personnes */}
+                {/* Invitation jusqu'à 25 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 250 personnes</strong> simultanément</span>
+                  <span>Invitation <strong>jusqu'à 25 personnes</strong> simultanément</span>
+                </li>
+
+                {/* Catalogue : Premium uniquement */}
+                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
+                  <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
+                    <Check className="w-3.5 h-3.5" />
+                  </div>
+                  <span>Accès au catalogue <strong>« Films & séries du moment »</strong></span>
                 </li>
 
                 {/* Accès à un assistant IA personnel */}
@@ -512,7 +535,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Connexion de <strong>plateformes de streaming externes</strong> comme source</span>
+                  <span>Liens <strong>YouTube et vidéos directes</strong> comme source</span>
                 </li>
 
                 {/* Communication réseau d'amis débloqué */}
@@ -566,7 +589,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     Critères & Fonctionnalités
                   </th>
                   <th className="py-4 px-4 text-xs font-bold text-center text-white bg-[#141417]/70 w-1/5">
-                    Gratuit
+                    Découverte
                   </th>
                   <th className="py-4 px-4 text-xs font-bold text-center text-[#EC4899] bg-[#EC4899]/5 border-x border-[#EC4899]/20 w-1/5">
                     <div className="inline-flex items-center gap-1">
@@ -580,6 +603,16 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#232326] text-xs">
+                {/* 0. Essai offert */}
+                <tr className="hover:bg-[#1A1A22] transition-colors">
+                  <td className="py-3.5 px-5 font-semibold text-[#FAFAFA]">
+                    Première séance offerte à l'inscription
+                  </td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400"><Check className="w-4 h-4 mx-auto" /></td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20"><Check className="w-4 h-4 mx-auto" /></td>
+                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#3B82F6]/5"><Check className="w-4 h-4 mx-auto" /></td>
+                </tr>
+
                 {/* 1. Tarif mensuel */}
                 <tr className="hover:bg-[#1A1A22] transition-colors">
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
@@ -587,8 +620,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <span>Tarif mensuel</span>
                   </td>
                   <td className="py-3.5 px-4 text-center">
-                    <div className="font-extrabold text-sm text-white">0 FCFA</div>
-                    <div className="text-[11px] text-gray-400 font-normal">0 € / mois</div>
+                    <div className="font-extrabold text-sm text-white">1 200 FCFA</div>
+                    <div className="text-[11px] text-gray-400 font-normal">≈ 1,83 € / mois</div>
                   </td>
                   <td className="py-3.5 px-4 text-center bg-[#EC4899]/5 border-x border-[#EC4899]/20">
                     <div className="font-extrabold text-sm text-[#EC4899]">2 800 FCFA</div>
@@ -606,12 +639,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Film className="w-4 h-4 text-[#EC4899]" />
                     <span>Quota mensuel de visionnage</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">3 films / épisodes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">3 séances / mois</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    25 films / épisodes
+                    10 séances / mois
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    Illimité
+                    25 séances / mois
                   </td>
                 </tr>
 
@@ -621,12 +654,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Users className="w-4 h-4 text-[#3B82F6]" />
                     <span>Capacité d'invitation par séance</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 10 personnes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 5 personnes</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    Jusqu'à 50 personnes
+                    Jusqu'à 15 personnes
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    Jusqu'à 250 personnes
+                    Jusqu'à 25 personnes
                   </td>
                 </tr>
 
@@ -670,8 +703,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-4 text-center text-red-400">
                     <XIcon className="w-4 h-4 mx-auto" />
                   </td>
-                  <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    <Check className="w-4 h-4 mx-auto" />
+                  <td className="py-3.5 px-4 text-center text-red-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
+                    <XIcon className="w-4 h-4 mx-auto" />
                   </td>
                   <td className="py-3.5 px-4 text-center text-emerald-400 bg-[#3B82F6]/5">
                     <Check className="w-4 h-4 mx-auto" />
@@ -733,11 +766,11 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA]">
                     Publicité
                   </td>
-                  <td className="py-3.5 px-4 text-center text-amber-400 font-medium">
-                    Avec publicités
+                  <td className="py-3.5 px-4 text-center font-bold text-amber-400">
+                    Fréquentes
                   </td>
-                  <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    Sans publicité
+                  <td className="py-3.5 px-4 text-center font-bold text-amber-300 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
+                    Occasionnelles
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
                     Sans publicité
@@ -765,23 +798,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
                     <Bot className="w-4 h-4 text-[#7C3AED]" />
                     <span>Assistant IA personnel pour l'utilisateur</span>
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-emerald-400 font-bold bg-[#3B82F6]/5">
-                    <Check className="w-4 h-4 mx-auto" />
-                  </td>
-                </tr>
-
-                {/* 13. Plateformes de streaming externes */}
-                <tr className="hover:bg-[#1A1A22] transition-colors">
-                  <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
-                    <Tv className="w-4 h-4 text-[#3B82F6]" />
-                    <span>Connexion plateformes streaming externes</span>
                   </td>
                   <td className="py-3.5 px-4 text-center text-red-400">
                     <XIcon className="w-4 h-4 mx-auto" />

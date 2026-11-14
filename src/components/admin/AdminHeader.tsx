@@ -1,3 +1,4 @@
+import { ArrowRight as IconArrowRight } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 import { AdminTab } from './AdminSidebar';
 import { User, Room, Signalement, ExternalIntegration } from '../../types/kinoo';
@@ -303,7 +304,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
                           </div>
                         </div>
                         <span className="text-[10px] text-[#EC4899] shrink-0 font-medium">
-                          Voir profil →
+                          Voir profil<IconArrowRight className="w-3 h-3 inline-block ml-1" />
                         </span>
                       </button>
                     ))}
@@ -336,7 +337,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
                           </span>
                         </div>
                         <span className="text-[10px] text-emerald-400 shrink-0 font-medium">
-                          Inspecter salle →
+                          Inspecter salle<IconArrowRight className="w-3 h-3 inline-block ml-1" />
                         </span>
                       </button>
                     ))}
@@ -368,7 +369,7 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
                           </span>
                         </div>
                         <span className="text-[10px] text-rose-400 shrink-0 font-medium">
-                          Modérer →
+                          Modérer<IconArrowRight className="w-3 h-3 inline-block ml-1" />
                         </span>
                       </button>
                     ))}

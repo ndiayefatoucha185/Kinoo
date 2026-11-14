@@ -10,6 +10,7 @@ export type SyncEventType =
   | 'USER_LEAVE'
   | 'USER_KICKED'
   | 'ROOM_LOCKED'
+  | 'DEBRIEF_START'
   | 'ROOM_TERMINATED'
   | 'CLIENT_READY'
   | 'CHAT_MESSAGE'
@@ -18,7 +19,12 @@ export type SyncEventType =
   | 'INITIAL_SYNC_SNAPSHOT'
   | 'PARTICIPANT_AUDIO_VIDEO'
   | 'WEBRTC_SIGNAL'
-  | 'WEBRTC_SPEAKING';
+  | 'WEBRTC_SPEAKING'
+  | 'ROOM_ROSTER'
+  | 'HOST_AWAY'
+  | 'HOST_BACK'
+  | 'SESSION_STARTED'
+  | 'PARTICIPANT_NETWORK';
 
 export interface SyncPacket {
   type: SyncEventType;
@@ -47,6 +53,9 @@ class RoomSyncEngine {
   private rolloverDurationMs = 55 * 60 * 1000; // 55 minutes par défaut (avant coupure 60m Cloud Run)
   private rolloverToken: string | null = null;
   private guestReconnectSecret: string | null = null;
+  // Écart (ms) entre l'horloge du serveur et celle de cet appareil, lissé pour absorber la latence
+  private clockOffsetMs = 0;
+  private clockOffsetKnown = false;
 
   private state: SessionSynchroState = {
     positionLectureSec: 0,
@@ -157,10 +166,18 @@ class RoomSyncEngine {
     const storedGuestSecret = typeof window !== 'undefined' ? sessionStorage.getItem('kinoo_guest_reconnect_secret') : null;
     const currentGuestSecret = this.guestReconnectSecret || storedGuestSecret;
 
-    // L'adresse de connexion WebSocket ne contient plus AUCUN secret (Point 4)
-    const wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(
-      roomId
-    )}&pseudo=${encodeURIComponent(user.pseudo)}&ageCertifie=${encodeURIComponent(
+    // Code d'accès de la salle (mot de passe) : jamais dans l'URL, transmis dans INIT_SESSION.
+    // Il est déposé par l'écran de connexion à la salle : sessionStorage['kinoo_room_access_<roomId>'].
+    let roomAccessCode: string | undefined;
+    try {
+      roomAccessCode =
+        (typeof window !== 'undefined' ? sessionStorage.getItem(`kinoo_room_access_${roomId}`) : null) || undefined;
+    } catch {
+      roomAccessCode = undefined;
+    }
+
+    // L'adresse de connexion WebSocket ne contient plus AUCUN secret ni pseudo (Point 4)
+    const wsUrl = `${protocol}//${host}/ws?roomId=${encodeURIComponent(roomId)}&ageCertifie=${encodeURIComponent(
       ageVerified ? 'true' : 'false'
     )}`;
 
@@ -186,6 +203,8 @@ class RoomSyncEngine {
             type: 'INIT_SESSION',
             payload: {
               roomId,
+              pseudo: user.pseudo,
+              codeAcces: roomAccessCode,
               isRollover,
               rolloverToken: tokenToPresent || undefined,
               guestUserId: user.id && user.id.startsWith('guest-') ? user.id : undefined,
@@ -230,6 +249,14 @@ class RoomSyncEngine {
       newWs.onclose = (event) => {
         // Si cette socket fermée n'est plus la socket courante (déjà remplacée par un rollover), ne rien faire
         if (this.ws && this.ws !== newWs) {
+          return;
+        }
+
+        // Refus définitifs du serveur (session révoquée, accès refusé, salle introuvable/terminée/verrouillée/pleine) :
+        // inutile de reboucler toutes les 2 secondes.
+        const FATAL_CLOSE_CODES = [4400, 4401, 4403, 4404, 4410, 4423, 4429];
+        if (FATAL_CLOSE_CODES.includes(event.code)) {
+          console.warn('[SYNC-ENGINE] Connexion refusée par le serveur, pas de reconnexion automatique.', event.code, event.reason);
           return;
         }
 
@@ -289,6 +316,35 @@ class RoomSyncEngine {
 
     const serverTimestamp = msg.serverTimestamp || Date.now();
 
+    // Estimation de l'écart d'horloge serveur/appareil (on garde le plus faible délai observé)
+    if (msg.serverTimestamp) {
+      const sample = msg.serverTimestamp - Date.now();
+      if (!this.clockOffsetKnown) {
+        this.clockOffsetMs = sample;
+        this.clockOffsetKnown = true;
+      } else {
+        // Un message plus « en avance » = moins de latence : on se rapproche de cette mesure
+        this.clockOffsetMs = sample > this.clockOffsetMs ? sample : this.clockOffsetMs * 0.9 + sample * 0.1;
+      }
+    }
+
+    if (msg.type === 'ROOM_ROSTER' || msg.type === 'HOST_AWAY' || msg.type === 'HOST_BACK' || msg.type === 'SESSION_STARTED' || msg.type === 'PARTICIPANT_NETWORK') {
+      if (msg.type === 'ROOM_ROSTER' && msg.payload?.selfUserId && this.currentUser) {
+        this.currentUser.id = msg.payload.selfUserId;
+      }
+      this.dispatchLocal({
+        type: msg.type,
+        roomId: this.currentRoomId,
+        senderId: msg.senderId || 'server',
+        senderPseudo: 'Serveur Kinoo',
+        senderRole: 'HOTE',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      });
+      return;
+    }
+
     if (msg.type === 'INITIAL_SYNC_SNAPSHOT') {
       const p = msg.payload;
       this.state.etatLecture = p.playbackState || 'PAUSE';
@@ -329,7 +385,11 @@ class RoomSyncEngine {
       const pos = msg.payload?.positionSec ?? 0;
       this.state.positionLectureSec = pos;
       this.state.etatLecture = msg.type === 'PLAY' ? 'LECTURE' : 'PAUSE';
-      this.state.dernierSyncAt = serverTimestamp;
+      // Pour PLAY, la vidéo démarre réellement à l'heure planifiée par le serveur
+      this.state.dernierSyncAt =
+        msg.type === 'PLAY' && typeof msg.payload?.scheduledStartTime === 'number'
+          ? msg.payload.scheduledStartTime
+          : serverTimestamp;
       this.state.sequenceNumber = this.sequence;
 
       const packet: SyncPacket = {
@@ -392,6 +452,57 @@ class RoomSyncEngine {
       return;
     }
 
+    // Actions d'hôte et signalisation validées et diffusées par le serveur (format identique aux paquets locaux)
+    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED') {
+      const packet: SyncPacket = {
+        type: msg.type,
+        roomId: this.currentRoomId,
+        senderId: msg.senderId || 'server',
+        senderPseudo: msg.senderPseudo || 'Hôte',
+        senderRole: 'HOTE',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'WEBRTC_SIGNAL' || msg.type === 'WEBRTC_SPEAKING') {
+      const packet: SyncPacket = {
+        type: msg.type,
+        roomId: this.currentRoomId,
+        senderId: msg.type === 'WEBRTC_SPEAKING' ? msg.payload?.userId || msg.senderId : msg.senderId,
+        senderPseudo: msg.senderPseudo || 'Participant',
+        senderRole: 'PARTICIPANT',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'PARTICIPANT_STATE_CHANGED') {
+      const packet: SyncPacket = {
+        type: 'PARTICIPANT_AUDIO_VIDEO',
+        roomId: this.currentRoomId,
+        senderId: msg.payload?.userId || msg.senderId,
+        senderPseudo: 'Participant',
+        senderRole: 'PARTICIPANT',
+        timestamp: serverTimestamp,
+        sequenceNumber: ++this.sequence,
+        payload: msg.payload,
+      };
+      this.dispatchLocal(packet);
+      return;
+    }
+
+    if (msg.type === 'ERROR') {
+      console.warn('[SYNC-ENGINE] Erreur serveur:', msg.payload?.code, msg.payload?.message);
+      return;
+    }
+
     if (msg.type === 'MEDIA_CHANGED') {
       const packet: SyncPacket = {
         type: 'MEDIA_CHANGE',
@@ -441,9 +552,40 @@ class RoomSyncEngine {
     return { ...this.state };
   }
 
+  // Heure actuelle selon le serveur (même référence pour tous les appareils)
+  public getServerNow(): number {
+    return Date.now() + this.clockOffsetMs;
+  }
+
+  public getCurrentUserId(): string | null {
+    return this.currentUser?.id || null;
+  }
+
+  // Message simple vers le serveur (ex. START_SESSION, réservé à l'hôte et vérifié côté serveur)
+  public sendRaw(type: string, payload: Record<string, unknown> = {}): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type, payload }));
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // Signale à la salle que cet appareil a (ou n'a plus) un problème de réseau
+  public sendNetworkStatus(status: 'POOR' | 'OK'): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type: 'CLIENT_NETWORK', payload: { status } }));
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   public calculateCalculatedPosition(): number {
     if (this.state.etatLecture === 'LECTURE') {
-      const elapsedSec = (Date.now() - this.state.dernierSyncAt) / 1000;
+      const elapsedSec = Math.max(0, (this.getServerNow() - this.state.dernierSyncAt) / 1000);
       return this.state.positionLectureSec + elapsedSec * this.state.vitesseLecture;
     }
     return this.state.positionLectureSec;
@@ -484,18 +626,18 @@ class RoomSyncEngine {
     if (type === 'PLAY') {
       this.state.etatLecture = 'LECTURE';
       this.state.positionLectureSec = payload?.positionSec ?? this.state.positionLectureSec;
-      this.state.dernierSyncAt = now;
+      this.state.dernierSyncAt = this.getServerNow();
       this.state.sequenceNumber = this.sequence;
       this.state.emetteurPseudo = user.pseudo;
     } else if (type === 'PAUSE') {
       this.state.etatLecture = 'PAUSE';
       this.state.positionLectureSec = payload?.positionSec ?? this.calculateCalculatedPosition();
-      this.state.dernierSyncAt = now;
+      this.state.dernierSyncAt = this.getServerNow();
       this.state.sequenceNumber = this.sequence;
       this.state.emetteurPseudo = user.pseudo;
     } else if (type === 'SEEK') {
       this.state.positionLectureSec = payload?.positionSec ?? 0;
-      this.state.dernierSyncAt = now;
+      this.state.dernierSyncAt = this.getServerNow();
       this.state.sequenceNumber = this.sequence;
       this.state.emetteurPseudo = user.pseudo;
     }

@@ -1,3 +1,5 @@
+import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft } from 'lucide-react';
+import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { AuthService, SignupData, LoginData } from '../services/auth';
 import { StorageService } from '../services/storage';
@@ -110,6 +112,39 @@ interface AuthModalProps {
   onOpenLegal: (page: 'cgu' | 'confidentialite') => void;
 }
 
+function TrialPlansInfo() {
+  const rows = [
+    { name: 'Découverte', price: '1 200 FCFA', desc: '3 séances / mois, jusqu’à 5 participants, publicités fréquentes, lecteur web synchronisé et chat texte.' },
+    { name: 'Standard', price: '2 800 FCFA', desc: '10 séances / mois, 15 participants, publicités occasionnelles, import de fichiers locaux, salon débrief micro.' },
+    { name: 'Premium', price: '4 750 FCFA', desc: '25 séances / mois, 25 participants, sans publicité, catalogue, carnet d’amis et messagerie privée.' },
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="p-3.5 rounded-2xl border border-emerald-500/40 bg-emerald-500/10">
+        <div className="flex items-center gap-2">
+          <IconShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+          <h3 className="font-bold text-sm text-white">Votre première séance est offerte</h3>
+        </div>
+        <p className="text-[11px] text-[#B8B4C0] mt-1.5">
+          Aucune carte bancaire requise. Une fois cette séance utilisée, vous choisirez l’un des trois forfaits ci-dessous pour continuer à utiliser Kinoo.
+        </p>
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} className="p-3 rounded-2xl border border-[#232326] bg-[#09090B]">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-white">Kinoo {r.name}</h3>
+            <div className="text-right">
+              <span className="text-xs font-extrabold text-white">{r.price}</span>
+              <span className="text-[10px] text-gray-400"> / mois</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-[#B8B4C0] mt-1">{r.desc}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialMode = 'login',
@@ -196,13 +231,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     // Ne réinitialiser le mode et l'onboarding que lors d'une NOUVELLE ouverture de la modale
     if (isOpen && !prevIsOpenRef.current) {
       setMode(initialMode);
+      if (resetToken) setTokenInput(resetToken);
       setSignupStep('account');
       setGoogleOnboardingData(null);
       setErrorMessage(null);
       setSuccessMessage(null);
     }
     prevIsOpenRef.current = isOpen;
-  }, [initialMode, isOpen]);
+  }, [initialMode, isOpen, resetToken]);
 
   if (!isOpen) return null;
 
@@ -213,13 +249,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setSelectedAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setSelectedAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
   const handleOnboardingImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,13 +261,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage("L'image est trop volumineuse (maximum 5 Mo).");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setOnboardingAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    fileToAvatarDataUrl(file)
+      .then((dataUrl) => setOnboardingAvatar(dataUrl))
+      .catch(() => setErrorMessage("Impossible de lire cette image. Essayez un autre fichier."));
   };
 
     const fetchCaptcha = async () => {
@@ -274,15 +302,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      const res = await ApiClient.login(cleanEmail, motDePasse);
+      const res = await ApiClient.login(cleanEmail, motDePasse, {
+        turnstileToken,
+        captchaId: captchaChallenge?.challengeId || null,
+        captchaAnswer: captchaAnswer.trim() || null,
+      });
       StorageService.setCurrentUser(res.user);
       onAuthSuccess(res.user);
       onClose();
     } catch (apiErr: any) {
       const errMsg = apiErr?.message || '';
-      if (apiErr?.requiresCaptcha || errMsg.includes('captcha') || errMsg.includes('sécurité requise')) {
+      if (apiErr?.requiresCaptcha || apiErr?.code === 'CAPTCHA_REQUIRED') {
+        // Le serveur exige la vérification : on affiche la case et on s'arrête là
         setRequiresCaptcha(true);
+        setTurnstileToken(null);
+        setCaptchaAnswer('');
         fetchCaptcha();
+        try { (window as any).turnstile?.reset?.(); } catch {}
+        setErrorMessage(errMsg);
+        setIsSubmitting(false);
+        return;
       }
 
       const isConflict =
@@ -368,7 +407,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (apiErr: any) {
       const res = AuthService.signup(payload);
       if (res.success && res.user) {
-        res.user.forfait = selectedForfait;
+        // Un forfait payant ne s'active jamais sans paiement confirmé côté serveur
+        res.user.forfait = 'GRATUIT';
         StorageService.setCurrentUser(res.user);
         onAuthSuccess(res.user);
         onClose();
@@ -814,7 +854,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <div className="p-3.5 bg-[#141417] border border-purple-500/30 rounded-xl space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
-                          🛡️ Contrôle de sécurité Cloudflare Turnstile
+                          <IconShieldCheck className="w-3.5 h-3.5" /> Contrôle de sécurité Cloudflare Turnstile
                         </span>
                       </div>
                       <div id="cf-turnstile-container" className="flex justify-center min-h-[65px]" />
@@ -823,7 +863,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-                          🛡️ Ralentissement de sécurité (limitation de débit)
+                          <IconShieldCheck className="w-3.5 h-3.5" /> Ralentissement de sécurité (limitation de débit)
                         </span>
                         <button
                           type="button"
@@ -1097,106 +1137,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* ========================================================================= */}
           {mode === 'signup' && signupStep === 'plan' && (
             <div className="space-y-4">
-              <div className="space-y-3">
-                {/* Plan Gratuit */}
-                <div
-                  onClick={() => setSelectedForfait('GRATUIT')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'GRATUIT'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-lg shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'GRATUIT'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'GRATUIT' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Gratuit</h3>
-                    </div>
-                    <span className="text-xs font-extrabold text-white">0 FCFA</span>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    3 séances / mois, jusqu’à 10 participants, lecteur web synchronisé et chat texte discret.
-                  </p>
-                </div>
-
-                {/* Plan Standard */}
-                <div
-                  onClick={() => setSelectedForfait('STANDARD')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'STANDARD'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-lg shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-[10px] font-bold text-white shadow-sm">
-                    Le plus populaire
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'STANDARD'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'STANDARD' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Standard</h3>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-extrabold text-white">2 800 FCFA</span>
-                      <span className="text-[10px] text-gray-400">/mois</span>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    25 séances / mois, 50 participants, import local, salon débrief micro et 100% sans pub.
-                  </p>
-                </div>
-
-                {/* Plan Premium */}
-                <div
-                  onClick={() => setSelectedForfait('PREMIUM')}
-                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'PREMIUM'
-                      ? 'bg-[#3B82F6]/10 border-[#3B82F6] shadow-lg shadow-[#3B82F6]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="absolute -top-2.5 right-4 px-2 py-0.5 rounded-full bg-[#3B82F6] text-[10px] font-bold text-white shadow-sm">
-                    Tout Illimité
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'PREMIUM'
-                            ? 'border-[#3B82F6] bg-[#3B82F6] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'PREMIUM' && <Check className="w-3 h-3 stroke-[3]" />}
-                      </div>
-                      <h3 className="font-bold text-sm text-white">Kinoo Premium</h3>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-extrabold text-white">4 750 FCFA</span>
-                      <span className="text-[10px] text-gray-400">/mois</span>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-[#B8B4C0] mt-1.5 ml-7">
-                    Séances illimitées, 250 participants, assistant IA dédié, messagerie privée et débit prioritaire.
-                  </p>
-                </div>
-              </div>
+              <TrialPlansInfo />
 
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
                 <button
@@ -1218,13 +1159,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     'Création du compte...'
                   ) : (
                     <span>
-                      Valider mon inscription (
-                      {selectedForfait === 'GRATUIT'
-                        ? 'Forfait Gratuit'
-                        : selectedForfait === 'STANDARD'
-                        ? 'Forfait Standard'
-                        : 'Forfait Premium'}
-                      )
+                      Créer mon compte (1ère séance offerte)
                     </span>
                   )}
                 </button>
@@ -1273,7 +1208,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         onClick={() => setOnboardingAvatar(googleOnboardingData.profile.avatar)}
                         className="text-[11px] text-[#EC4899] hover:underline font-semibold cursor-pointer block"
                       >
-                        ↺ Rétablir ma photo Google
+                        <IconRotateCcw className="w-3 h-3 inline-block align-[-2px] mr-1" />Rétablir ma photo Google
                       </button>
                     )}
                   </div>
@@ -1334,99 +1269,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <p className="text-[10px] text-gray-400">Pré-rempli avec votre nom Google, modifiable à votre convenance.</p>
               </div>
 
-              {/* 3. Choix du Forfait */}
-              <div className="space-y-2 pt-1">
-                <label className="text-xs font-bold text-white block">
-                  Choisissez votre formule d'accès Kinoo :
-                </label>
-
-                {/* Plan Gratuit */}
-                <div
-                  onClick={() => setSelectedForfait('GRATUIT')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'GRATUIT'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-md shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'GRATUIT'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'GRATUIT' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Gratuit</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">0 FCFA</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    3 séances / mois, jusqu’à 10 participants, chat texte synchronisé.
-                  </p>
-                </div>
-
-                {/* Plan Standard */}
-                <div
-                  onClick={() => setSelectedForfait('STANDARD')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'STANDARD'
-                      ? 'bg-[#EC4899]/10 border-[#EC4899] shadow-md shadow-[#EC4899]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'STANDARD'
-                            ? 'border-[#EC4899] bg-[#EC4899] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'STANDARD' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Standard</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">2 800 FCFA / mois</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    25 séances / mois, 50 participants, import local, salon débrief micro.
-                  </p>
-                </div>
-
-                {/* Plan Premium */}
-                <div
-                  onClick={() => setSelectedForfait('PREMIUM')}
-                  className={`p-3 rounded-xl border transition-all cursor-pointer select-none relative ${
-                    selectedForfait === 'PREMIUM'
-                      ? 'bg-[#3B82F6]/10 border-[#3B82F6] shadow-md shadow-[#3B82F6]/15'
-                      : 'bg-[#09090B] border-[#232326] hover:border-[#3A3A44]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                          selectedForfait === 'PREMIUM'
-                            ? 'border-[#3B82F6] bg-[#3B82F6] text-white'
-                            : 'border-gray-500 bg-[#141417]'
-                        }`}
-                      >
-                        {selectedForfait === 'PREMIUM' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                      </div>
-                      <h4 className="font-bold text-xs text-white">Kinoo Premium</h4>
-                    </div>
-                    <span className="text-xs font-bold text-white">4 750 FCFA / mois</span>
-                  </div>
-                  <p className="text-[10px] text-[#B8B4C0] mt-1 ml-6">
-                    Séances illimitées, 250 participants, IA dédiée, débit prioritaire.
-                  </p>
-                </div>
-              </div>
+              {/* 3. Essai offert puis forfait */}
+              <TrialPlansInfo />
 
               {/* 4. Cases obligatoires (16+ et CGU/Confidentialité) */}
               <div className="space-y-2 pt-1">
@@ -1483,13 +1327,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   'Création de votre compte...'
                 ) : (
                   <span>
-                    Finaliser mon inscription (
-                    {selectedForfait === 'GRATUIT'
-                      ? 'Forfait Gratuit'
-                      : selectedForfait === 'STANDARD'
-                      ? 'Forfait Standard'
-                      : 'Forfait Premium'}
-                    )
+                    Finaliser mon inscription (1ère séance offerte)
                   </span>
                 )}
               </button>
@@ -1533,7 +1371,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   }}
                   className="text-xs text-[#EC4899] hover:underline cursor-pointer"
                 >
-                  ← Retour à la connexion
+                  <IconArrowLeft className="w-3.5 h-3.5 inline-block align-[-2px] mr-1" />Retour à la connexion
                 </button>
               </div>
             </form>

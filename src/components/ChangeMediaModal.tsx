@@ -2,21 +2,26 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ContentSource, SourceKind, CatalogItem } from '../types/kinoo';
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
-import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC } from '../utils/mediaHelper';
+import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC, unsupportedLinkWarning } from '../utils/mediaHelper';
 import { X, Film, Upload, Link, Youtube, FileVideo, Check, Info } from 'lucide-react';
 
 interface ChangeMediaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onMediaSelected: (newSource: ContentSource) => void;
+  // Le catalogue est réservé à la formule Premium
+  canUseCatalogue?: boolean;
+  canUseLocalFiles?: boolean;
 }
 
 export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
   isOpen,
   onClose,
   onMediaSelected,
+  canUseCatalogue = false,
+  canUseLocalFiles = true,
 }) => {
-  const [sourceType, setSourceType] = useState<SourceKind>('FICHIER_LOCAL');
+  const [sourceType, setSourceType] = useState<SourceKind>(canUseLocalFiles ? 'FICHIER_LOCAL' : 'URL_WEB');
 
   // File
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -181,7 +186,13 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
         <div className="grid grid-cols-3 gap-2 p-1 bg-[#09090B] rounded-2xl border border-[#232326]">
           <button
             type="button"
-            onClick={() => setSourceType('FICHIER_LOCAL')}
+            onClick={() => {
+              if (!canUseLocalFiles) {
+                alert('L’import de fichiers vidéo est réservé aux formules Standard et Premium.');
+                return;
+              }
+              setSourceType('FICHIER_LOCAL');
+            }}
             className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
               sourceType === 'FICHIER_LOCAL'
                 ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white shadow-md'
@@ -190,6 +201,9 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
           >
             <Upload className="w-3.5 h-3.5" />
             <span className="truncate">Fichier appareil</span>
+            {!canUseLocalFiles && (
+              <span className="text-[8px] px-1.5 rounded bg-amber-400/20 text-amber-300 font-bold">Standard</span>
+            )}
           </button>
 
           <button
@@ -202,12 +216,18 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
             }`}
           >
             <Link className="w-3.5 h-3.5" />
-            <span className="truncate">Liens URL &/ou Plateforme de streaming</span>
+            <span className="truncate">Lien vidéo / YouTube</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setSourceType('CATALOGUE')}
+            onClick={() => {
+              if (!canUseCatalogue) {
+                alert('Le catalogue « Films & séries du moment » est réservé à la formule Premium.');
+                return;
+              }
+              setSourceType('CATALOGUE');
+            }}
             className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
               sourceType === 'CATALOGUE'
                 ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white shadow-md'
@@ -216,6 +236,9 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
           >
             <Film className="w-3.5 h-3.5" />
             <span className="truncate">Catalogue</span>
+            {!canUseCatalogue && (
+              <span className="text-[8px] px-1.5 rounded bg-amber-400/20 text-amber-300 font-bold">Premium</span>
+            )}
           </button>
         </div>
 
@@ -265,7 +288,7 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
         {sourceType === 'URL_WEB' && (
           <div className="p-4 bg-[#09090B] rounded-2xl border border-[#232326] space-y-3 text-xs">
             <div className="space-y-1">
-              <label className="font-semibold text-white block">Lien URL &/ou Plateforme de streaming</label>
+              <label className="font-semibold text-white block">Lien vidéo direct ou YouTube</label>
               <input
                 type="url"
                 value={urlInput}
@@ -273,6 +296,11 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
                 placeholder="https://www.youtube.com/watch?v=... ou flux vidéo"
                 className="w-full bg-[#141417] border border-[#232326] rounded-xl px-3.5 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED]"
               />
+              {unsupportedLinkWarning(urlInput) && (
+                <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5">
+                  {unsupportedLinkWarning(urlInput)}
+                </p>
+              )}
             </div>
 
             {detectedYouTubeId && (
