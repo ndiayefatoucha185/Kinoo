@@ -37,6 +37,7 @@ import { AdminSettingsWidget } from '../components/admin/AdminSettingsWidget';
 interface SuperAdminDashboardProps {
   currentUser: User | null;
   onNavigate?: (view: string) => void;
+  onOpenCouple?: () => void;
   onLogout: () => void;
   onToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
@@ -44,6 +45,7 @@ interface SuperAdminDashboardProps {
 export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
   currentUser,
   onLogout,
+  onOpenCouple,
   onToast,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -360,6 +362,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
         }}
         currentUser={currentUser}
         onLogout={onLogout}
+        onOpenCouple={onOpenCouple}
         pendingReportsCount={activeReportsCount}
         activeRoomsCount={activeRoomsCount}
         integrationErrorsCount={integrationErrorsCount}

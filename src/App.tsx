@@ -343,6 +343,7 @@ export default function App() {
           <SuperAdminDashboard
             currentUser={currentUser}
             onLogout={handleLogout}
+            onOpenCouple={() => setCurrentView('couple')}
             onToast={addToast}
           />
         </ErrorBoundary>
@@ -444,7 +445,7 @@ export default function App() {
                   setRoomReturnView('couple');
                   setCurrentView('watchparty');
                 }}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => setCurrentView(isSuperAdmin ? 'superadmin' : 'dashboard')}
               />
               </ErrorBoundary>
             ) : currentView === 'dashboard' ? (
