@@ -2,10 +2,10 @@ import { Router, Response, NextFunction } from 'express';
 import { db, pool } from '../src/db/index.js';
 import { rooms, participations } from '../src/db/schema.js';
 import { and, eq, ne, desc, gte } from 'drizzle-orm';
-import { authenticate, rateLimitKv, AuthenticatedRequest } from './auth.js';
+import { authenticate, requireRole, rateLimitKv, AuthenticatedRequest } from './auth.js';
 import { newId, cleanText, generateRoomCode, sanitizeSourceContenu } from './security.js';
 import { globalWsServer } from './websocket.js';
-import { getCoupleOf, isActiveCoupleMember, statusOf, type CoupleRecord } from './coupleAccess.js';
+import { getCoupleOf, isActiveCoupleMember, statusOf, mapCouple, type CoupleRecord } from './coupleAccess.js';
 export { isActiveCoupleMember };
 import {
   COUPLE_PRICE_XOF,
@@ -219,27 +219,58 @@ coupleRouter.post('/couple/pay', authenticate, (_req, res) => {
   res.status(501).json({ error: 'Le paiement en ligne arrive bientôt. En attendant, contactez le support pour activer votre forfait Couple.', code: 'PAYMENT_NOT_READY' });
 });
 
-/** Activation sans paiement, réservée au Super Admin (tests et activation manuelle tant que le paiement n'est pas branché). */
-coupleRouter.post('/couple/activate', authenticate, requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const targetUserId = typeof req.body?.userId === 'string' ? req.body.userId : req.user!.id;
-    const c = await getCoupleOf(targetUserId);
-    if (!c) return res.status(404).json({ error: 'Aucun espace Couple pour ce compte.' });
-    await pool.query(
-      `UPDATE couples SET owner_paid = true, partner_paid = true, activated_at = now(), expires_at = now() + interval '30 days' WHERE id = $1`,
-      [c.id]
-    );
-    res.json(await buildState(req.user!.id));
-  } catch (e) {
-    console.error('[COUPLE] activation:', e);
-    res.status(500).json({ error: "Impossible d'activer l'espace Couple." });
-  }
+// ----------------------------------------------------------------------------
+// Console Super Admin : suivi et activation des forfaits Couple (aucun accès au contenu privé des couples)
+// ----------------------------------------------------------------------------
+
+coupleRouter.get('/admin/couples', authenticate, requireRole(['SUPER_ADMIN']), async (_req: AuthenticatedRequest, res: Response) => {
+  const { rows } = await pool.query(
+    `SELECT c.*, o.pseudo AS owner_pseudo, p.pseudo AS partner_pseudo
+       FROM couples c
+       JOIN users o ON o.id = c.owner_id
+       LEFT JOIN users p ON p.id = c.partner_id
+      ORDER BY c.created_at DESC LIMIT 300`
+  );
+  const stats = { total: rows.length, actifs: 0, enAttentePartenaire: 0, enAttentePaiement: 0, expires: 0, mrrXof: 0 };
+  const couples = rows.map((r) => {
+    const c = mapCouple(r);
+    const status = statusOf(c);
+    if (status === 'ACTIF') {
+      stats.actifs++;
+      stats.mrrXof += COUPLE_PRICE_XOF;
+    } else if (status === 'EN_ATTENTE_PARTENAIRE') stats.enAttentePartenaire++;
+    else if (status === 'EN_ATTENTE_PAIEMENT') stats.enAttentePaiement++;
+    else stats.expires++;
+    return {
+      id: c.id,
+      mode: c.mode,
+      status,
+      ownerPseudo: r.owner_pseudo,
+      partnerPseudo: r.partner_pseudo || null,
+      ownerPaid: c.ownerPaid,
+      partnerPaid: c.partnerPaid,
+      expiresAt: c.expiresAt,
+      createdAt: r.created_at,
+    };
+  });
+  res.json({ stats, couples });
 });
 
-function requireSuperAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  if (req.user?.role !== 'SUPER_ADMIN') return res.status(403).json({ error: 'Accès réservé au Super Admin.' });
-  next();
-}
+coupleRouter.post('/admin/couples/:id/activate', authenticate, requireRole(['SUPER_ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  const days = Math.min(Math.max(Math.floor(Number(req.body?.days) || 30), 1), 366);
+  const upd = await pool.query(
+    `UPDATE couples SET owner_paid = true, partner_paid = true, activated_at = now(), expires_at = now() + ($2 || ' days')::interval WHERE id = $1`,
+    [String(req.params.id).slice(0, 128), String(days)]
+  );
+  if (upd.rowCount === 0) return res.status(404).json({ error: 'Couple introuvable.' });
+  res.json({ ok: true });
+});
+
+coupleRouter.post('/admin/couples/:id/deactivate', authenticate, requireRole(['SUPER_ADMIN']), async (req: AuthenticatedRequest, res: Response) => {
+  const upd = await pool.query(`UPDATE couples SET expires_at = now() WHERE id = $1`, [String(req.params.id).slice(0, 128)]);
+  if (upd.rowCount === 0) return res.status(404).json({ error: 'Couple introuvable.' });
+  res.json({ ok: true });
+});
 
 // ----------------------------------------------------------------------------
 // Dates importantes et sorties

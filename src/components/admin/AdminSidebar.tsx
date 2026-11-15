@@ -30,6 +30,7 @@ export type AdminTab =
   | 'integrations'
   | 'ads'
   | 'billing'
+  | 'couples'
   | 'analytics'
   | 'ai-assistant'
   | 'audit'
@@ -40,7 +41,6 @@ interface AdminSidebarProps {
   onSelectTab: (tab: AdminTab) => void;
   currentUser: User | null;
   onLogout: () => void;
-  onOpenCouple?: () => void;
   pendingReportsCount: number;
   activeRoomsCount: number;
   integrationErrorsCount: number;
@@ -69,7 +69,6 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
   onSelectTab,
   currentUser,
   onLogout,
-  onOpenCouple,
   pendingReportsCount,
   activeRoomsCount,
   integrationErrorsCount,
@@ -165,6 +164,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           id: 'billing',
           label: 'Abonnements & Facturation',
           icon: CreditCard,
+        },
+        {
+          id: 'couples',
+          label: 'Forfait Couple',
+          icon: Heart,
         },
         {
           id: 'analytics',
@@ -355,17 +359,6 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
 
       {/* Permanently Fixed Bottom Section */}
       <div className="shrink-0 pt-2.5 border-t border-[#1B1C24] space-y-2 bg-[#0C0D12]">
-        {onOpenCouple && (
-          <button
-            type="button"
-            onClick={onOpenCouple}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-300 hover:text-white hover:bg-rose-500/20 border border-rose-400/30 transition-all"
-          >
-            <Heart className="w-3.5 h-3.5" fill="currentColor" />
-            <span>Kinoo Couple</span>
-          </button>
-        )}
-
         {/* Diagnostics pill */}
         <div className="px-2.5 py-1.5 rounded-lg bg-[#111219] border border-[#1F202B] flex items-center justify-between text-[10px] text-gray-400">
           <div className="flex items-center gap-1.5">

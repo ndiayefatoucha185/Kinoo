@@ -58,6 +58,13 @@ export default function App() {
     }
   }, [currentView, isSuperAdmin, currentUser]);
 
+  // Le Super Admin gère la plateforme depuis sa console : pas d'accès aux interfaces utilisateur
+  useEffect(() => {
+    if (isSuperAdmin && (currentView === 'couple' || currentView === 'dashboard')) {
+      setCurrentView('superadmin');
+    }
+  }, [currentView, isSuperAdmin]);
+
   // Safety guard: if currentView is superadmin but user is not Super Admin, redirect immediately
   useEffect(() => {
     if (currentView === 'superadmin' && !isSuperAdmin) {
@@ -343,7 +350,6 @@ export default function App() {
           <SuperAdminDashboard
             currentUser={currentUser}
             onLogout={handleLogout}
-            onOpenCouple={() => setCurrentView('couple')}
             onToast={addToast}
           />
         </ErrorBoundary>
@@ -445,7 +451,7 @@ export default function App() {
                   setRoomReturnView('couple');
                   setCurrentView('watchparty');
                 }}
-                onBack={() => setCurrentView(isSuperAdmin ? 'superadmin' : 'dashboard')}
+                onBack={() => setCurrentView('dashboard')}
               />
               </ErrorBoundary>
             ) : currentView === 'dashboard' ? (

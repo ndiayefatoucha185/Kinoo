@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Loader2, Hourglass, CreditCard, ShieldCheck, LogOut } from 'lucide-react';
+import { Copy, Check, Loader2, Hourglass, CreditCard, LogOut } from 'lucide-react';
 import { ApiClient } from '../../services/api';
 import type { CoupleInfo, CoupleState } from '../../types/couple';
 import type { User } from '../../types/kinoo';
@@ -15,7 +15,6 @@ export const CoupleWaiting: React.FC<Props> = ({ couple, currentUser, onState, o
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const isSuperAdmin = currentUser.role === 'SUPER_ADMIN';
 
   const invite = `Rejoins-moi sur Kinoo Couple. Crée un compte ou connecte-toi, ouvre « Espace Couple » et entre ce code : ${couple.inviteCode}`;
   const copy = async () => {
@@ -40,17 +39,6 @@ export const CoupleWaiting: React.FC<Props> = ({ couple, currentUser, onState, o
     }
   };
 
-  const activate = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      onState(await ApiClient.coupleActivate());
-    } catch (e: any) {
-      setMsg(e?.message || 'Activation impossible.');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const modeLabel = couple.mode === 'GALANTERIE' ? 'Galanterie' : '50 / 50';
 
@@ -93,13 +81,6 @@ export const CoupleWaiting: React.FC<Props> = ({ couple, currentUser, onState, o
           ) : (
             <p className="text-sm text-rose-200">En attente du règlement de {couple.partner?.pseudo || 'votre partenaire'}…</p>
           )}
-          {isSuperAdmin && (
-            <div>
-              <button onClick={activate} disabled={busy} className="px-4 py-2 rounded-xl border border-amber-400/50 text-amber-300 text-xs font-bold inline-flex items-center gap-2 hover:bg-amber-400/10">
-                <ShieldCheck className="w-4 h-4" /> Activer sans paiement (Super Admin)
-              </button>
-            </div>
-          )}
         </>
       )}
 
@@ -108,7 +89,6 @@ export const CoupleWaiting: React.FC<Props> = ({ couple, currentUser, onState, o
           <h2 className="text-xl font-bold text-white">Votre forfait Couple a expiré</h2>
           <p className="text-sm text-rose-100/80">Renouvelez-le pour retrouver votre espace : vos messages et souvenirs sont conservés.</p>
           <button onClick={pay} disabled={busy} className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-sm font-bold">Renouveler</button>
-          {isSuperAdmin && <button onClick={activate} className="block mx-auto text-xs text-amber-300 underline">Réactiver (Super Admin)</button>}
         </>
       )}
 
