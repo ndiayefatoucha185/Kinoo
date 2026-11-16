@@ -74,6 +74,7 @@ export default function App() {
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [authCouple, setAuthCouple] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
   const [authResetToken, setAuthResetToken] = useState<string>('');
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState<boolean>(false);
@@ -290,13 +291,17 @@ export default function App() {
     PrivacyAnalytics.trackPageView(currentView);
   }, [currentView]);
 
-  const handleAuthSuccess = (user: User) => {
+  const handleAuthSuccess = (user: User, opts?: { openCouple?: boolean }) => {
     setCurrentUser(user);
     if (user.role === 'SUPER_ADMIN') {
       setCurrentView('superadmin');
+    } else if (opts?.openCouple) {
+      // Inscription avec « Kinoo Couple » : on ouvre directement l'espace à deux
+      setCurrentView('couple');
     } else {
       setCurrentView('dashboard');
     }
+    setAuthCouple(false);
     setIsAuthModalOpen(false);
     addToast(`Bienvenue, ${user.pseudo} !`, 'success');
   };
@@ -371,6 +376,7 @@ export default function App() {
         }}
         onOpenAuth={(mode) => {
           setAuthMode(mode || 'login');
+          setAuthCouple(false);
           setIsAuthModalOpen(true);
         }}
         onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
@@ -400,8 +406,9 @@ export default function App() {
               <PricingView
                 currentUser={currentUser}
                 onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
-                onOpenAuth={(mode) => {
+                onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
+                  setAuthCouple(Boolean(opts?.couple));
                   setIsAuthModalOpen(true);
                 }}
                 onOpenCouple={() => setCurrentView('couple')}
@@ -484,8 +491,9 @@ export default function App() {
               <HomeView
                 onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
                 onOpenJoinRoom={() => setIsJoinRoomOpen(true)}
-                onOpenAuth={(mode) => {
+                onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
+                  setAuthCouple(Boolean(opts?.couple));
                   setIsAuthModalOpen(true);
                 }}
                 onNavigate={(v) => {
@@ -506,8 +514,9 @@ export default function App() {
               <PricingView
                 currentUser={null}
                 onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
-                onOpenAuth={(mode) => {
+                onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
+                  setAuthCouple(Boolean(opts?.couple));
                   setIsAuthModalOpen(true);
                 }}
                 onQuickLogin={(email) => {
@@ -591,6 +600,7 @@ export default function App() {
           setIsAuthModalOpen(false);
           setAuthResetToken('');
         }}
+        initialCouple={authCouple}
         onAuthSuccess={handleAuthSuccess}
         onOpenLegal={handleOpenLegal}
       />

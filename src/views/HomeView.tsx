@@ -1,4 +1,4 @@
-import { X as IconX, Check as IconCheck } from 'lucide-react';
+import { X as IconX, Check as IconCheck, Heart as IconHeart, MessageCircle as IconChat, Camera as IconCamera, Film as IconFilm } from 'lucide-react';
 import React from 'react';
 import { COMPATIBLE_SOURCES } from '../data/mockContents';
 import {
@@ -27,7 +27,7 @@ import {
 interface HomeViewProps {
   onOpenCreateRoom: () => void;
   onOpenJoinRoom: () => void;
-  onOpenAuth: (mode?: 'login' | 'signup') => void;
+  onOpenAuth: (mode?: 'login' | 'signup', opts?: { couple?: boolean }) => void;
   onNavigate: (view: string) => void;
 }
 
@@ -322,6 +322,47 @@ export const HomeView: React.FC<HomeViewProps> = ({
             <p className="text-xs sm:text-sm text-[#B8B4C0] leading-relaxed">
               L’hôte garde la main sur la séance : verrouillage par mot de passe, changement de film en direct, modération des messages et gestion des spectateurs.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* 4 bis. KINOO COUPLE */}
+      <section className="max-w-5xl mx-auto px-4">
+        <div className="rounded-3xl p-6 sm:p-10 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+              <IconHeart className="w-7 h-7 text-white" fill="currentColor" />
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wider text-rose-300">Nouveau</span>
+              <h2 className="text-2xl sm:text-3xl font-bold text-white">Kinoo Couple</h2>
+              <p className="text-sm text-[#D9D4E3] max-w-2xl">Un espace rien que pour vous deux, avec ce que les applications de couple ne proposent pas : regarder des films et des séries ensemble, en direct.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { icon: IconChat, title: 'Votre bulle privée', desc: 'Discussion à deux avec photos, compteur de jours, dates importantes et question du jour.' },
+              { icon: IconCamera, title: 'Souvenirs et sorties', desc: 'Gardez vos plus beaux moments avec lieux et photos, et planifiez vos prochains rendez-vous.' },
+              { icon: IconFilm, title: 'Soirées ciné à deux', desc: 'Lecture synchronisée, sans publicité, fichiers locaux et catalogue inclus, et une liste de films à voir ensemble.' },
+            ].map((f) => (
+              <div key={f.title} className="rounded-2xl bg-black/25 border border-white/10 p-4 space-y-1.5">
+                <f.icon className="w-5 h-5 text-rose-300" />
+                <h3 className="text-sm font-bold text-white">{f.title}</h3>
+                <p className="text-xs text-[#B8B4C0]">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <p className="text-sm text-white">
+              <strong>3 000 FCFA / mois pour deux</strong>
+              <span className="text-[#B8B4C0]"> · Galanterie (un seul paie) ou 50/50 (1 500 FCFA chacun)</span>
+            </p>
+            <button
+              onClick={() => onOpenAuth('signup', { couple: true })}
+              className="px-6 py-3 rounded-2xl font-bold text-xs text-white bg-gradient-to-r from-rose-500 to-pink-500 hover:opacity-95 shadow-md shadow-rose-500/20 cursor-pointer"
+            >
+              Créer mon espace Couple
+            </button>
           </div>
         </div>
       </section>

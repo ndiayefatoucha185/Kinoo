@@ -28,7 +28,7 @@ import { KINOO_PLANS } from '../config/plans';
 interface PricingViewProps {
   currentUser?: User | null;
   onOpenCreateRoom: () => void;
-  onOpenAuth?: (mode?: 'login' | 'signup') => void;
+  onOpenAuth?: (mode?: 'login' | 'signup', opts?: { couple?: boolean }) => void;
   onPlanChanged?: (newPlan: UserPlan) => void;
   onQuickLogin?: (email: string) => void;
   onOpenCouple?: () => void;
@@ -589,7 +589,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
           </p>
         </div>
         <button
-          onClick={() => (currentUser ? onOpenCouple?.() : onOpenAuth?.('signup'))}
+          onClick={() => (currentUser ? onOpenCouple?.() : onOpenAuth?.('signup', { couple: true }))}
           className="px-6 py-3.5 rounded-2xl font-bold text-xs text-white bg-gradient-to-r from-rose-500 to-pink-500 hover:opacity-95 shadow-md shadow-rose-500/20 inline-flex items-center justify-center gap-2 shrink-0"
         >
           <span>{currentUser ? 'Ouvrir l’espace Couple' : 'Créer un compte'}</span>

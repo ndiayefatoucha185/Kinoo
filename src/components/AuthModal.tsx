@@ -1,4 +1,4 @@
-import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft } from 'lucide-react';
+import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft, Heart as IconHeart, Check as IconCheckMark } from 'lucide-react';
 import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
 import { AuthService, SignupData, LoginData } from '../services/auth';
@@ -107,8 +107,10 @@ interface AuthModalProps {
   isOpen: boolean;
   initialMode?: 'login' | 'signup' | 'forgot' | 'reset';
   resetToken?: string;
+  /** Ouvre l'inscription avec « Kinoo Couple » présélectionné (depuis l'accueil ou les tarifs) */
+  initialCouple?: boolean;
   onClose: () => void;
-  onAuthSuccess: (user: User) => void;
+  onAuthSuccess: (user: User, opts?: { openCouple?: boolean }) => void;
   onOpenLegal: (page: 'cgu' | 'confidentialite') => void;
 }
 
@@ -145,14 +147,60 @@ function TrialPlansInfo() {
   );
 }
 
+function PlanChoice({ couple, onChange }: { couple: boolean; onChange: (v: boolean) => void }) {
+  const card = (active: boolean) =>
+    `text-left p-3.5 rounded-2xl border transition-colors w-full ${active ? 'border-[#EC4899] bg-[#EC4899]/10' : 'border-[#232326] bg-[#09090B] hover:border-[#3a3a40]'}`;
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Comment souhaitez-vous commencer ?</p>
+      <div className="grid sm:grid-cols-2 gap-2.5">
+        <button type="button" onClick={() => onChange(false)} className={card(!couple)} aria-pressed={!couple}>
+          <span className="flex items-center justify-between">
+            <span className="font-bold text-sm text-white">Seul ou entre amis</span>
+            {!couple && <IconCheckMark className="w-4 h-4 text-[#EC4899]" />}
+          </span>
+          <span className="block text-[11px] text-[#B8B4C0] mt-1">Première séance offerte, puis Découverte, Standard ou Premium.</span>
+        </button>
+        <button type="button" onClick={() => onChange(true)} className={card(couple)} aria-pressed={couple}>
+          <span className="flex items-center justify-between">
+            <span className="font-bold text-sm text-white flex items-center gap-1.5"><IconHeart className="w-3.5 h-3.5 text-rose-400" fill="currentColor" /> Kinoo Couple</span>
+            {couple && <IconCheckMark className="w-4 h-4 text-[#EC4899]" />}
+          </span>
+          <span className="block text-[11px] text-[#B8B4C0] mt-1"><b className="text-white">3 000 FCFA / mois</b> pour deux : espace privé et soirées ciné.</span>
+        </button>
+      </div>
+      {couple ? (
+        <div className="p-3.5 rounded-2xl border border-rose-400/40 bg-rose-500/10 space-y-2">
+          <h3 className="font-bold text-sm text-white">Kinoo Couple : votre espace à deux</h3>
+          <ul className="text-[11px] text-[#D9D4E3] space-y-1 list-disc pl-4">
+            <li>Compteur de jours, dates importantes, question ou défi du jour</li>
+            <li>Discussion privée avec photos, souvenirs et sorties à deux</li>
+            <li>Soirées ciné synchronisées pour deux, sans publicité, fichiers locaux et catalogue inclus</li>
+          </ul>
+          <p className="text-[11px] text-[#B8B4C0]">
+            Deux façons de régler : <b className="text-white">Galanterie</b> (un seul paie 3 000 FCFA et invite l’autre avec un code) ou <b className="text-white">50/50</b> (1 500 FCFA chacun). Après votre inscription, vous créerez votre espace et inviterez votre partenaire.
+          </p>
+        </div>
+      ) : (
+        <TrialPlansInfo />
+      )}
+    </div>
+  );
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialMode = 'login',
   resetToken = '',
+  initialCouple = false,
   onClose,
   onAuthSuccess,
   onOpenLegal,
 }) => {
+  const [wantsCouple, setWantsCouple] = useState<boolean>(initialCouple);
+  useEffect(() => {
+    if (isOpen) setWantsCouple(initialCouple);
+  }, [isOpen, initialCouple]);
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset' | 'google_onboarding'>(initialMode);
   const [signupStep, setSignupStep] = useState<'account' | 'plan'>('account');
   const [selectedForfait, setSelectedForfait] = useState<'GRATUIT' | 'STANDARD' | 'PREMIUM'>('GRATUIT');
@@ -402,15 +450,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         honeypot || undefined
       );
       StorageService.setCurrentUser(res.user);
-      onAuthSuccess(res.user);
+      onAuthSuccess(res.user, { openCouple: wantsCouple });
       onClose();
     } catch (apiErr: any) {
+      // Une réponse du serveur (adresse déjà utilisée, vérification anti-robot…) doit être affichée telle quelle :
+      // créer un compte local sans connexion au serveur donnerait un compte inutilisable (« session manquante »).
+      if (apiErr?.status) {
+        setErrorMessage(apiErr?.message || 'Erreur lors de la création du compte.');
+        return;
+      }
       const res = AuthService.signup(payload);
       if (res.success && res.user) {
         // Un forfait payant ne s'active jamais sans paiement confirmé côté serveur
         res.user.forfait = 'GRATUIT';
         StorageService.setCurrentUser(res.user);
-        onAuthSuccess(res.user);
+        onAuthSuccess(res.user, { openCouple: wantsCouple });
         onClose();
       } else {
         setErrorMessage(apiErr?.message || res.error || 'Erreur lors de la création du compte.');
@@ -612,7 +666,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         avatar: onboardingAvatar || googleOnboardingData.profile.avatar,
       });
       StorageService.setCurrentUser(res.user);
-      onAuthSuccess(res.user);
+      onAuthSuccess(res.user, { openCouple: wantsCouple });
       onClose();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Erreur lors de la finalisation du compte Google.');
@@ -1137,7 +1191,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* ========================================================================= */}
           {mode === 'signup' && signupStep === 'plan' && (
             <div className="space-y-4">
-              <TrialPlansInfo />
+              <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
 
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
                 <button
@@ -1269,8 +1323,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <p className="text-[10px] text-gray-400">Pré-rempli avec votre nom Google, modifiable à votre convenance.</p>
               </div>
 
-              {/* 3. Essai offert puis forfait */}
-              <TrialPlansInfo />
+              {/* 3. Essai offert puis forfait, ou espace Couple */}
+              <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
 
               {/* 4. Cases obligatoires (16+ et CGU/Confidentialité) */}
               <div className="space-y-2 pt-1">
