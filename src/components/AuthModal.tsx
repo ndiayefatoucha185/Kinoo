@@ -446,7 +446,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         motDePasse,
         selectedAvatar,
         selectedForfait,
-        honeypot || undefined,
         honeypot || undefined
       );
       StorageService.setCurrentUser(res.user);
