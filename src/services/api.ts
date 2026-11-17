@@ -1,3 +1,4 @@
+import { apiUrl } from '../utils/appMode';
 import type { CoupleState, CoupleEvent, CoupleMessage, CoupleDaily, CoupleWatchItem, CoupleMemory, CoupleRoomInfo, CoupleMode } from '../types/couple';
 import { User, Room, Signalement, SupportTicket, UserPlan, AccountStatus, AccountRole, CatalogItem, Advertisement } from '../types/kinoo';
 
@@ -33,7 +34,7 @@ async function apiRequest<T = any>(endpoint: string, options: RequestInit = {}):
     ...((options.headers as Record<string, string>) || {}),
   };
 
-  const response = await fetch(endpoint, {
+  const response = await fetch(apiUrl(endpoint), {
     credentials: 'include', // Automatically transmit HttpOnly cookies
     ...options,
     headers,

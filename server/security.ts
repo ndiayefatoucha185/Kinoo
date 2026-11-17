@@ -159,6 +159,13 @@ export function isAllowedOrigin(origin: string | undefined | null): boolean {
   const base = getPublicBaseUrl().replace(/\/+$/, '');
   if (origin === base || origin === 'https://kinoo.app' || origin === 'https://www.kinoo.app') return true;
   if (extra.includes(origin)) return true;
+  // Application Kinoo Couple : sous-domaine dédié (couple.<domaine public>)
+  try {
+    const baseUrl = new URL(base);
+    if (origin === `${baseUrl.protocol}//couple.${baseUrl.host}`) return true;
+  } catch {
+    /* ignore */
+  }
   if (process.env.NODE_ENV !== 'production') {
     if (origin === 'http://localhost:3000' || origin === 'http://127.0.0.1:3000') return true;
     // Prévisualisations AI Studio : uniquement hors production

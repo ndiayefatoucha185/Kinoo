@@ -1,3 +1,4 @@
+import { wsHost, wsProtocol } from '../utils/appMode';
 import { SessionSynchroState, UserRole } from '../types/kinoo';
 
 export type SyncEventType =
@@ -156,8 +157,8 @@ class RoomSyncEngine {
       user.ageCertifie ??
       (typeof window !== 'undefined' ? sessionStorage.getItem('kinoo_guest_age_certified') === 'true' : false);
 
-    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
+    const protocol = wsProtocol();
+    const host = wsHost();
     const tokenToPresent = isRollover ? this.rolloverToken : null;
     if (isRollover) {
       this.rolloverToken = null; // consommation locale à usage unique

@@ -1,3 +1,4 @@
+import { apiUrl } from '../utils/appMode';
 /**
  * KINOO Privacy-Preserving Analytics (Respectueux de la vie privée & Conforme RGPD / CNIL / CDP)
  * - Zéro cookie traceur tiers
@@ -94,7 +95,7 @@ export const PrivacyAnalytics = {
         const blob = new Blob([JSON.stringify(event)], { type: 'application/json' });
         navigator.sendBeacon('/api/analytics/event', blob);
       } else {
-        fetch('/api/analytics/event', {
+        fetch(apiUrl('/api/analytics/event'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(event),

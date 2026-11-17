@@ -1,3 +1,4 @@
+import { apiUrl } from '../utils/appMode';
 import React, { useState } from 'react';
 import { ShieldAlert, Download, Trash2, X, AlertTriangle, CheckCircle2, Lock, Eye, EyeOff } from 'lucide-react';
 import { ApiClient } from '../services/api';
@@ -31,7 +32,7 @@ export const RgpdAccountModal: React.FC<RgpdAccountModalProps> = ({
   const handleExportData = async () => {
     setIsExporting(true);
     try {
-      const response = await fetch('/api/user/rgpd-export', {
+      const response = await fetch(apiUrl('/api/user/rgpd-export'), {
         credentials: 'include',
       });
       if (!response.ok) {

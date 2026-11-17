@@ -1,3 +1,4 @@
+import { apiUrl } from '../utils/appMode';
 import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft, Heart as IconHeart, Check as IconCheckMark } from 'lucide-react';
 import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
@@ -109,6 +110,8 @@ interface AuthModalProps {
   resetToken?: string;
   /** Ouvre l'inscription avec « Kinoo Couple » présélectionné (depuis l'accueil ou les tarifs) */
   initialCouple?: boolean;
+  /** Application Kinoo Couple : inscription directe vers l'espace à deux, sans choix de forfait */
+  coupleOnly?: boolean;
   onClose: () => void;
   onAuthSuccess: (user: User, opts?: { openCouple?: boolean }) => void;
   onOpenLegal: (page: 'cgu' | 'confidentialite') => void;
@@ -193,14 +196,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   resetToken = '',
   initialCouple = false,
+  coupleOnly = false,
   onClose,
   onAuthSuccess,
   onOpenLegal,
 }) => {
-  const [wantsCouple, setWantsCouple] = useState<boolean>(initialCouple);
+  const [wantsCouple, setWantsCouple] = useState<boolean>(initialCouple || coupleOnly);
   useEffect(() => {
-    if (isOpen) setWantsCouple(initialCouple);
-  }, [isOpen, initialCouple]);
+    if (isOpen) setWantsCouple(initialCouple || coupleOnly);
+  }, [isOpen, initialCouple, coupleOnly]);
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset' | 'google_onboarding'>(initialMode);
   const [signupStep, setSignupStep] = useState<'account' | 'plan'>('account');
   const [selectedForfait, setSelectedForfait] = useState<'GRATUIT' | 'STANDARD' | 'PREMIUM'>('GRATUIT');
@@ -317,7 +321,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     const fetchCaptcha = async () => {
     try {
       // Vérifier si Turnstile est configuré
-      const cfgRes = await fetch('/api/auth/captcha-config');
+      const cfgRes = await fetch(apiUrl('/api/auth/captcha-config'));
       if (cfgRes.ok) {
         const cfg = await cfgRes.json();
         setTurnstileConfig(cfg);
@@ -333,7 +337,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
 
-      const res = await fetch('/api/auth/captcha-challenge');
+      const res = await fetch(apiUrl('/api/auth/captcha-challenge'));
       if (res.ok) {
         const data = await res.json();
         setCaptchaChallenge(data);
@@ -1190,7 +1194,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* ========================================================================= */}
           {mode === 'signup' && signupStep === 'plan' && (
             <div className="space-y-4">
-              <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
+              {coupleOnly ? (
+                <div className="p-3.5 rounded-2xl border border-rose-400/40 bg-rose-500/10 space-y-1.5">
+                  <h3 className="font-bold text-sm text-white">Kinoo Couple : votre espace à deux</h3>
+                  <p className="text-[11px] text-[#B8B4C0]">
+                    <b className="text-white">3 000 FCFA / mois</b> pour le couple. Après l’inscription, vous créez votre espace puis invitez votre partenaire avec un code, en mode <b className="text-white">Galanterie</b> (un seul paie) ou <b className="text-white">50/50</b> (1 500 FCFA chacun).
+                  </p>
+                </div>
+              ) : (
+                <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
+              )}
 
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
                 <button
@@ -1212,7 +1225,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     'Création du compte...'
                   ) : (
                     <span>
-                      Créer mon compte (1ère séance offerte)
+                      {coupleOnly ? 'Créer mon compte Kinoo Couple' : 'Créer mon compte (1ère séance offerte)'}
                     </span>
                   )}
                 </button>
@@ -1323,7 +1336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               {/* 3. Essai offert puis forfait, ou espace Couple */}
-              <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
+              {!coupleOnly && <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />}
 
               {/* 4. Cases obligatoires (16+ et CGU/Confidentialité) */}
               <div className="space-y-2 pt-1">

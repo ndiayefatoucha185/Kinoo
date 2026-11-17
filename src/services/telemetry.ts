@@ -3,6 +3,7 @@
  * Full integration with @sentry/react with fallback breadcrumbs & event logging.
  */
 
+import { apiUrl } from '../utils/appMode';
 import * as Sentry from '@sentry/react';
 
 export interface ErrorEvent {
@@ -47,7 +48,7 @@ export const Telemetry = {
       }
     } else if (!this.sentryInitialized && typeof window !== 'undefined') {
       // Async fallback: query /api/config if not injected in HTML
-      fetch('/api/config')
+      fetch(apiUrl('/api/config'))
         .then((res) => res.json())
         .then((cfg) => {
           if (cfg?.sentryDsn && !this.sentryInitialized) {

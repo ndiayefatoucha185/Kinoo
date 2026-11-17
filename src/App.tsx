@@ -1,4 +1,6 @@
-import { ArrowLeft as IconArrowLeft } from 'lucide-react';
+import { ArrowLeft as IconArrowLeft, Heart as IconHeartApp } from 'lucide-react';
+import { IS_COUPLE_APP } from './utils/appMode';
+import { CoupleLanding } from './components/couple/CoupleLanding';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import { User, Room } from './types/kinoo';
@@ -45,11 +47,21 @@ export default function App() {
   const [currentView, setCurrentView] = useState<string>(() => {
     const user = StorageService.getCurrentUser();
     if (user?.role === 'SUPER_ADMIN') return 'superadmin';
+    if (user && IS_COUPLE_APP) return 'couple';
     return user ? 'dashboard' : 'home';
   });
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   // Vue où revenir en quittant une salle (les soirées de couple reviennent à l'espace Couple)
   const [roomReturnView, setRoomReturnView] = useState<string>('dashboard');
+
+  // Application Kinoo Couple : seules les vues « couple », « salle », mentions légales et accueil existent
+  useEffect(() => {
+    if (!IS_COUPLE_APP || isSuperAdmin) return;
+    const allowed = currentUser ? ['couple', 'watchparty', 'legal'] : ['home', 'legal'];
+    if (!allowed.includes(currentView)) {
+      setCurrentView(currentUser ? 'couple' : 'home');
+    }
+  }, [currentView, currentUser, isSuperAdmin]);
 
   // Le dossier technique (architecture, modèle de menaces) n'est visible que du Super Admin
   useEffect(() => {
@@ -273,6 +285,11 @@ export default function App() {
       '404': 'La page ou le salon de visionnage demandé n’existe pas ou a expiré.',
     };
 
+    if (IS_COUPLE_APP) {
+      PrivacyAnalytics.trackPageView(currentView);
+      return;
+    }
+
     const newTitle = titles[currentView] || 'Kinoo — Même à distance, ensemble';
     const newDesc = descriptions[currentView] || descriptions.home;
 
@@ -295,7 +312,7 @@ export default function App() {
     setCurrentUser(user);
     if (user.role === 'SUPER_ADMIN') {
       setCurrentView('superadmin');
-    } else if (opts?.openCouple) {
+    } else if (IS_COUPLE_APP || opts?.openCouple) {
       // Inscription avec « Kinoo Couple » : on ouvre directement l'espace à deux
       setCurrentView('couple');
     } else {
@@ -366,8 +383,36 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#09090B] text-[#FAFAFA] flex flex-col font-['Poppins',sans-serif]">
+      {/* Barre d'application Kinoo Couple */}
+      {IS_COUPLE_APP && (
+        <header className="sticky top-0 z-40 border-b border-white/10 backdrop-blur" style={{ background: 'rgba(26,10,20,0.92)' }}>
+          <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between kinoo-couple">
+            <button
+              onClick={() => setCurrentView(currentUser ? 'couple' : 'home')}
+              className="flex items-center gap-2 cursor-pointer"
+              aria-label="Kinoo Couple"
+            >
+              <span className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center">
+                <IconHeartApp className="w-4 h-4 text-white" fill="currentColor" />
+              </span>
+              <span className="font-extrabold text-white text-base">Kinoo <span className="text-rose-300">Couple</span></span>
+            </button>
+            {currentUser ? (
+              <button onClick={handleLogout} className="text-xs font-semibold text-gray-300 hover:text-white cursor-pointer">Déconnexion</button>
+            ) : (
+              <button
+                onClick={() => { setAuthMode('login'); setAuthCouple(true); setIsAuthModalOpen(true); }}
+                className="text-xs font-semibold text-white bg-white/10 hover:bg-white/15 rounded-xl px-3 py-1.5 cursor-pointer"
+              >
+                Se connecter
+              </button>
+            )}
+          </div>
+        </header>
+      )}
+
       {/* Universal Sticky Navbar */}
-      <Navbar
+      {!IS_COUPLE_APP && <Navbar
         currentUser={currentUser}
         currentView={currentView}
         onNavigate={(view) => {
@@ -382,10 +427,10 @@ export default function App() {
         onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
         onOpenJoinRoom={() => setIsJoinRoomOpen(true)}
         onLogout={handleLogout}
-      />
+      />}
 
       {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+      <main className={`flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 ${IS_COUPLE_APP ? 'max-w-3xl' : 'max-w-7xl'}`}>
         {currentUser ? (
           <>
             {/* Authenticated Workspace: Watch Party, Pricing, or Dashboard */}
@@ -458,7 +503,7 @@ export default function App() {
                   setRoomReturnView('couple');
                   setCurrentView('watchparty');
                 }}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={IS_COUPLE_APP ? undefined : () => setCurrentView('dashboard')}
               />
               </ErrorBoundary>
             ) : currentView === 'dashboard' ? (
@@ -487,7 +532,15 @@ export default function App() {
         ) : (
           <>
             {/* Public Presentation Views for Unauthenticated Visitors */}
-            {currentView === 'home' && (
+            {currentView === 'home' && IS_COUPLE_APP && (
+              <CoupleLanding
+                onSignup={() => { setAuthMode('signup'); setAuthCouple(true); setIsAuthModalOpen(true); }}
+                onLogin={() => { setAuthMode('login'); setAuthCouple(true); setIsAuthModalOpen(true); }}
+                onOpenLegal={handleOpenLegal}
+              />
+            )}
+
+            {currentView === 'home' && !IS_COUPLE_APP && (
               <HomeView
                 onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
                 onOpenJoinRoom={() => setIsJoinRoomOpen(true)}
@@ -580,7 +633,7 @@ export default function App() {
       </main>
 
       {/* Footer - Only shown for public visitors */}
-      {!currentUser && (
+      {!currentUser && !IS_COUPLE_APP && (
         <Footer
           onNavigate={(v) => {
             setCurrentView(v);
@@ -601,6 +654,7 @@ export default function App() {
           setAuthResetToken('');
         }}
         initialCouple={authCouple}
+        coupleOnly={IS_COUPLE_APP}
         onAuthSuccess={handleAuthSuccess}
         onOpenLegal={handleOpenLegal}
       />

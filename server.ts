@@ -49,7 +49,8 @@ async function startServer() {
 
     // 1. Force HTTPS in production
     if (isProd && req.headers['x-forwarded-proto'] && !isHttps) {
-      const target = host.startsWith('www.') ? canonicalHost : host === canonicalHost ? canonicalHost : canonicalHost;
+      // L'adresse de l'application Couple (couple.<domaine>) reste elle-même ; tout le reste va vers l'hôte canonique
+      const target = host === `couple.${canonicalHost}` ? host : canonicalHost;
       return res.redirect(301, `https://${target}${req.originalUrl}`);
     }
 
