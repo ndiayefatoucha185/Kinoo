@@ -571,8 +571,8 @@ export const PricingView: React.FC<PricingViewProps> = ({
       </div>
 
       {/* FORFAIT COUPLE */}
-      <div className="rounded-3xl p-6 sm:p-8 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 flex flex-col lg:flex-row lg:items-center gap-6">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+      <div className="kinoo-couple-banner rounded-3xl p-6 sm:p-8 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 flex flex-col lg:flex-row lg:items-center gap-6">
+        <div className="kc-icon w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
           <Heart className="w-7 h-7 text-white" fill="currentColor" />
         </div>
         <div className="flex-1 space-y-2">

@@ -346,3 +346,58 @@ html.light .bg-purple-500\/10,
 html.light .bg-purple-500\/20 { background-color: rgb(237 233 254) !important; }
 html.light .bg-emerald-950\/20 { background-color: rgb(236 253 245) !important; }
 html.light .kinoo-status-banner .font-mono { color: rgb(6 78 59) !important; }
+
+/* ==========================================================================
+   KINOO COUPLE — lisibilité en mode clair
+   L'espace Couple est un panneau sombre autonome : on rétablit les couleurs
+   claires à l'intérieur pour que rien ne devienne invisible.
+   ========================================================================== */
+html.light .kinoo-couple .text-white { color: #ffffff !important; }
+html.light .kinoo-couple .text-white\/90 { color: rgba(255,255,255,0.9) !important; }
+html.light .kinoo-couple .text-white\/70 { color: rgba(255,255,255,0.7) !important; }
+html.light .kinoo-couple .text-white\/60 { color: rgba(255,255,255,0.6) !important; }
+html.light .kinoo-couple .text-white\/50 { color: rgba(255,255,255,0.5) !important; }
+html.light .kinoo-couple .text-white\/40 { color: rgba(255,255,255,0.4) !important; }
+html.light .kinoo-couple .text-gray-300,
+html.light .kinoo-couple .text-gray-400,
+html.light .kinoo-couple .text-slate-200,
+html.light .kinoo-couple .text-slate-300 { color: #d1cbe0 !important; }
+html.light .kinoo-couple .text-gray-500,
+html.light .kinoo-couple .text-slate-400 { color: #a8a2b8 !important; }
+html.light .kinoo-couple .text-rose-200,
+html.light .kinoo-couple .text-rose-300,
+html.light .kinoo-couple .text-rose-400 { color: #fda4af !important; }
+html.light .kinoo-couple .text-pink-300,
+html.light .kinoo-couple .text-pink-400 { color: #f9a8d4 !important; }
+html.light .kinoo-couple .text-purple-300,
+html.light .kinoo-couple .text-purple-400 { color: #d8b4fe !important; }
+html.light .kinoo-couple .text-emerald-300,
+html.light .kinoo-couple .text-emerald-400 { color: #6ee7b7 !important; }
+html.light .kinoo-couple .text-amber-300,
+html.light .kinoo-couple .text-amber-400 { color: #fcd34d !important; }
+html.light .kinoo-couple .text-blue-300,
+html.light .kinoo-couple .text-blue-400 { color: #93c5fd !important; }
+html.light .kinoo-couple input:not([type="checkbox"]):not([type="radio"]),
+html.light .kinoo-couple select,
+html.light .kinoo-couple textarea {
+  background-color: rgba(255,255,255,0.08) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+  color: #ffffff !important;
+}
+html.light .kinoo-couple input::placeholder,
+html.light .kinoo-couple textarea::placeholder { color: rgba(255,255,255,0.45) !important; }
+html.light .kinoo-couple option { color: #0f172a !important; background: #ffffff !important; }
+
+/* Bannières Couple (accueil, tarifs, tableau de bord) sur fond clair */
+html.light .kinoo-couple-banner { background: linear-gradient(135deg, #ffe4ec 0%, #fce7f3 50%, #ede9fe 100%) !important; border-color: #f9a8d4 !important; }
+html.light .kinoo-couple-banner p,
+html.light .kinoo-couple-banner .kc-desc { color: #475569 !important; }
+html.light .kinoo-couple-banner .kc-tag { color: #be185d !important; }
+html.light .kinoo-couple-banner .kc-icon,
+html.light .kinoo-couple-banner .kc-icon svg { color: #ffffff !important; }
+html.light .kinoo-couple-banner button.bg-gradient-to-r,
+html.light .kinoo-couple-banner button.bg-gradient-to-r * { color: #ffffff !important; }
+html.light .kinoo-couple-banner .text-\[\#B8B4C0\] { color: #64748b !important; }
+html.light .kinoo-couple-banner .bg-black\/25 { background: rgba(255,255,255,0.75) !important; border-color: #fbcfe8 !important; }
+html.light .kinoo-couple-banner .text-rose-300 { color: #be185d !important; }
+html.light .text-\[\#D9D4E3\] { color: #475569 !important; }

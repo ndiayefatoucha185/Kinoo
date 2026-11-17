@@ -73,7 +73,7 @@ export const CoupleSpaceView: React.FC<Props> = ({ currentUser, onEnterRoom, onB
   ];
 
   return (
-    <div className="rounded-3xl overflow-hidden border border-rose-500/20" style={{ background: 'linear-gradient(160deg,#1a0a14 0%,#180a22 100%)', color: '#fff' }}>
+    <div className="kinoo-couple rounded-3xl overflow-hidden border border-rose-500/20" style={{ background: 'linear-gradient(160deg,#1a0a14 0%,#180a22 100%)', color: '#fff' }}>
       <div className="flex items-center gap-3 px-4 sm:px-6 py-3.5 border-b border-white/10">
         <button onClick={onBack} className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-white" aria-label="Retour au tableau de bord"><ArrowLeft className="w-4 h-4" /></button>
         <div className="flex items-center gap-2">

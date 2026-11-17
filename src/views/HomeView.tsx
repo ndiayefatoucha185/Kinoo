@@ -328,13 +328,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
       {/* 4 bis. KINOO COUPLE */}
       <section className="max-w-5xl mx-auto px-4">
-        <div className="rounded-3xl p-6 sm:p-10 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 space-y-6">
+        <div className="kinoo-couple-banner rounded-3xl p-6 sm:p-10 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+            <div className="kc-icon w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
               <IconHeart className="w-7 h-7 text-white" fill="currentColor" />
             </div>
             <div className="space-y-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-rose-300">Nouveau</span>
+              <span className="kc-tag text-xs font-bold uppercase tracking-wider text-rose-300">Nouveau</span>
               <h2 className="text-2xl sm:text-3xl font-bold text-white">Kinoo Couple</h2>
               <p className="text-sm text-[#D9D4E3] max-w-2xl">Un espace rien que pour vous deux, avec ce que les applications de couple ne proposent pas : regarder des films et des séries ensemble, en direct.</p>
             </div>

@@ -638,14 +638,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <button
         type="button"
         onClick={() => onNavigate('couple')}
-        className="mb-3 w-full text-left px-4 py-3 rounded-2xl bg-gradient-to-r from-rose-600/25 to-purple-700/25 border border-rose-400/30 hover:border-rose-400/60 transition-colors flex items-center gap-3"
+        className="kinoo-couple-banner mb-3 w-full text-left px-4 py-3 rounded-2xl bg-gradient-to-r from-rose-600/25 to-purple-700/25 border border-rose-400/30 hover:border-rose-400/60 transition-colors flex items-center gap-3"
       >
-        <span className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
+        <span className="kc-icon w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center shrink-0">
           <IconHeart className="w-5 h-5 text-white" fill="currentColor" />
         </span>
         <span className="flex-1 min-w-0">
           <span className="block text-sm font-bold text-white">Kinoo Couple</span>
-          <span className="block text-xs text-rose-100/80">Un espace à deux : discussion privée, souvenirs, sorties et soirées ciné. 3 000 FCFA / mois pour le couple.</span>
+          <span className="kc-desc block text-xs text-rose-100/80">Un espace à deux : discussion privée, souvenirs, sorties et soirées ciné. 3 000 FCFA / mois pour le couple.</span>
         </span>
         <span className="text-xs font-bold text-rose-300 shrink-0">Ouvrir</span>
       </button>
