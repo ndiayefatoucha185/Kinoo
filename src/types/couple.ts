@@ -37,6 +37,7 @@ export interface CoupleEvent {
   lng: number | null;
   note: string | null;
   createdBy: string;
+  yearly?: boolean;
 }
 
 export interface CoupleMessage {
@@ -44,6 +45,8 @@ export interface CoupleMessage {
   senderId: string;
   body: string;
   image: string | null;
+  audio?: string | null;
+  audioMs?: number | null;
   createdAt: string;
 }
 
@@ -84,4 +87,43 @@ export interface CoupleRoomInfo {
   titre: string;
   hotePseudo: string;
   hoteId: string;
+}
+
+export type CoupleMood = 'AMOUREUX' | 'JOYEUX' | 'CALME' | 'FATIGUE' | 'STRESSE' | 'TRISTE';
+
+export interface CouplePulse {
+  thoughtsSent: number;
+  thoughtsReceived: number;
+  lastThoughtFromPartner: string | null;
+  myMood: CoupleMood | null;
+  partnerMood: CoupleMood | null;
+}
+
+export type CoupleGoalIcon = 'star' | 'ring' | 'home' | 'plane' | 'car' | 'baby' | 'land' | 'heart' | 'gift' | 'graduation';
+
+export interface CoupleGoal {
+  id: string;
+  kind: 'PARCOURS' | 'OBJECTIF';
+  title: string;
+  icon: CoupleGoalIcon;
+  targetDate: string | null;
+  progress: number;
+  createdBy: string;
+}
+
+export interface CouplePotEntry {
+  id: string;
+  userId: string;
+  amount: number;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface CouplePot {
+  label: string;
+  target: number;
+  total: number;
+  byMe: number;
+  byPartner: number;
+  entries: CouplePotEntry[];
 }

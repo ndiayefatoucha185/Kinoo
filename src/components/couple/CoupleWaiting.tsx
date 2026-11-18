@@ -16,7 +16,7 @@ export const CoupleWaiting: React.FC<Props> = ({ couple, currentUser, onState, o
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const invite = `Rejoins-moi sur Kinoo Couple. Crée un compte ou connecte-toi, ouvre « Espace Couple » et entre ce code : ${couple.inviteCode}`;
+  const invite = `Rejoins-moi sur Kinoo Couple ! Crée ton compte, puis entre ce code d’invitation : ${couple.inviteCode}`;
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(invite);

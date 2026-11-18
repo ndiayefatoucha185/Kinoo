@@ -229,7 +229,7 @@ export const CoupleMemories: React.FC = () => {
 
       {openMemory && (
         <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4" onClick={() => setOpenMemory(null)}>
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl p-5 space-y-3" style={{ background: '#1a0a14' }} onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl p-5 space-y-3" style={{ background: 'var(--kc-solid)' }} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-lg font-bold text-white">{openMemory.m.title}</p>

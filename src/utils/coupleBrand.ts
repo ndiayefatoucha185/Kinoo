@@ -1,14 +1,17 @@
 import { IS_COUPLE_APP } from './appMode';
+import { setStoredTheme } from '../services/theme';
 
 /** Habille la page aux couleurs de Kinoo Couple (titre, icône, manifeste d'installation, couleur de barre). */
 export function applyCoupleBranding(): void {
   if (!IS_COUPLE_APP || typeof document === 'undefined') return;
+  // Thème clair rosé par défaut tant que le couple n'a pas choisi
+  try { if (!localStorage.getItem('kinoo_color_theme')) setStoredTheme('light'); } catch { /* ignore */ }
   document.title = 'Kinoo Couple — Votre espace à deux et soirées ciné';
   const set = (sel: string, attr: string, value: string) => {
     const el = document.querySelector(sel);
     if (el) el.setAttribute(attr, value);
   };
-  set('meta[name="theme-color"]', 'content', '#1a0a14');
+  set('meta[name="theme-color"]', 'content', '#fff1f6');
   set('meta[name="description"]', 'content', 'Kinoo Couple : l’application des couples. Discussion privée, souvenirs, dates importantes et soirées ciné synchronisées à deux.');
   set('meta[property="og:title"]', 'content', 'Kinoo Couple — Votre espace à deux');
   set('meta[property="og:site_name"]', 'content', 'Kinoo Couple');

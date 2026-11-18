@@ -1,6 +1,7 @@
 import { ArrowLeft as IconArrowLeft, Heart as IconHeartApp } from 'lucide-react';
 import { IS_COUPLE_APP } from './utils/appMode';
 import { CoupleLanding } from './components/couple/CoupleLanding';
+import './styles/couple.css';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useState, useEffect } from 'react';
 import { User, Room } from './types/kinoo';
@@ -385,24 +386,25 @@ export default function App() {
     <div className="min-h-screen bg-[#09090B] text-[#FAFAFA] flex flex-col font-['Poppins',sans-serif]">
       {/* Barre d'application Kinoo Couple */}
       {IS_COUPLE_APP && (
-        <header className="sticky top-0 z-40 border-b border-white/10 backdrop-blur" style={{ background: 'rgba(26,10,20,0.92)' }}>
-          <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between kinoo-couple">
+        <header className="kc sticky top-0 z-40 backdrop-blur" style={{ background: 'color-mix(in srgb, var(--kc-solid) 92%, transparent)', borderBottom: '1px solid var(--kc-border)' }}>
+          <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
             <button
               onClick={() => setCurrentView(currentUser ? 'couple' : 'home')}
               className="flex items-center gap-2 cursor-pointer"
               aria-label="Kinoo Couple"
             >
-              <span className="w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-500 to-pink-400 flex items-center justify-center">
-                <IconHeartApp className="w-4 h-4 text-white" fill="currentColor" />
+              <span className="kc-avatar" style={{ width: '2rem', height: '2rem', borderRadius: '0.7rem', border: 0 }}>
+                <IconHeartApp className="w-4 h-4" fill="currentColor" />
               </span>
-              <span className="font-extrabold text-white text-base">Kinoo <span className="text-rose-300">Couple</span></span>
+              <span className="kc-display" style={{ fontSize: '1.25rem' }}>Kinoo <span style={{ color: 'var(--kc-accent)', fontStyle: 'italic' }}>Couple</span></span>
             </button>
             {currentUser ? (
-              <button onClick={handleLogout} className="text-xs font-semibold text-gray-300 hover:text-white cursor-pointer">Déconnexion</button>
+              <button onClick={handleLogout} className="text-xs font-semibold cursor-pointer kc-muted">Déconnexion</button>
             ) : (
               <button
                 onClick={() => { setAuthMode('login'); setAuthCouple(true); setIsAuthModalOpen(true); }}
-                className="text-xs font-semibold text-white bg-white/10 hover:bg-white/15 rounded-xl px-3 py-1.5 cursor-pointer"
+                className="kc-btn-soft cursor-pointer"
+                style={{ padding: '0.4rem 0.9rem', fontSize: '0.75rem' }}
               >
                 Se connecter
               </button>

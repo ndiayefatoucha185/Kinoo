@@ -1,5 +1,5 @@
 import { apiUrl } from '../utils/appMode';
-import type { CoupleState, CoupleEvent, CoupleMessage, CoupleDaily, CoupleWatchItem, CoupleMemory, CoupleRoomInfo, CoupleMode } from '../types/couple';
+import type { CoupleState, CoupleEvent, CoupleMessage, CoupleDaily, CoupleWatchItem, CoupleMemory, CoupleRoomInfo, CoupleMode, CouplePulse, CoupleMood, CoupleGoal, CoupleGoalIcon, CouplePot } from '../types/couple';
 import { User, Room, Signalement, SupportTicket, UserPlan, AccountStatus, AccountRole, CatalogItem, Advertisement } from '../types/kinoo';
 
 const TOKEN_KEY = 'kinoo_auth_token_v3';
@@ -484,7 +484,18 @@ export const ApiClient = {
   coupleAddEvent: (data: Partial<CoupleEvent>) => apiRequest<{ id: string }>('/api/couple/events', { method: 'POST', body: JSON.stringify(data) }),
   coupleDeleteEvent: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/events/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   coupleMessages: (after?: string) => apiRequest<CoupleMessage[]>(`/api/couple/messages${after ? `?after=${encodeURIComponent(after)}` : ''}`),
-  coupleSendMessage: (body: string, image?: string | null) => apiRequest<CoupleMessage>('/api/couple/messages', { method: 'POST', body: JSON.stringify({ body, image: image || undefined }) }),
+  coupleSendMessage: (body: string, image?: string | null, audio?: { data: string; ms: number } | null) => apiRequest<CoupleMessage>('/api/couple/messages', { method: 'POST', body: JSON.stringify({ body, image: image || undefined, audio: audio?.data, audioMs: audio?.ms }) }),
+  couplePulse: () => apiRequest<CouplePulse>('/api/couple/pulse'),
+  coupleThought: () => apiRequest<{ ok: boolean }>('/api/couple/thought', { method: 'POST', body: '{}' }),
+  coupleSetMood: (mood: CoupleMood) => apiRequest<{ ok: boolean }>('/api/couple/mood', { method: 'PUT', body: JSON.stringify({ mood }) }),
+  coupleGoals: () => apiRequest<CoupleGoal[]>('/api/couple/goals'),
+  coupleAddGoal: (data: { title: string; kind: 'PARCOURS' | 'OBJECTIF'; icon: CoupleGoalIcon; targetDate?: string | null }) => apiRequest<{ id: string }>('/api/couple/goals', { method: 'POST', body: JSON.stringify(data) }),
+  coupleSetGoalProgress: (id: string, progress: number) => apiRequest<{ ok: boolean }>(`/api/couple/goals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ progress }) }),
+  coupleDeleteGoal: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/goals/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  couplePot: () => apiRequest<CouplePot>('/api/couple/pot'),
+  coupleSetPot: (label: string, target: number) => apiRequest<{ ok: boolean }>('/api/couple/pot', { method: 'PUT', body: JSON.stringify({ label, target }) }),
+  coupleAddPotEntry: (amount: number, note?: string) => apiRequest<{ id: string }>('/api/couple/pot/entries', { method: 'POST', body: JSON.stringify({ amount, note }) }),
+  coupleDeletePotEntry: (id: string) => apiRequest<{ ok: boolean }>(`/api/couple/pot/entries/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   coupleDaily: () => apiRequest<CoupleDaily>('/api/couple/daily'),
   coupleAnswerDaily: (answer: string) => apiRequest<{ ok: boolean }>('/api/couple/daily', { method: 'POST', body: JSON.stringify({ answer }) }),
   coupleWatchlist: () => apiRequest<CoupleWatchItem[]>('/api/couple/watchlist'),

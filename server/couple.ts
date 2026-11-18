@@ -92,6 +92,12 @@ function newInviteCode(): string {
 function parsePhoto(v: unknown): string | null {
   return typeof v === 'string' && v.length <= MAX_PHOTO_CHARS && PHOTO_RE.test(v) ? v : null;
 }
+const MAX_AUDIO_CHARS = 450_000; // ≈ 330 Ko : environ 60 s en Opus/AAC
+const MAX_AUDIO_MS = 60_000;
+const AUDIO_RE = /^data:audio\/(?:webm|ogg|mp4|mpeg|aac|x-m4a|wav)(?:;codecs=[A-Za-z0-9.,=-]+)?;base64,[A-Za-z0-9+/=]+$/;
+function parseAudio(v: unknown): string | null {
+  return typeof v === 'string' && v.length <= MAX_AUDIO_CHARS && AUDIO_RE.test(v) ? v : null;
+}
 function parseCoord(v: unknown, min: number, max: number): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
   return Number.isFinite(n) && n >= min && n <= max ? n : null;
@@ -278,7 +284,7 @@ coupleRouter.post('/admin/couples/:id/deactivate', authenticate, requireRole(['S
 
 coupleRouter.get('/couple/events', authenticate, requireActiveCouple, async (req: CoupleReq, res: Response) => {
   const { rows } = await pool.query(`SELECT * FROM couple_events WHERE couple_id = $1 ORDER BY event_date ASC LIMIT ${MAX_EVENTS}`, [req.couple!.id]);
-  res.json(rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, date: r.event_date, place: r.place, lat: r.lat, lng: r.lng, note: r.note, createdBy: r.created_by })));
+  res.json(rows.map((r) => ({ id: r.id, kind: r.kind, title: r.title, date: r.event_date, place: r.place, lat: r.lat, lng: r.lng, note: r.note, createdBy: r.created_by, yearly: Boolean(r.yearly) })));
 });
 
 coupleRouter.post('/couple/events', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
@@ -292,8 +298,8 @@ coupleRouter.post('/couple/events', authenticate, requireActiveCouple, rateLimit
     if (count.rows[0].n >= MAX_EVENTS) return res.status(400).json({ error: 'Limite de dates atteinte : supprimez-en quelques-unes.' });
     const id = newId('cev');
     await pool.query(
-      `INSERT INTO couple_events (id, couple_id, kind, title, event_date, place, lat, lng, note, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [id, req.couple!.id, kind, title, date.toISOString(), cleanText(req.body?.place, 200) || null, parseCoord(req.body?.lat, -90, 90), parseCoord(req.body?.lng, -180, 180), cleanText(req.body?.note, 1000) || null, req.user!.id]
+      `INSERT INTO couple_events (id, couple_id, kind, title, event_date, place, lat, lng, note, created_by, yearly) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [id, req.couple!.id, kind, title, date.toISOString(), cleanText(req.body?.place, 200) || null, parseCoord(req.body?.lat, -90, 90), parseCoord(req.body?.lng, -180, 180), cleanText(req.body?.note, 1000) || null, req.user!.id, req.body?.yearly === true]
     );
     res.status(201).json({ id });
   } catch (e) {
@@ -317,7 +323,7 @@ coupleRouter.get('/couple/messages', authenticate, requireActiveCouple, async (r
     const rows = after && !Number.isNaN(after.getTime())
       ? (await pool.query(`SELECT * FROM couple_messages WHERE couple_id = $1 AND created_at > $2 ORDER BY created_at ASC LIMIT 100`, [req.couple!.id, after.toISOString()])).rows
       : (await pool.query(`SELECT * FROM (SELECT * FROM couple_messages WHERE couple_id = $1 ORDER BY created_at DESC LIMIT 60) t ORDER BY created_at ASC`, [req.couple!.id])).rows;
-    res.json(rows.map((r) => ({ id: r.id, senderId: r.sender_id, body: r.body, image: r.image, createdAt: r.created_at })));
+    res.json(rows.map((r) => ({ id: r.id, senderId: r.sender_id, body: r.body, image: r.image, audio: r.audio || null, audioMs: r.audio_ms || null, createdAt: r.created_at })));
   } catch (e) {
     console.error('[COUPLE] messages:', e);
     res.status(500).json({ error: 'Impossible de charger les messages.' });
@@ -329,13 +335,16 @@ coupleRouter.post('/couple/messages', authenticate, requireActiveCouple, rateLim
     const body = cleanText(req.body?.body, MAX_MESSAGE_LENGTH);
     const image = req.body?.image ? parsePhoto(req.body.image) : null;
     if (req.body?.image && !image) return res.status(400).json({ error: 'Photo invalide ou trop lourde.' });
-    if (!body && !image) return res.status(400).json({ error: 'Message vide.' });
+    const audio = req.body?.audio ? parseAudio(req.body.audio) : null;
+    if (req.body?.audio && !audio) return res.status(400).json({ error: 'Message vocal invalide ou trop long.' });
+    const audioMs = audio ? Math.min(Math.max(Math.round(Number(req.body?.audioMs) || 0), 0), MAX_AUDIO_MS) : null;
+    if (!body && !image && !audio) return res.status(400).json({ error: 'Message vide.' });
     const id = newId('cmsg');
     const { rows } = await pool.query(
-      `INSERT INTO couple_messages (id, couple_id, sender_id, body, image) VALUES ($1,$2,$3,$4,$5) RETURNING created_at`,
-      [id, req.couple!.id, req.user!.id, body, image]
+      `INSERT INTO couple_messages (id, couple_id, sender_id, body, image, audio, audio_ms) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING created_at`,
+      [id, req.couple!.id, req.user!.id, body, image, audio, audioMs]
     );
-    res.status(201).json({ id, senderId: req.user!.id, body, image, createdAt: rows[0].created_at });
+    res.status(201).json({ id, senderId: req.user!.id, body, image, audio, audioMs, createdAt: rows[0].created_at });
   } catch (e) {
     console.error('[COUPLE] envoi message:', e);
     res.status(500).json({ error: "Impossible d'envoyer le message." });
@@ -549,4 +558,156 @@ coupleRouter.post('/couple/room', authenticate, requireActiveCouple, rateLimitWr
     console.error('[COUPLE] salle:', e);
     res.status(500).json({ error: 'Impossible de créer la soirée ciné.' });
   }
+});
+
+
+// ----------------------------------------------------------------------------
+// Pensées (« Je pense à toi »), humeur du jour et météo du couple
+// ----------------------------------------------------------------------------
+
+const MOODS = ['AMOUREUX', 'JOYEUX', 'CALME', 'FATIGUE', 'STRESSE', 'TRISTE'];
+
+coupleRouter.get('/couple/pulse', authenticate, requireActiveCouple, async (req: CoupleReq, res: Response) => {
+  const me = req.user!.id;
+  const cid = req.couple!.id;
+  const day = dayKey();
+  const [thoughts, last, moods] = await Promise.all([
+    pool.query(`SELECT from_id, count(*)::int AS n FROM couple_thoughts WHERE couple_id = $1 AND created_at >= (now() - interval '24 hours') GROUP BY from_id`, [cid]),
+    pool.query(`SELECT created_at FROM couple_thoughts WHERE couple_id = $1 AND from_id <> $2 ORDER BY created_at DESC LIMIT 1`, [cid, me]),
+    pool.query(`SELECT user_id, mood FROM couple_moods WHERE couple_id = $1 AND day = $2`, [cid, day]),
+  ]);
+  const mine = thoughts.rows.find((r) => r.from_id === me)?.n || 0;
+  const theirs = thoughts.rows.filter((r) => r.from_id !== me).reduce((a, r) => a + r.n, 0);
+  res.json({
+    thoughtsSent: mine,
+    thoughtsReceived: theirs,
+    lastThoughtFromPartner: last.rows[0]?.created_at || null,
+    myMood: moods.rows.find((r) => r.user_id === me)?.mood || null,
+    partnerMood: moods.rows.find((r) => r.user_id !== me)?.mood || null,
+  });
+});
+
+const rateLimitThought = rateLimitKv('couplethought', {
+  max: 30,
+  windowSec: 60,
+  keyFn: (req) => (req as AuthenticatedRequest).user?.id,
+});
+
+coupleRouter.post('/couple/thought', authenticate, requireActiveCouple, rateLimitThought, async (req: CoupleReq, res: Response) => {
+  const { rows } = await pool.query(`SELECT created_at FROM couple_thoughts WHERE couple_id = $1 AND from_id = $2 ORDER BY created_at DESC LIMIT 1`, [req.couple!.id, req.user!.id]);
+  if (rows[0] && Date.now() - new Date(rows[0].created_at).getTime() < 3000) return res.json({ ok: true });
+  await pool.query(`INSERT INTO couple_thoughts (id, couple_id, from_id) VALUES ($1,$2,$3)`, [newId('cth'), req.couple!.id, req.user!.id]);
+  // On ne garde que les 200 dernières pensées
+  await pool.query(`DELETE FROM couple_thoughts WHERE couple_id = $1 AND id NOT IN (SELECT id FROM couple_thoughts WHERE couple_id = $1 ORDER BY created_at DESC LIMIT 200)`, [req.couple!.id]);
+  res.status(201).json({ ok: true });
+});
+
+coupleRouter.put('/couple/mood', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  const mood = String(req.body?.mood || '');
+  if (!MOODS.includes(mood)) return res.status(400).json({ error: 'Humeur inconnue.' });
+  await pool.query(
+    `INSERT INTO couple_moods (couple_id, user_id, day, mood) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (couple_id, user_id, day) DO UPDATE SET mood = EXCLUDED.mood, updated_at = now()`,
+    [req.couple!.id, req.user!.id, dayKey(), mood]
+  );
+  res.json({ ok: true });
+});
+
+// ----------------------------------------------------------------------------
+// Parcours (étapes de vie) et objectifs communs
+// ----------------------------------------------------------------------------
+
+const MAX_GOALS = 100;
+const GOAL_ICONS = ['star', 'ring', 'home', 'plane', 'car', 'baby', 'land', 'heart', 'gift', 'graduation'];
+
+function mapGoal(r: any) {
+  return { id: r.id, kind: r.kind, title: r.title, icon: r.icon, targetDate: r.target_date ? new Date(r.target_date).toISOString().slice(0, 10) : null, progress: r.progress, createdBy: r.created_by };
+}
+
+coupleRouter.get('/couple/goals', authenticate, requireActiveCouple, async (req: CoupleReq, res: Response) => {
+  const { rows } = await pool.query(`SELECT * FROM couple_goals WHERE couple_id = $1 ORDER BY created_at ASC LIMIT ${MAX_GOALS}`, [req.couple!.id]);
+  res.json(rows.map(mapGoal));
+});
+
+coupleRouter.post('/couple/goals', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  const title = cleanText(req.body?.title, 150);
+  if (title.length < 2) return res.status(400).json({ error: 'Donnez un titre (2 caractères minimum).' });
+  const kind = req.body?.kind === 'OBJECTIF' ? 'OBJECTIF' : 'PARCOURS';
+  const icon = GOAL_ICONS.includes(req.body?.icon) ? req.body.icon : 'star';
+  const target = typeof req.body?.targetDate === 'string' && isValidDateKey(req.body.targetDate) ? req.body.targetDate : null;
+  const count = await pool.query(`SELECT count(*)::int AS n FROM couple_goals WHERE couple_id = $1`, [req.couple!.id]);
+  if (count.rows[0].n >= MAX_GOALS) return res.status(400).json({ error: 'Limite atteinte : supprimez quelques étapes.' });
+  const id = newId('cgl');
+  await pool.query(`INSERT INTO couple_goals (id, couple_id, kind, title, icon, target_date, progress, created_by) VALUES ($1,$2,$3,$4,$5,$6,0,$7)`, [id, req.couple!.id, kind, title, icon, target, req.user!.id]);
+  res.status(201).json({ id });
+});
+
+coupleRouter.patch('/couple/goals/:id', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  const progress = Math.min(100, Math.max(0, Math.round(Number(req.body?.progress))));
+  if (!Number.isFinite(progress)) return res.status(400).json({ error: 'Progression invalide.' });
+  await pool.query(`UPDATE couple_goals SET progress = $3 WHERE id = $1 AND couple_id = $2`, [String(req.params.id).slice(0, 128), req.couple!.id, progress]);
+  res.json({ ok: true });
+});
+
+coupleRouter.delete('/couple/goals/:id', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  await pool.query(`DELETE FROM couple_goals WHERE id = $1 AND couple_id = $2`, [String(req.params.id).slice(0, 128), req.couple!.id]);
+  res.json({ ok: true });
+});
+
+// ----------------------------------------------------------------------------
+// Cagnotte commune (suivi des économies du couple ; aucun paiement n'y transite)
+// ----------------------------------------------------------------------------
+
+const MAX_POT_AMOUNT = 100_000_000;
+const MAX_POT_ENTRIES = 1000;
+
+coupleRouter.get('/couple/pot', authenticate, requireActiveCouple, async (req: CoupleReq, res: Response) => {
+  const cid = req.couple!.id;
+  const [pot, sums, entries] = await Promise.all([
+    pool.query(`SELECT label, target_amount FROM couple_pot WHERE couple_id = $1`, [cid]),
+    pool.query(`SELECT user_id, COALESCE(sum(amount),0)::bigint AS total FROM couple_pot_entries WHERE couple_id = $1 GROUP BY user_id`, [cid]),
+    pool.query(`SELECT id, user_id, amount, note, created_at FROM couple_pot_entries WHERE couple_id = $1 ORDER BY created_at DESC LIMIT 30`, [cid]),
+  ]);
+  const me = req.user!.id;
+  const byMe = Number(sums.rows.find((r) => r.user_id === me)?.total || 0);
+  const byPartner = sums.rows.filter((r) => r.user_id !== me).reduce((a, r) => a + Number(r.total), 0);
+  res.json({
+    label: pot.rows[0]?.label || 'Notre cagnotte',
+    target: Number(pot.rows[0]?.target_amount || 0),
+    total: byMe + byPartner,
+    byMe,
+    byPartner,
+    entries: entries.rows.map((r) => ({ id: r.id, userId: r.user_id, amount: Number(r.amount), note: r.note, createdAt: r.created_at })),
+  });
+});
+
+coupleRouter.put('/couple/pot', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  const label = cleanText(req.body?.label, 100) || 'Notre cagnotte';
+  const target = Math.round(Number(req.body?.target));
+  if (!Number.isFinite(target) || target < 0 || target > MAX_POT_AMOUNT * 10) return res.status(400).json({ error: 'Objectif invalide.' });
+  await pool.query(
+    `INSERT INTO couple_pot (couple_id, label, target_amount) VALUES ($1,$2,$3) ON CONFLICT (couple_id) DO UPDATE SET label = EXCLUDED.label, target_amount = EXCLUDED.target_amount`,
+    [req.couple!.id, label, target]
+  );
+  res.json({ ok: true });
+});
+
+coupleRouter.post('/couple/pot/entries', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  const amount = Math.round(Number(req.body?.amount));
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > MAX_POT_AMOUNT) return res.status(400).json({ error: 'Montant invalide.' });
+  const cid = req.couple!.id;
+  const count = await pool.query(`SELECT count(*)::int AS n FROM couple_pot_entries WHERE couple_id = $1`, [cid]);
+  if (count.rows[0].n >= MAX_POT_ENTRIES) return res.status(400).json({ error: 'Limite atteinte.' });
+  if (amount < 0) {
+    const t = await pool.query(`SELECT COALESCE(sum(amount),0)::bigint AS total FROM couple_pot_entries WHERE couple_id = $1`, [cid]);
+    if (Number(t.rows[0].total) + amount < 0) return res.status(400).json({ error: 'Le retrait dépasse le montant de la cagnotte.' });
+  }
+  const id = newId('cpe');
+  await pool.query(`INSERT INTO couple_pot_entries (id, couple_id, user_id, amount, note) VALUES ($1,$2,$3,$4,$5)`, [id, cid, req.user!.id, amount, cleanText(req.body?.note, 150) || null]);
+  res.status(201).json({ id });
+});
+
+coupleRouter.delete('/couple/pot/entries/:id', authenticate, requireActiveCouple, rateLimitWrite, async (req: CoupleReq, res: Response) => {
+  await pool.query(`DELETE FROM couple_pot_entries WHERE id = $1 AND couple_id = $2 AND user_id = $3`, [String(req.params.id).slice(0, 128), req.couple!.id, req.user!.id]);
+  res.json({ ok: true });
 });
