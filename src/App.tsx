@@ -1,5 +1,6 @@
 import { ArrowLeft as IconArrowLeft, Heart as IconHeartApp } from 'lucide-react';
-import { IS_COUPLE_APP } from './utils/appMode';
+import { IS_COUPLE_APP, COUPLE_WEB_ENABLED } from './utils/appMode';
+import { CoupleOnlyNotice } from './components/couple/CoupleOnlyNotice';
 import { CoupleLanding } from './components/couple/CoupleLanding';
 import './styles/couple.css';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -70,6 +71,27 @@ export default function App() {
       setCurrentView(currentUser ? 'dashboard' : 'home');
     }
   }, [currentView, isSuperAdmin, currentUser]);
+
+  // Version web de Kinoo Couple arrêtée : la vue « couple » n'existe pas sur la plateforme Kinoo
+  useEffect(() => {
+    if (!IS_COUPLE_APP && !COUPLE_WEB_ENABLED && currentView === 'couple') {
+      setCurrentView(currentUser ? 'dashboard' : 'home');
+    }
+  }, [currentView, currentUser]);
+
+  // Un compte dont le forfait Couple est actif n'a pas accès à la plateforme Kinoo
+  const [coupleLocked, setCoupleLocked] = useState(false);
+  useEffect(() => {
+    if (!currentUser || IS_COUPLE_APP || currentUser.role === 'SUPER_ADMIN') {
+      setCoupleLocked(false);
+      return;
+    }
+    let cancelled = false;
+    ApiClient.coupleState()
+      .then((st) => { if (!cancelled) setCoupleLocked(st.couple?.status === 'ACTIF'); })
+      .catch(() => { if (!cancelled) setCoupleLocked(false); });
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
 
   // Le Super Admin gère la plateforme depuis sa console : pas d'accès aux interfaces utilisateur
   useEffect(() => {
@@ -313,7 +335,7 @@ export default function App() {
     setCurrentUser(user);
     if (user.role === 'SUPER_ADMIN') {
       setCurrentView('superadmin');
-    } else if (IS_COUPLE_APP || opts?.openCouple) {
+    } else if (IS_COUPLE_APP || (COUPLE_WEB_ENABLED && opts?.openCouple)) {
       // Inscription avec « Kinoo Couple » : on ouvre directement l'espace à deux
       setCurrentView('couple');
     } else {
@@ -380,6 +402,10 @@ export default function App() {
         <ToastContainer toasts={toasts} onDismiss={removeToast} />
       </div>
     );
+  }
+
+  if (currentUser && coupleLocked && !IS_COUPLE_APP) {
+    return <CoupleOnlyNotice pseudo={currentUser.pseudo} onLogout={handleLogout} />;
   }
 
   return (

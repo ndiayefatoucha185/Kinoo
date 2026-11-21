@@ -1,4 +1,5 @@
 import { X as IconX, Check as IconCheck, Heart as IconHeart, MessageCircle as IconChat, Camera as IconCamera, Film as IconFilm } from 'lucide-react';
+import { COUPLE_WEB_ENABLED } from '../utils/appMode';
 import React from 'react';
 import { COMPATIBLE_SOURCES } from '../data/mockContents';
 import {
@@ -327,6 +328,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       </section>
 
       {/* 4 bis. KINOO COUPLE */}
+      {COUPLE_WEB_ENABLED && (
       <section className="max-w-5xl mx-auto px-4">
         <div className="kinoo-couple-banner rounded-3xl p-6 sm:p-10 border border-rose-400/30 bg-gradient-to-br from-rose-600/20 via-pink-600/10 to-purple-700/20 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -366,6 +368,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
       </section>
+      )}
 
       {/* 5. POST-MOVIE DEBRIEF HIGHLIGHT */}
       <section className="max-w-5xl mx-auto px-4">

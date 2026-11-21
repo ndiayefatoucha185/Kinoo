@@ -1,4 +1,4 @@
-import { apiUrl } from '../utils/appMode';
+import { apiUrl, COUPLE_WEB_ENABLED } from '../utils/appMode';
 import { ShieldCheck as IconShieldCheck, RotateCcw as IconRotateCcw, ArrowLeft as IconArrowLeft, Heart as IconHeart, Check as IconCheckMark } from 'lucide-react';
 import { fileToAvatarDataUrl } from '../utils/avatar';
 import React, { useState, useRef, useEffect } from 'react';
@@ -1202,7 +1202,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </p>
                 </div>
               ) : (
-                <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />
+                COUPLE_WEB_ENABLED ? <PlanChoice couple={wantsCouple} onChange={setWantsCouple} /> : null
               )}
 
               <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
@@ -1336,7 +1336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               {/* 3. Essai offert puis forfait, ou espace Couple */}
-              {!coupleOnly && <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />}
+              {!coupleOnly && COUPLE_WEB_ENABLED && <PlanChoice couple={wantsCouple} onChange={setWantsCouple} />}
 
               {/* 4. Cases obligatoires (16+ et CGU/Confidentialité) */}
               <div className="space-y-2 pt-1">

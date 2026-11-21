@@ -1,4 +1,11 @@
-# Kinoo Couple — application séparée (site, installation téléphone, Google Play / App Store)
+# Kinoo Couple — application séparée (Google Play / App Store)
+
+> **Mise à jour : la version WEB de Kinoo Couple est arrêtée.** Plus aucune entrée Couple sur le site Kinoo (accueil, tarifs,
+> tableau de bord, inscription), et l'adresse `couple.` / la PWA ne sont plus actives. Seuls restent : la future application
+> installée (build `npm run build:couple`) et, en développement local, l'aperçu `http://localhost:3000/?app=couple`.
+> Un compte dont le forfait Couple est actif n'a plus accès à la plateforme Kinoo (écran d'information + déconnexion).
+> Pour réactiver le web plus tard : `VITE_COUPLE_WEB=true` au moment du build. Les étapes « site » et « PWA » ci-dessous
+> ne s'appliquent donc plus tant que ce n'est pas réactivé.
 
 Kinoo Couple utilise le **même serveur et la même base** que Kinoo. Seule l'interface change : un accueil dédié
 aux couples, pas de forfaits Découverte/Standard/Premium, pas de menu Kinoo.

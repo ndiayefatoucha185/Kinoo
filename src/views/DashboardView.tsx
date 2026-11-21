@@ -1,4 +1,5 @@
 import { Heart as IconHeart, X as IconX, Cake as IconCake, Film as IconFilm, Megaphone as IconMegaphone, PartyPopper as IconPartyPopper, Check as IconCheck, AlertTriangle as IconAlertTriangle } from 'lucide-react';
+import { COUPLE_WEB_ENABLED } from '../utils/appMode';
 import React, { useState, useEffect, useRef } from 'react';
 import { PosterImage } from '../components/PosterImage';
 import { getPlanConfig } from '../config/plans';
@@ -635,6 +636,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button onClick={() => onNavigate('pricing')} className="underline shrink-0">Voir les forfaits</button>
         </div>
       )}
+      {COUPLE_WEB_ENABLED && (
       <button
         type="button"
         onClick={() => onNavigate('couple')}
@@ -649,6 +651,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </span>
         <span className="text-xs font-bold text-rose-300 shrink-0">Ouvrir</span>
       </button>
+      )}
       {/* Outer Dashboard Card Wrapper replicating the reference layout */}
       <div className="bg-[#121215] border border-[#232326] rounded-[2rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col lg:flex-row min-h-[760px]">
         
