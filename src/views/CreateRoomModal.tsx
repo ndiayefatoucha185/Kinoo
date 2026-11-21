@@ -3,7 +3,7 @@ import { User, Room, Invitation, Participation, ContentSource, SourceKind, Catal
 import { StorageService } from '../services/storage';
 import { ApiClient } from '../services/api';
 import { getPlanConfig } from '../config/plans';
-import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC } from '../utils/mediaHelper';
+import { extractYouTubeId, formatFileSize, formatDuration, MAX_VIDEO_DURATION_SEC, unsupportedLinkWarning } from '../utils/mediaHelper';
 import {
   X,
   Film,
@@ -35,7 +35,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   onRoomCreated,
   onRequireAuth,
 }) => {
-  const isGratuit = currentUser?.forfait === 'GRATUIT';
+  const isGratuit = currentUser?.forfait === 'GRATUIT' || currentUser?.forfait === 'DECOUVERTE'; // pas de fichiers locaux
   const isStandard = currentUser?.forfait === 'STANDARD';
   const isPremium = currentUser?.forfait === 'PREMIUM';
 
@@ -56,8 +56,25 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
   const monthlyLimit = planConfig.maxMonthlyRooms;
-  const isQuotaExceeded = currentMonthRooms.length >= monthlyLimit;
+  // Compteur fait foi côté serveur ; repli sur ce navigateur si le serveur est injoignable
+  const [serverMonthly, setServerMonthly] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getMyActiveRoomIds()
+      .then((r) => {
+        if (!cancelled && typeof r.monthlyCreated === 'number') setServerMonthly(r.monthlyCreated);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const monthlyUsed = serverMonthly ?? currentMonthRooms.length;
+  const isQuotaExceeded = monthlyUsed >= monthlyLimit;
   const maxAllowedParticipants = planConfig.maxParticipants;
+  const [totalPersonnes, setTotalPersonnes] = useState<number>(Math.min(4, maxAllowedParticipants));
+  const [demarrageAuto, setDemarrageAuto] = useState(true);
+  const [motDePasse, setMotDePasse] = useState('');
 
   // 1. Local File state
   const [localFile, setLocalFile] = useState<File | null>(null);
@@ -254,6 +271,11 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       return;
     }
 
+    if (sourceType === 'CATALOGUE' && !isPremium) {
+      alert('Le catalogue est réservé à la formule Premium.');
+      return;
+    }
+
     if (sourceType === 'URL_WEB' && !urlInput.trim()) {
       alert('Veuillez renseigner un lien URL ou une vidéo YouTube.');
       return;
@@ -267,8 +289,10 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
       const serverRoom = await ApiClient.createRoom({
         titre: nom.trim(),
         estPrivee: true,
-        codeAcces: undefined,
+        codeAcces: motDePasse.trim() ? motDePasse.trim() : undefined,
         sourceContenu: contentSource,
+        invitesAttendus: Math.min(Math.max(totalPersonnes, 2), maxAllowedParticipants) - 1,
+        demarrageAuto,
       });
 
       const assignedCode = (serverRoom as any).code || `KN-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -287,6 +311,9 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
         chatActif,
         reactionsActives,
         maxParticipants: (serverRoom as any).maxParticipants || maxAllowedParticipants,
+        participantsAttendus: (serverRoom as any).participantsAttendus ?? null,
+        demarrageAuto: (serverRoom as any).demarrageAuto !== false,
+        demarreeLe: (serverRoom as any).demarreeLe ?? null,
         dateCreation: (serverRoom as any).dateCreation || new Date().toISOString(),
       };
 
@@ -354,11 +381,90 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             <input
               type="text"
               required
-              placeholder="Ex: Soirée film avec Sarah & Lucas 🍿"
+              placeholder="Ex: Soirée film avec Sarah & Lucas"
               value={nom}
               onChange={(e) => setNom(e.target.value)}
               className="w-full bg-[#09090B] border border-[#232326] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]"
             />
+          </div>
+
+          {/* Nombre de personnes, démarrage et mot de passe */}
+          <div className="bg-[#141417] border border-[#7C3AED]/40 rounded-xl p-4 space-y-4 text-xs">
+            <h4 className="font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#7C3AED]" />
+              Participants et démarrage
+            </h4>
+
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="kinoo-total" className="text-white font-semibold leading-snug">
+                Combien de personnes dans la salle, vous compris ?
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  aria-label="Une personne de moins"
+                  onClick={() => setTotalPersonnes((n) => Math.max(2, n - 1))}
+                  className="w-8 h-8 rounded-lg bg-[#232326] text-white font-bold hover:bg-[#2c2c31]"
+                >
+                  −
+                </button>
+                <input
+                  id="kinoo-total"
+                  type="number"
+                  min={2}
+                  max={maxAllowedParticipants}
+                  value={totalPersonnes}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setTotalPersonnes(Number.isFinite(n) ? Math.min(Math.max(n, 2), maxAllowedParticipants) : 2);
+                  }}
+                  className="w-16 px-2 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white text-center font-bold focus:outline-none focus:border-[#7C3AED]"
+                />
+                <button
+                  type="button"
+                  aria-label="Une personne de plus"
+                  onClick={() => setTotalPersonnes((n) => Math.min(maxAllowedParticipants, n + 1))}
+                  className="w-8 h-8 rounded-lg bg-[#232326] text-white font-bold hover:bg-[#2c2c31]"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <p className="text-[11px] text-[#B8B4C0] leading-snug">
+              Vous + {totalPersonnes - 1} invité{totalPersonnes - 1 > 1 ? 's' : ''}. Quand ces {totalPersonnes} personnes seront dans la salle, elle se verrouille : personne d'autre ne pourra entrer.
+              Maximum {maxAllowedParticipants} avec la formule {planConfig.name}.
+            </p>
+
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={demarrageAuto}
+                onChange={(e) => setDemarrageAuto(e.target.checked)}
+                className="mt-0.5 rounded border-[#232326] text-[#EC4899] focus:ring-0"
+              />
+              <span className="text-white leading-snug">
+                Démarrer automatiquement quand tout le monde est arrivé
+                <span className="block text-[11px] text-[#B8B4C0]">
+                  Sinon, ou si quelqu'un tarde, vous pouvez toujours démarrer la séance vous-même depuis la salle d'attente.
+                </span>
+              </span>
+            </label>
+
+            <div className="space-y-1">
+              <label htmlFor="kinoo-room-password" className="text-[#B8B4C0]">
+                Mot de passe de la salle (facultatif, 4 caractères minimum)
+              </label>
+              <input
+                id="kinoo-room-password"
+                type="text"
+                maxLength={32}
+                autoComplete="off"
+                value={motDePasse}
+                onChange={(e) => setMotDePasse(e.target.value)}
+                placeholder="Laissez vide pour une salle sans mot de passe"
+                className="w-full px-3 py-2 rounded-lg bg-[#09090B] border border-[#232326] text-white placeholder:text-gray-500 focus:outline-none focus:border-[#7C3AED]"
+              />
+            </div>
           </div>
 
           {/* SÉLECTEUR DES 3 SOURCES (Comme spécifié par l'utilisateur) */}
@@ -367,14 +473,14 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               <label className="font-semibold text-white block">Source vidéo de la séance</label>
               <div className="flex items-center gap-2 text-[11px]">
                 <span className="text-[#B8B4C0]">
-                  Formule {isGratuit ? 'Gratuit' : isStandard ? 'Standard' : 'Premium'} ({maxAllowedParticipants} places max)
+                  Formule {planConfig.name} ({maxAllowedParticipants} places max)
                 </span>
                 <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
                   isQuotaExceeded
                     ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                     : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                 }`}>
-                  {isPremium ? 'Illimité' : `${currentMonthRooms.length}/${monthlyLimit} ce mois`}
+                  {`${monthlyUsed}/${monthlyLimit} ce mois`}
                 </span>
               </div>
             </div>
@@ -408,7 +514,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 )}
               </button>
 
-              {/* Option 2: Lien URL &/ou Plateforme de streaming */}
+              {/* Option 2: Lien vidéo direct ou YouTube */}
               <button
                 type="button"
                 onClick={() => setSourceType('URL_WEB')}
@@ -425,15 +531,26 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
               {/* Option 3: Catalogue Kinoo */}
               <button
                 type="button"
-                onClick={() => setSourceType('CATALOGUE')}
+                onClick={() => {
+                  if (!isPremium) {
+                    alert('Le catalogue « Films & séries du moment » est réservé à la formule Premium. Utilisez un lien URL / YouTube, ou passez en Premium.');
+                    return;
+                  }
+                  setSourceType('CATALOGUE');
+                }}
                 className={`py-2.5 px-3 rounded-xl font-bold flex flex-col sm:flex-row items-center justify-center gap-2 transition-all ${
                   sourceType === 'CATALOGUE'
                     ? 'bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white shadow-md'
                     : 'text-[#B8B4C0] hover:text-white hover:bg-[#1C1C22]'
                 }`}
               >
-                <Film className="w-4 h-4 shrink-0" />
+                {!isPremium ? <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" /> : <Film className="w-4 h-4 shrink-0" />}
                 <span className="truncate">Catalogue</span>
+                {!isPremium && (
+                  <span className="text-[8px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold hidden sm:inline">
+                    Premium
+                  </span>
+                )}
               </button>
             </div>
 
@@ -508,7 +625,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                 <div className="space-y-1.5">
                   <label className="font-semibold text-white block flex items-center gap-2">
                     <Link className="w-3.5 h-3.5 text-[#EC4899]" />
-                    <span>Lien URL &/ou Plateforme de streaming (YouTube, flux web, direct...)</span>
+                    <span>Lien vidéo direct ou YouTube</span>
                   </label>
                   <input
                     type="url"
@@ -517,6 +634,11 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
                     placeholder="Ex: https://www.youtube.com/watch?v=... ou https://monsite.com/film.mp4"
                     className="w-full bg-[#141417] border border-[#232326] rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-[#7C3AED]"
                   />
+                  {unsupportedLinkWarning(urlInput) && (
+                    <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5">
+                      {unsupportedLinkWarning(urlInput)}
+                    </p>
+                  )}
                 </div>
 
                 {detectedYouTubeId && (
@@ -639,7 +761,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
 
               <div className="text-[#B8B4C0] flex items-center gap-1.5">
                 <Users className="w-3.5 h-3.5 text-[#3B82F6]" />
-                <span>Max 8 personnes (Forfait Gratuit)</span>
+                <span>Max {maxAllowedParticipants} personnes (Forfait {planConfig.name})</span>
               </div>
             </div>
           </div>
@@ -655,7 +777,7 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !nom.trim()}
+              disabled={isSubmitting || !nom.trim() || (motDePasse.trim().length > 0 && motDePasse.trim().length < 4)}
               className="px-6 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#7C3AED]/20 transition-all disabled:opacity-50 flex items-center gap-2"
             >
               <Play className="w-3.5 h-3.5 fill-current" />

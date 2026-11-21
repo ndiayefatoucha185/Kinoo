@@ -1,0 +1,18 @@
+{
+  "name": "Kinoo Couple",
+  "short_name": "Kinoo Couple",
+  "description": "L'application des couples : discussion privée, souvenirs, dates importantes et soirées ciné à deux.",
+  "lang": "fr",
+  "start_url": "/?app=couple",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a0a14",
+  "theme_color": "#1a0a14",
+  "categories": ["lifestyle", "social", "entertainment"],
+  "icons": [
+    { "src": "/couple/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/couple/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/couple/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

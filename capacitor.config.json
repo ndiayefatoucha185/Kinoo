@@ -1,0 +1,9 @@
+{
+  "appId": "app.kinoo.couple",
+  "appName": "Kinoo Couple",
+  "webDir": "dist-couple",
+  "backgroundColor": "#1a0a14",
+  "server": {
+    "androidScheme": "https"
+  }
+}

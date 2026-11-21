@@ -28,6 +28,7 @@ import { AdminUsersWidget } from '../components/admin/AdminUsersWidget';
 import { AdminRoomsWidget } from '../components/admin/AdminRoomsWidget';
 import { AdminModerationWidget } from '../components/admin/AdminModerationWidget';
 import { AdminIntegrationsWidget } from '../components/admin/AdminIntegrationsWidget';
+import { AdminCouplesWidget } from '../components/admin/AdminCouplesWidget';
 import { AdminBillingWidget } from '../components/admin/AdminBillingWidget';
 import { AdminAnalyticsWidget } from '../components/admin/AdminAnalyticsWidget';
 import { AdminAiAssistantWidget } from '../components/admin/AdminAiAssistantWidget';
@@ -56,6 +57,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
     totalComptesInscrits: number;
     comptesParForfait: {
       GRATUIT: number;
+      DECOUVERTE?: number;
       STANDARD: number;
       PREMIUM: number;
     };
@@ -429,7 +431,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
           ) : (
             <>
               {/* Backend Security & Cloud SQL Live Status Pill avec environnement lu */}
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-300 text-xs">
+              <div className="kinoo-status-banner flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/20 text-emerald-300 text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="font-semibold uppercase tracking-wider">Fondation Backend & Cloud SQL</span>
@@ -506,7 +508,7 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
             <ErrorBoundary moduleName="Gestion des Utilisateurs">
             <AdminUsersWidget
               users={users}
-              onUpdateStatus={handleUpdateUserStatus}
+              onSetUserStatus={handleUpdateUserStatus}
               onUpdatePlan={handleUpdateUserPlan}
               prefillSearch={globalSearchTerm}
             />
@@ -572,6 +574,13 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               onToggleCurrency={() => setCurrency(currency === 'EUR' ? 'FCFA' : 'EUR')}
               onSimulateNewPayment={handleSimulatePayment}
             />
+            </ErrorBoundary>
+          )}
+
+          {/* TAB : FORFAIT COUPLE */}
+          {backendStatus !== 'blocked' && activeTab === 'couples' && (
+            <ErrorBoundary moduleName="Forfait Couple">
+              <AdminCouplesWidget onToast={onToast} />
             </ErrorBoundary>
           )}
 

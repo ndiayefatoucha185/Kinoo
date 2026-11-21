@@ -21,14 +21,18 @@ export function validateBody<T extends z.ZodTypeAny>(schema: T) {
 export const loginSchema = z.object({
   email: z.string().trim().email('Adresse e-mail invalide').max(255),
   password: z.string().min(1, 'Mot de passe requis').max(200),
+  // Champs de vérification anti-robots (Turnstile ou défi interne), lus par le contrôleur de connexion
+  turnstileToken: z.string().max(4096).optional(),
+  captchaId: z.string().max(200).optional(),
+  captchaAnswer: z.union([z.string().max(50), z.number()]).optional(),
 });
 
 export const registerSchema = z.object({
   pseudo: z.string().min(2, 'Le pseudo doit contenir au moins 2 caractères').max(50).trim(),
   email: z.string().email('Adresse e-mail invalide').max(255).trim(),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères').max(200),
+  password: z.string().min(10, 'Le mot de passe doit contenir au moins 10 caractères').max(200),
   avatar: z.string().optional().nullable(),
-  forfait: z.enum(['GRATUIT', 'STANDARD', 'PREMIUM']).optional().default('GRATUIT'),
+  forfait: z.enum(['GRATUIT', 'DECOUVERTE', 'STANDARD', 'PREMIUM']).optional().default('GRATUIT'),
   honeypot: z.string().optional(),
 });
 
@@ -38,6 +42,9 @@ export const createRoomSchema = z.object({
   estPrivee: z.boolean().optional().default(false),
   codeAcces: z.string().max(32).optional().nullable(),
   sourceContenu: z.any().optional().nullable(),
+  // Nombre de personnes à inviter (hors hôte) et mode de démarrage de la séance
+  invitesAttendus: z.number().int().min(1).max(500).optional(),
+  demarrageAuto: z.boolean().optional(),
 });
 
 // 3. Signalements

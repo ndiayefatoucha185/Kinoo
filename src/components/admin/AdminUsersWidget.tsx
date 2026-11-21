@@ -20,12 +20,14 @@ import {
 interface AdminUsersWidgetProps {
   users: User[];
   onSetUserStatus: (userId: string, status: AccountStatus) => void;
+  onUpdatePlan?: (userId: string, plan: UserPlan) => void | Promise<void>;
   prefillSearch?: string;
 }
 
 export const AdminUsersWidget: React.FC<AdminUsersWidgetProps> = ({
   users = [],
   onSetUserStatus,
+  onUpdatePlan,
   prefillSearch = '',
 }) => {
   const safeUsers = Array.isArray(users) ? users : [];
@@ -33,6 +35,7 @@ export const AdminUsersWidget: React.FC<AdminUsersWidgetProps> = ({
   const [statusFilter, setStatusFilter] = useState<'ALL' | AccountStatus>('ALL');
   const [planFilter, setPlanFilter] = useState<'ALL' | UserPlan>('ALL');
   const [selectedUserForHistory, setSelectedUserForHistory] = useState<User | null>(null);
+  const [planDraft, setPlanDraft] = useState<UserPlan>('STANDARD');
   const [confirmSuspendUser, setConfirmSuspendUser] = useState<User | null>(null);
   const [suspendReason, setSuspendReason] = useState('Violation des conditions d’utilisation (abonnements ou comportement)');
 
@@ -116,7 +119,8 @@ export const AdminUsersWidget: React.FC<AdminUsersWidgetProps> = ({
             className="bg-[#161722] border border-[#242636] text-xs text-white rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-[#EC4899]"
           >
             <option value="ALL">Tous les forfaits</option>
-            <option value="GRATUIT">Gratuit</option>
+            <option value="GRATUIT">Essai gratuit</option>
+            <option value="DECOUVERTE">Découverte</option>
             <option value="STANDARD">Standard</option>
             <option value="PREMIUM">Premium</option>
           </select>
@@ -402,6 +406,37 @@ export const AdminUsersWidget: React.FC<AdminUsersWidgetProps> = ({
                 </div>
               </div>
             </div>
+
+            {onUpdatePlan && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-gray-300">Forfait du compte</h4>
+                <div className="p-3 rounded-2xl bg-[#181926] border border-[#25273A] flex flex-col sm:flex-row sm:items-center gap-2.5">
+                  <select
+                    value={planDraft}
+                    onChange={(e) => setPlanDraft(e.target.value as UserPlan)}
+                    className="flex-1 bg-[#161722] border border-[#242636] text-xs text-white rounded-xl px-2.5 py-2 focus:outline-none focus:border-[#EC4899]"
+                  >
+                    <option value="GRATUIT">Essai gratuit</option>
+                    <option value="DECOUVERTE">Découverte (1 200 FCFA)</option>
+                    <option value="STANDARD">Standard (2 800 FCFA)</option>
+                    <option value="PREMIUM">Premium (4 750 FCFA)</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await onUpdatePlan(selectedUserForHistory.id, planDraft);
+                      setSelectedUserForHistory({ ...selectedUserForHistory, forfait: planDraft });
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white hover:opacity-90"
+                  >
+                    Activer ce forfait
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-500">
+                  À utiliser après réception d’un paiement (le paiement en ligne n’est pas encore branché).
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-end pt-2">
               <button
