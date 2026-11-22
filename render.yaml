@@ -6,7 +6,8 @@ services:
     runtime: docker            # utilise le Dockerfile du projet
     dockerfilePath: ./Dockerfile
     region: frankfurt          # région la plus proche de l'Afrique de l'Ouest chez Render
-    plan: starter              # NE PAS utiliser « free » : le service s'endort et coupe les salles (WebSocket)
+    plan: free                 # TEST uniquement (sans carte bancaire) : le service s'endort après ~15 min d'inactivité
+                               # et coupe les salles. AVANT LE LANCEMENT PUBLIC : passer à « starter ».
     healthCheckPath: /api/health
     autoDeploy: true           # redéploie à chaque mise à jour de la branche main
     envVars:

@@ -11,8 +11,11 @@ Vercel non. La base de données reste sur Supabase.
 ## Étape 1 — Créer le service
 1. Compte sur https://render.com (connexion avec GitHub).
 2. **New +** → **Blueprint** → choisissez le dépôt `ndiayefatoucha185/Kinoo`, branche `main`.
-3. Render lit `render.yaml` et propose le service **kinoo** (offre *Starter*, région Frankfurt). Gardez *Starter* : l'offre gratuite
-   s'endort après quelques minutes et coupe les salles en cours. (Tarif à vérifier sur render.com/pricing.)
+3. Render lit `render.yaml` et propose le service **kinoo** (région Frankfurt).
+   - **Phase de test : offre `free`** (actuellement dans `render.yaml`), sans carte bancaire. Le service s'endort après quelques
+     minutes d'inactivité (premier chargement lent) et coupe les salles en cours : suffisant pour tester.
+   - **Avant le lancement public : offre `starter`** (carte bancaire requise, tarif à vérifier sur render.com/pricing).
+     Dans `render.yaml`, remplacez `plan: free` par `plan: starter`, ou changez l'offre dans Render → Settings.
 
 ## Étape 2 — Remplir les variables
 Render demande les valeurs marquées « à renseigner » (les 4 secrets sont générés tout seuls) :
