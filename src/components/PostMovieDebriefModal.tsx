@@ -1,4 +1,6 @@
+import { Star as IconStar } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
+import { PosterImage } from './PosterImage';
 import { User, Room, Participation } from '../types/kinoo';
 import {
   X,
@@ -22,7 +24,7 @@ interface PostMovieDebriefModalProps {
   room: Room;
   currentUser: User | null;
   participations: Participation[];
-  onChangeMedia: () => void;
+  onChangeMedia?: () => void; // conservé pour compatibilité : une salle ne projette qu'un seul film
   onLeaveRoom: () => void;
 }
 
@@ -32,7 +34,7 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   room,
   currentUser,
   participations,
-  onChangeMedia,
+  onChangeMedia: _onChangeMedia,
   onLeaveRoom,
 }) => {
   const [isMicOn, setIsMicOn] = useState(true);
@@ -46,7 +48,6 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   ]);
   const [customComment, setCustomComment] = useState('');
   const [sharedComments, setSharedComments] = useState<Array<{ pseudo: string; text: string; stars: number }>>([
-    { pseudo: 'Léa', text: 'Incroyable, j’ai adoré la fin ! On enchaîne sur quoi ? 😍', stars: 5 },
   ]);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -119,10 +120,12 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
 
         {/* Film Card Banner */}
         <div className="flex items-center gap-4 p-4 rounded-2xl bg-[#09090B] border border-[#232326]">
-          <img
+          <PosterImage
             src={room.sourceContenu?.posterUrl}
-            alt={room.sourceContenu?.titre}
-            className="w-16 h-16 object-cover rounded-xl border border-white/10"
+            youtubeId={room.sourceContenu?.youtubeId}
+            alt={room.sourceContenu?.titre || 'Affiche'}
+            iconClassName="w-6 h-6"
+            className="w-16 h-16 object-cover rounded-xl border border-white/10 shrink-0"
           />
           <div className="min-w-0 flex-1">
             <span className="text-[10px] uppercase font-bold text-[#EC4899] tracking-wider">Séance terminée</span>
@@ -250,7 +253,7 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
                   <span className="text-gray-200">{c.text}</span>
                 </div>
                 <div className="flex items-center gap-0.5 text-amber-400 text-[11px] font-mono shrink-0">
-                  <span>★ {c.stars}/5</span>
+                  <span className="inline-flex items-center gap-1"><IconStar className="w-3 h-3 fill-current" />{c.stars}/5</span>
                 </div>
               </div>
             ))}
@@ -268,19 +271,6 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
             <span>Quitter la séance</span>
           </button>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onChangeMedia();
-              }}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md flex items-center justify-center gap-2"
-            >
-              <Film className="w-4 h-4" />
-              <span>Lancer un autre film ensemble</span>
-            </button>
-          </div>
         </div>
 
       </div>

@@ -4,7 +4,7 @@ export type PlaybackState = 'LECTURE' | 'PAUSE' | 'BUFFERING';
 export type ReportTarget = 'PARTICIPANT' | 'MESSAGE' | 'CONTENU';
 export type ReportStatus = 'OUVERT' | 'EN_COURS' | 'TRAITE' | 'REJETE';
 
-export type UserPlan = 'GRATUIT' | 'STANDARD' | 'PREMIUM';
+export type UserPlan = 'GRATUIT' | 'DECOUVERTE' | 'STANDARD' | 'PREMIUM';
 export type AccountRole = 'UTILISATEUR' | 'ADMIN' | 'MODERATEUR' | 'SUPER_ADMIN';
 export type AccountStatus = 'ACTIF' | 'SUSPENDU';
 
@@ -24,6 +24,8 @@ export interface User {
   statutAbonnement?: 'ACTIF' | 'RENOUVELLEMENT_REQUIS' | 'RETROGRADE';
   joursRestants?: number;
   hasPassword?: boolean;
+  /** Compte avec essai d'une séance offerte (forfait GRATUIT) */
+  essaiActif?: boolean;
 }
 
 export interface SupportTicket {
@@ -120,10 +122,17 @@ export interface Room {
   statut: RoomStatus;
   hoteId: string;
   hotePseudo: string;
+  /** Renseigné pour une soirée ciné de couple (salle à deux, sans publicité) */
+  coupleId?: string | null;
   sourceContenuId: string;
   sourceContenu: ContentSource;
   estPrivee: boolean;
   estVerrouillee: boolean;
+  // Temps de lecture réellement écoulé (secondes), mesuré par le serveur
+  lectureTotaleSec?: number;
+  participantsAttendus?: number | null;
+  demarrageAuto?: boolean;
+  demarreeLe?: string | null;
   chatActif: boolean;
   reactionsActives: boolean;
   maxParticipants: number;
@@ -205,6 +214,8 @@ export interface UserContact {
   dateAjout: string;
   dateNaissance?: string;
   forfait?: UserPlan;
+  // Identifiant du compte Kinoo de l'ami (absent s'il n'a pas encore de compte) : requis pour la messagerie
+  linkedUserId?: string;
 }
 
 export interface ScheduledSession {

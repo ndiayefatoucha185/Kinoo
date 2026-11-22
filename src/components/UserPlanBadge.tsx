@@ -35,7 +35,7 @@ export const UserPlanBadge: React.FC<UserPlanBadgeProps> = ({
   const normalizedPlan = (plan || '').toUpperCase();
 
   // 1. Formule GRATUITE : pas de badge encombrant pour garder l'interface épurée
-  if (normalizedPlan === 'GRATUIT') {
+  if (normalizedPlan === 'GRATUIT' || normalizedPlan === 'DECOUVERTE') {
     return null;
   }
 

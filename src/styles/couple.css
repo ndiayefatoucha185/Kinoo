@@ -1,0 +1,255 @@
+/* ==========================================================================
+   KINOO COUPLE — système de design
+   Thème rose chaleureux, lisible en clair comme en sombre. Tout est piloté par
+   des variables : html.light (clair) / par défaut (sombre).
+   ========================================================================== */
+.kc {
+  --kc-bg: linear-gradient(180deg, #170813 0%, #1f0c1f 55%, #170a1c 100%);
+  --kc-surface: rgba(255, 255, 255, 0.065);
+  --kc-surface-2: rgba(255, 255, 255, 0.11);
+  --kc-solid: #26122a;
+  --kc-border: rgba(255, 255, 255, 0.12);
+  --kc-text: #fdf2f8;
+  --kc-muted: #cdb1c3;
+  --kc-faint: #9d7f93;
+  --kc-accent: #ff5c9d;
+  --kc-accent-ink: #ffffff;
+  --kc-accent-soft: rgba(255, 92, 157, 0.16);
+  --kc-violet: #b79bff;
+  --kc-ok: #4ade80;
+  --kc-warn: #fbbf24;
+  --kc-grad: linear-gradient(135deg, #ff5c9d 0%, #e0287a 100%);
+  --kc-grad-hero: linear-gradient(145deg, #e0287a 0%, #b5206b 48%, #6d2fb8 100%);
+  --kc-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6);
+  --kc-input: rgba(0, 0, 0, 0.28);
+  --kc-display: 'Fraunces', 'Playfair Display', Georgia, serif;
+  color: var(--kc-text);
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+html.light .kc {
+  --kc-bg: linear-gradient(180deg, #fff6f9 0%, #ffe6ef 60%, #fdeafd 100%);
+  --kc-surface: rgba(255, 255, 255, 0.86);
+  --kc-surface-2: rgba(255, 255, 255, 0.98);
+  --kc-solid: #ffffff;
+  --kc-border: rgba(190, 24, 93, 0.14);
+  --kc-text: #3d0a25;
+  --kc-muted: #7e4a64;
+  --kc-faint: #a67a91;
+  --kc-accent: #d9206f;
+  --kc-accent-soft: rgba(217, 32, 111, 0.1);
+  --kc-violet: #6d3fd1;
+  --kc-ok: #15803d;
+  --kc-warn: #b45309;
+  --kc-grad: linear-gradient(135deg, #ff4d94 0%, #d9206f 100%);
+  --kc-shadow: 0 14px 34px -16px rgba(190, 24, 93, 0.35);
+  --kc-input: #ffffff;
+}
+
+/* Le cinéma est toujours sombre, comme une salle */
+.kc .kc-cinema {
+  --kc-surface: rgba(255, 255, 255, 0.07);
+  --kc-surface-2: rgba(255, 255, 255, 0.12);
+  --kc-solid: #22101f;
+  --kc-border: rgba(255, 255, 255, 0.13);
+  --kc-text: #fdf2f8;
+  --kc-muted: #d3b8c9;
+  --kc-faint: #a58598;
+  --kc-accent: #ff5c9d;
+  --kc-input: rgba(0, 0, 0, 0.3);
+  --kc-violet: #b79bff;
+  color: var(--kc-text);
+  background: linear-gradient(170deg, #1d0b1b 0%, #2a1233 100%);
+}
+
+/* --- Structure ---------------------------------------------------------- */
+.kc-shell {
+  background: var(--kc-bg);
+  border-radius: 1.75rem;
+  border: 1px solid var(--kc-border);
+  overflow: hidden;
+  position: relative;
+  min-height: calc(100dvh - 7rem);
+  padding-bottom: 5.75rem;
+}
+.kc-app .kc-shell { border-radius: 0; border: 0; min-height: calc(100dvh - 3.5rem); }
+.kc-page { padding: 1.1rem 1rem 0.5rem; display: flex; flex-direction: column; gap: 1rem; }
+@media (min-width: 640px) { .kc-page { padding: 1.5rem 1.5rem 0.5rem; } }
+
+.kc-display { font-family: var(--kc-display); font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; color: var(--kc-text); }
+.kc-eyebrow { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--kc-accent); }
+.kc-text { color: var(--kc-text); }
+.kc-muted { color: var(--kc-muted); }
+.kc-faint { color: var(--kc-faint); }
+.kc-accent { color: var(--kc-accent); }
+
+.kc-card {
+  background: var(--kc-surface);
+  border: 1px solid var(--kc-border);
+  border-radius: 1.4rem;
+  padding: 1.05rem;
+  box-shadow: var(--kc-shadow);
+  backdrop-filter: blur(8px);
+}
+.kc-card-hero {
+  background: var(--kc-grad-hero);
+  color: #fff;
+  border-radius: 1.6rem;
+  padding: 1.25rem;
+  box-shadow: 0 18px 40px -18px rgba(217, 32, 111, 0.65);
+  position: relative;
+  overflow: hidden;
+}
+.kc-card-hero * { color: inherit; }
+.kc-soft { background: var(--kc-accent-soft); border: 1px solid var(--kc-border); border-radius: 1.1rem; }
+
+/* --- Boutons ------------------------------------------------------------ */
+.kc-btn, .kc-btn-ghost, .kc-btn-soft {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  font-weight: 700; font-size: 0.85rem; border-radius: 999px; padding: 0.7rem 1.2rem;
+  cursor: pointer; transition: transform 0.12s ease, opacity 0.15s ease; border: 0;
+}
+.kc-btn { background: var(--kc-grad); color: #fff; box-shadow: 0 10px 22px -10px rgba(217, 32, 111, 0.7); }
+.kc-btn-ghost { background: transparent; color: var(--kc-text); border: 1px solid var(--kc-border); }
+.kc-btn-soft { background: var(--kc-accent-soft); color: var(--kc-accent); }
+.kc-btn:active, .kc-btn-ghost:active, .kc-btn-soft:active { transform: scale(0.97); }
+.kc-btn:disabled, .kc-btn-ghost:disabled, .kc-btn-soft:disabled { opacity: 0.5; cursor: not-allowed; }
+.kc-iconbtn {
+  width: 2.4rem; height: 2.4rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--kc-surface-2); color: var(--kc-text); border: 1px solid var(--kc-border); cursor: pointer;
+}
+.kc-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 600;
+  padding: 0.35rem 0.75rem; border-radius: 999px; background: var(--kc-accent-soft); color: var(--kc-accent); border: 1px solid transparent;
+}
+.kc-chip-on { background: var(--kc-grad); color: #fff; }
+
+/* Contrôle segmenté */
+.kc-seg { display: flex; gap: 0.25rem; padding: 0.25rem; background: var(--kc-surface); border: 1px solid var(--kc-border); border-radius: 999px; }
+.kc-seg button { flex: 1; font-size: 0.78rem; font-weight: 700; padding: 0.5rem 0.4rem; border-radius: 999px; color: var(--kc-muted); background: transparent; border: 0; cursor: pointer; white-space: nowrap; }
+.kc-seg button[aria-selected='true'] { background: var(--kc-grad); color: #fff; box-shadow: 0 6px 14px -8px rgba(217, 32, 111, 0.8); }
+
+/* --- Champs (surpasse les règles globales du mode clair) ---------------- */
+html body .kc input.kc-input.kc-input,
+html body .kc textarea.kc-input.kc-input,
+html body .kc select.kc-input.kc-input {
+  background-color: var(--kc-input) !important;
+  border: 1px solid var(--kc-border) !important;
+  color: var(--kc-text) !important;
+  border-radius: 1rem;
+  padding: 0.7rem 0.95rem;
+  font-size: 0.88rem;
+  width: 100%;
+  outline: none;
+}
+html body .kc input.kc-input.kc-input:focus,
+html body .kc textarea.kc-input.kc-input:focus { border-color: var(--kc-accent) !important; }
+html body .kc input.kc-input::placeholder,
+html body .kc textarea.kc-input::placeholder { color: var(--kc-faint) !important; }
+html body .kc select.kc-input option { color: #1f0a18; background: #fff; }
+
+/* --- Barre du bas ------------------------------------------------------- */
+.kc-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  display: flex; justify-content: center; pointer-events: none;
+  padding: 0 0.75rem calc(0.6rem + env(safe-area-inset-bottom));
+}
+.kc-tabbar-inner {
+  pointer-events: auto; width: 100%; max-width: 44rem;
+  display: grid; grid-template-columns: 1fr 1fr 1.15fr 1fr 1fr; align-items: end;
+  background: var(--kc-solid); border: 1px solid var(--kc-border); border-radius: 1.6rem;
+  box-shadow: 0 18px 40px -14px rgba(0, 0, 0, 0.45); padding: 0.45rem 0.35rem 0.4rem;
+}
+.kc-tab { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; font-size: 0.64rem; font-weight: 600; color: var(--kc-faint); background: transparent; border: 0; cursor: pointer; padding: 0.3rem 0; }
+.kc-tab[aria-current='page'] { color: var(--kc-accent); }
+.kc-tab-fab { position: relative; margin-top: -1.9rem; color: var(--kc-text); }
+.kc-tab-fab .kc-fab {
+  width: 3.5rem; height: 3.5rem; border-radius: 1.2rem; display: flex; align-items: center; justify-content: center;
+  background: var(--kc-grad); color: #fff; box-shadow: 0 14px 26px -10px rgba(217, 32, 111, 0.8); border: 3px solid var(--kc-solid);
+}
+.kc-tab-fab[aria-current='page'] .kc-fab { box-shadow: 0 0 0 4px var(--kc-accent-soft), 0 14px 26px -10px rgba(217, 32, 111, 0.8); }
+
+/* --- Éléments --------------------------------------------------------- */
+.kc-avatar {
+  width: 2.6rem; height: 2.6rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; color: #fff; background: var(--kc-grad); flex-shrink: 0; position: relative; border: 2px solid var(--kc-solid);
+}
+.kc-avatar-2 { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+.kc-dot { position: absolute; right: -2px; bottom: -2px; width: 0.8rem; height: 0.8rem; border-radius: 999px; background: var(--kc-ok); border: 2px solid var(--kc-solid); }
+
+.kc-progress { height: 0.5rem; border-radius: 999px; background: var(--kc-accent-soft); overflow: hidden; }
+.kc-progress > span { display: block; height: 100%; border-radius: 999px; background: var(--kc-grad); transition: width 0.4s ease; }
+
+.kc-bubble { max-width: 82%; padding: 0.6rem 0.85rem; border-radius: 1.15rem; font-size: 0.88rem; line-height: 1.35; word-break: break-word; }
+.kc-bubble-me { background: var(--kc-grad); color: #fff; border-bottom-right-radius: 0.3rem; }
+.kc-bubble-them { background: var(--kc-surface-2); color: var(--kc-text); border: 1px solid var(--kc-border); border-bottom-left-radius: 0.3rem; }
+
+.kc-sheet-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(20, 5, 15, 0.65); display: flex; align-items: flex-end; justify-content: center; padding: 0; }
+@media (min-width: 640px) { .kc-sheet-overlay { align-items: center; padding: 1rem; } }
+.kc-sheet {
+  width: 100%; max-width: 28rem; max-height: 92dvh; overflow-y: auto; background: var(--kc-solid); color: var(--kc-text);
+  border: 1px solid var(--kc-border); border-radius: 1.6rem 1.6rem 0 0; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.8rem;
+}
+@media (min-width: 640px) { .kc-sheet { border-radius: 1.6rem; } }
+
+/* Bouton « Je pense à toi » */
+.kc-heart {
+  width: 7.5rem; height: 7.5rem; border-radius: 999px; border: 0; cursor: pointer; color: #fff;
+  background: radial-gradient(circle at 35% 30%, #ff8fbd 0%, #ee2f86 55%, #c01870 100%);
+  box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.16), 0 0 0 22px rgba(255, 255, 255, 0.08), 0 22px 40px -14px rgba(120, 10, 70, 0.7);
+  display: flex; align-items: center; justify-content: center; animation: kc-beat 2.6s ease-in-out infinite;
+}
+.kc-heart:active { transform: scale(0.94); }
+.kc-heart.sent { animation: kc-pop 0.6s ease; }
+@keyframes kc-beat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+@keyframes kc-pop { 0% { transform: scale(0.9); } 40% { transform: scale(1.15); } 100% { transform: scale(1); } }
+.kc-float { position: absolute; pointer-events: none; animation: kc-rise 1.6s ease-out forwards; color: #fff; }
+@keyframes kc-rise { 0% { transform: translateY(0) scale(0.6); opacity: 0.9; } 100% { transform: translateY(-120px) scale(1.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .kc-heart, .kc-heart.sent, .kc-float { animation: none; } }
+
+.kc-scroll-x { display: flex; gap: 0.6rem; overflow-x: auto; padding-bottom: 0.25rem; scrollbar-width: none; }
+.kc-scroll-x::-webkit-scrollbar { display: none; }
+
+/* --------------------------------------------------------------------------
+   Compatibilité : les anciens écrans (souvenirs, onboarding…) utilisent des
+   classes Tailwind claires. Dans .kc elles suivent désormais le thème.
+   -------------------------------------------------------------------------- */
+html body .kc .text-white, html body .kc .text-white\/90 { color: var(--kc-text) !important; }
+html body .kc .text-white\/70, html body .kc .text-white\/60, html body .kc .text-rose-100\/80,
+html body .kc .text-rose-100\/70, html body .kc .text-rose-200\/80, html body .kc .text-rose-200\/70,
+html body .kc .text-gray-300, html body .kc .text-gray-400, html body .kc .text-slate-300 { color: var(--kc-muted) !important; }
+html body .kc .text-white\/50, html body .kc .text-white\/40, html body .kc .text-rose-100\/60, html body .kc .text-gray-500 { color: var(--kc-faint) !important; }
+html body .kc .text-rose-200, html body .kc .text-rose-300, html body .kc .text-rose-400, html body .kc .text-pink-300 { color: var(--kc-accent) !important; }
+html body .kc .text-purple-200, html body .kc .text-purple-300 { color: var(--kc-violet) !important; }
+html body .kc .text-emerald-300, html body .kc .text-emerald-400 { color: var(--kc-ok) !important; }
+html body .kc .bg-white\/5, html body .kc .bg-white\/10, html body .kc .bg-white\/15 { background-color: var(--kc-surface-2) !important; }
+html body .kc .bg-black\/20, html body .kc .bg-black\/30 { background-color: var(--kc-input) !important; }
+html body .kc .border-white\/10, html body .kc .border-white\/15, html body .kc .border-white\/30,
+html body .kc .border-rose-400\/30, html body .kc .border-rose-500\/20 { border-color: var(--kc-border) !important; }
+html body .kc .bg-rose-500, html body .kc .bg-rose-400, html body .kc .bg-rose-500.text-white,
+html body .kc [class*='from-rose-'][class*='to-'] { background: var(--kc-grad) !important; color: #fff !important; }
+html body .kc .bg-rose-500 *, html body .kc [class*='from-rose-'][class*='to-'].text-white { color: #fff !important; }
+html body .kc .bg-rose-500\/15, html body .kc .bg-purple-500\/15 { background-color: var(--kc-accent-soft) !important; }
+html body .kc .border-rose-400\/30, html body .kc .border-purple-400\/30 { border-color: var(--kc-border) !important; }
+html body .kc input:not([type='checkbox']):not([type='radio']), html body .kc textarea, html body .kc select {
+  background-color: var(--kc-input) !important; border-color: var(--kc-border) !important; color: var(--kc-text) !important;
+}
+html body .kc input::placeholder, html body .kc textarea::placeholder { color: var(--kc-faint) !important; }
+html body .kc option { color: #1f0a18 !important; background: #fff !important; }
+html body .kc .bg-black\/80, html body .kc .bg-black\/90 { background-color: rgba(20, 5, 15, 0.78) !important; }
+
+/* Onglet Ciné : toute l'interface passe en salle sombre */
+html .kc.kc-shell-cinema, html.light .kc.kc-shell-cinema {
+  --kc-bg: linear-gradient(170deg, #1a0a1a 0%, #2a1236 100%);
+  --kc-surface: rgba(255, 255, 255, 0.07);
+  --kc-surface-2: rgba(255, 255, 255, 0.12);
+  --kc-solid: #22101f;
+  --kc-border: rgba(255, 255, 255, 0.13);
+  --kc-text: #fdf2f8;
+  --kc-muted: #d3b8c9;
+  --kc-faint: #a58598;
+  --kc-accent: #ff5c9d;
+  --kc-accent-soft: rgba(255, 92, 157, 0.16);
+  --kc-input: rgba(0, 0, 0, 0.3);
+  --kc-violet: #b79bff;
+  --kc-ok: #4ade80;
+}

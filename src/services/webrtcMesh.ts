@@ -6,6 +6,7 @@
  * - Signaling relayed through Kinoo WebSocket
  */
 
+import { apiUrl } from '../utils/appMode';
 import { syncEngine } from './syncEngine';
 
 export interface PeerStreamInfo {
@@ -65,7 +66,7 @@ class WebRTCMeshService {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      const res = await fetch('/api/webrtc/ice-servers', { headers });
+      const res = await fetch(apiUrl('/api/webrtc/ice-servers'), { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {

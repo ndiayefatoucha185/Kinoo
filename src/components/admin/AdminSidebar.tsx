@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Megaphone,
+  Heart,
 } from 'lucide-react';
 import { KinooAiIcon } from './KinooAiIcon';
 
@@ -29,6 +30,7 @@ export type AdminTab =
   | 'integrations'
   | 'ads'
   | 'billing'
+  | 'couples'
   | 'analytics'
   | 'ai-assistant'
   | 'audit'
@@ -162,6 +164,11 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
           id: 'billing',
           label: 'Abonnements & Facturation',
           icon: CreditCard,
+        },
+        {
+          id: 'couples',
+          label: 'Forfait Couple',
+          icon: Heart,
         },
         {
           id: 'analytics',
