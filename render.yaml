@@ -1,0 +1,50 @@
+# Déploiement de Kinoo sur Render (Blueprint).
+# Mode d'emploi : docs/DEPLOIEMENT_RENDER.md
+services:
+  - type: web
+    name: kinoo
+    runtime: docker            # utilise le Dockerfile du projet
+    dockerfilePath: ./Dockerfile
+    region: frankfurt          # région la plus proche de l'Afrique de l'Ouest chez Render
+    plan: starter              # NE PAS utiliser « free » : le service s'endort et coupe les salles (WebSocket)
+    healthCheckPath: /api/health
+    autoDeploy: true           # redéploie à chaque mise à jour de la branche main
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: IS_AI_STUDIO_PREVIEW
+        value: "false"
+      - key: ALLOW_BEARER_FALLBACK
+        value: "false"
+      # Secrets générés automatiquement par Render (inutile de les inventer)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OAUTH_STATE_SECRET
+        generateValue: true
+      - key: MODERATION_HMAC_SECRET
+        generateValue: true
+      - key: INTERNAL_CRON_SECRET
+        generateValue: true
+      # À renseigner vous-même dans Render (valeurs jamais écrites dans ce fichier)
+      - key: PUBLIC_BASE_URL     # ex. https://kinoo.onrender.com puis votre domaine
+        sync: false
+      - key: DATABASE_URL        # adresse Supabase (Session pooler)
+        sync: false
+      - key: DB_SSL_CA           # contenu du certificat Supabase, retours à la ligne écrits \n
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_INITIAL_PASSWORD
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
