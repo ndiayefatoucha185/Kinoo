@@ -110,6 +110,8 @@ interface AuthModalProps {
   resetToken?: string;
   /** Ouvre l'inscription avec « Kinoo Couple » présélectionné (depuis l'accueil ou les tarifs) */
   initialCouple?: boolean;
+  /** Forfait cliqué avant l'inscription (info affichée à l'étape 2) */
+  chosenPlan?: string | null;
   /** Application Kinoo Couple : inscription directe vers l'espace à deux, sans choix de forfait */
   coupleOnly?: boolean;
   onClose: () => void;
@@ -196,6 +198,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   resetToken = '',
   initialCouple = false,
+  chosenPlan = null,
   coupleOnly = false,
   onClose,
   onAuthSuccess,
@@ -1194,6 +1197,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* ========================================================================= */}
           {mode === 'signup' && signupStep === 'plan' && (
             <div className="space-y-4">
+              {!coupleOnly && (chosenPlan === 'STANDARD' || chosenPlan === 'PREMIUM') && (
+                <div className="p-3.5 rounded-2xl border border-[#EC4899]/40 bg-[#EC4899]/10 space-y-1.5">
+                  <h3 className="font-bold text-sm text-white">
+                    Forfait choisi : {chosenPlan === 'PREMIUM' ? 'Premium' : 'Standard'}
+                  </h3>
+                  <p className="text-[11px] text-[#B8B4C0]">
+                    Votre compte démarre avec la <b className="text-white">première séance offerte</b>. Le paiement en ligne arrive très bientôt : votre forfait {chosenPlan === 'PREMIUM' ? 'Premium' : 'Standard'} s’activera dès le paiement confirmé (ou par notre équipe en attendant).
+                  </p>
+                </div>
+              )}
+
               {coupleOnly ? (
                 <div className="p-3.5 rounded-2xl border border-rose-400/40 bg-rose-500/10 space-y-1.5">
                   <h3 className="font-bold text-sm text-white">Kinoo Couple : votre espace à deux</h3>

@@ -116,6 +116,7 @@ export default function App() {
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authCouple, setAuthCouple] = useState<boolean>(false);
+  const [authPlan, setAuthPlan] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>('login');
   const [authResetToken, setAuthResetToken] = useState<string>('');
   const [isCreateRoomOpen, setIsCreateRoomOpen] = useState<boolean>(false);
@@ -508,6 +509,7 @@ export default function App() {
         onOpenAuth={(mode) => {
           setAuthMode(mode || 'login');
           setAuthCouple(false);
+          setAuthPlan(null);
           setIsAuthModalOpen(true);
         }}
         onOpenCreateRoom={() => setIsCreateRoomOpen(true)}
@@ -540,6 +542,7 @@ export default function App() {
                 onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
                   setAuthCouple(Boolean(opts?.couple));
+                  setAuthPlan(opts?.plan ?? null);
                   setIsAuthModalOpen(true);
                 }}
                 onOpenCouple={() => setCurrentView('couple')}
@@ -633,6 +636,7 @@ export default function App() {
                 onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
                   setAuthCouple(Boolean(opts?.couple));
+                  setAuthPlan(opts?.plan ?? null);
                   setIsAuthModalOpen(true);
                 }}
                 onNavigate={(v) => {
@@ -656,6 +660,7 @@ export default function App() {
                 onOpenAuth={(mode, opts) => {
                   setAuthMode(mode || 'login');
                   setAuthCouple(Boolean(opts?.couple));
+                  setAuthPlan(opts?.plan ?? null);
                   setIsAuthModalOpen(true);
                 }}
                 onQuickLogin={(email) => {
@@ -740,6 +745,7 @@ export default function App() {
           setAuthResetToken('');
         }}
         initialCouple={authCouple}
+        chosenPlan={authPlan}
         coupleOnly={IS_COUPLE_APP}
         onAuthSuccess={handleAuthSuccess}
         onOpenLegal={handleOpenLegal}

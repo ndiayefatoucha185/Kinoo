@@ -28,7 +28,7 @@ import {
 interface HomeViewProps {
   onOpenCreateRoom: () => void;
   onOpenJoinRoom: () => void;
-  onOpenAuth: (mode?: 'login' | 'signup', opts?: { couple?: boolean }) => void;
+  onOpenAuth: (mode?: 'login' | 'signup', opts?: { couple?: boolean; plan?: string }) => void;
   onNavigate: (view: string) => void;
 }
 
@@ -487,7 +487,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </ul>
             </div>
             <button
-              onClick={() => onNavigate('pricing')}
+              onClick={() => onOpenAuth('signup', { plan: 'STANDARD' })}
               className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 shadow-md shadow-[#EC4899]/20"
             >
               Choisir Standard — 2 800 FCFA
@@ -515,7 +515,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </ul>
             </div>
             <button
-              onClick={() => onNavigate('pricing')}
+              onClick={() => onOpenAuth('signup', { plan: 'PREMIUM' })}
               className="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#3B82F6] to-[#7C3AED] hover:opacity-95 shadow-md shadow-[#3B82F6]/20"
             >
               Choisir Premium — 4 750 FCFA
