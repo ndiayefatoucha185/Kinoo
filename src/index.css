@@ -412,3 +412,12 @@ html.light [class*="hover:bg-[#3"]:hover,
 html.light [class*="hover:bg-[#0"]:hover {
   background-color: #eef0f5 !important;
 }
+
+/* Pied de page en mode clair : au survol, les liens passent en foncé (et non en blanc, invisible sur fond clair) */
+html.light footer [class*="hover:text-white"]:hover {
+  color: #0f172a !important;
+}
+html.light footer button:hover,
+html.light footer a:hover {
+  text-decoration: underline;
+}
