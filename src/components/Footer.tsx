@@ -92,12 +92,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenLegal, onOpenR
                   Tarifs & Forfaits
                 </button>
               </li>
-              <li>
-                <button onClick={() => onNavigate('status')} className="hover:text-white transition-colors flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>État des services (Status)</span>
-                </button>
-              </li>
             </ul>
           </div>
 
