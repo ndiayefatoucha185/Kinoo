@@ -233,7 +233,26 @@ export async function exchangeGoogleCode(code: string, redirectUri: string): Pro
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
     console.error('[OAUTH GOOGLE] Erreur token exchange:', errText.slice(0, 300));
-    throw new GoogleAuthError('Échec de la validation du code d’autorisation Google.', 400);
+    // Cause exacte renvoyée par Google (aucune donnée sensible) : on la traduit pour pouvoir corriger vite
+    let googleError = '';
+    try {
+      googleError = String(JSON.parse(errText)?.error || '');
+    } catch {
+      /* réponse non JSON */
+    }
+    const hints: Record<string, string> = {
+      invalid_grant: 'Le code Google a expiré ou a déjà été utilisé (une seule connexion par code). Fermez les autres onglets Kinoo, puis réessayez une fois.',
+      invalid_client: 'Identifiants Google invalides sur le serveur (GOOGLE_CLIENT_ID ou GOOGLE_CLIENT_SECRET incorrect).',
+      redirect_uri_mismatch: 'L’adresse de retour n’est pas déclarée dans Google Cloud (URI de redirection autorisés).',
+      unauthorized_client: 'Ce client Google n’est pas autorisé pour cette méthode de connexion.',
+    };
+    const hint = hints[googleError];
+    throw new GoogleAuthError(
+      hint
+        ? `Échec de la validation du code d’autorisation Google : ${hint}`
+        : 'Échec de la validation du code d’autorisation Google.',
+      400
+    );
   }
 
   const tokenData: any = await tokenRes.json();
