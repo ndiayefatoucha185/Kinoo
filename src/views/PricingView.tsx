@@ -13,7 +13,6 @@ import {
   Film,
   Mic,
   MessageSquare,
-  Bot,
   Tv,
   Radio,
   ArrowRight,
@@ -456,7 +455,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                 </span>
               </h3>
               <p className="text-xs text-[#B8B4C0] min-h-[32px] leading-relaxed">
-                L’expérience ultime avec grand groupe, assistant IA, streaming tiers et réseau d’amis débloqué.
+                L’expérience ultime avec grand groupe, streaming tiers et réseau d’amis débloqué.
               </p>
             </div>
 
@@ -524,14 +523,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Check className="w-3.5 h-3.5" />
                   </div>
                   <span>Accès au catalogue <strong>« Films & séries du moment »</strong></span>
-                </li>
-
-                {/* Accès à un assistant IA personnel */}
-                <li className="flex items-start gap-2.5 text-[#FAFAFA]">
-                  <div className="w-5 h-5 rounded-md bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white flex items-center justify-center shrink-0 mt-0.5">
-                    <Sparkles className="w-3.5 h-3.5" />
-                  </div>
-                  <span>Accès à un <strong>assistant IA personnel</strong> dédié</span>
                 </li>
 
                 {/* Connexion plateformes streaming externes */}
@@ -826,22 +817,6 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   </td>
                 </tr>
 
-                {/* 12. Assistant IA personnel */}
-                <tr className="hover:bg-[#1A1A22] transition-colors">
-                  <td className="py-3.5 px-5 font-semibold text-[#FAFAFA] flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-[#7C3AED]" />
-                    <span>Assistant IA personnel pour l'utilisateur</span>
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-red-400 bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    <XIcon className="w-4 h-4 mx-auto" />
-                  </td>
-                  <td className="py-3.5 px-4 text-center text-emerald-400 font-bold bg-[#3B82F6]/5">
-                    <Check className="w-4 h-4 mx-auto" />
-                  </td>
-                </tr>
               </tbody>
             </table>
           </div>
