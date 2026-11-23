@@ -1551,6 +1551,23 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                   </div>
                 )}
               </div>
+            ) : room.sourceContenu?.typeSource === 'FICHIER_LOCAL' && !isHost && !guestLocalFileUrl ? (
+              <div className="w-full aspect-video bg-black flex flex-col items-center justify-center text-center gap-3 px-5 py-6">
+                <FileVideo className="w-9 h-9 text-[#EC4899]" />
+                <h3 className="text-sm sm:text-base font-bold text-white">Cette séance utilise un film de l’appareil de l’hôte</h3>
+                <p className="text-xs sm:text-sm text-[#B8B4C0] max-w-md leading-relaxed">
+                  Le film n’est pas envoyé par internet. Pour le regarder, choisissez <strong className="text-white">le même fichier</strong>
+                  {room.sourceContenu?.nomFichier ? <> (<strong className="text-white">{room.sourceContenu.nomFichier}</strong>)</> : null} sur votre appareil :
+                  la lecture se synchronisera ensuite avec l’hôte.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => guestFileInputRef.current?.click()}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white font-bold text-xs sm:text-sm shadow-lg hover:opacity-95"
+                >
+                  Choisir le fichier sur mon appareil
+                </button>
+              </div>
             ) : (
               <HlsPlayer
                 videoRef={videoRef}
