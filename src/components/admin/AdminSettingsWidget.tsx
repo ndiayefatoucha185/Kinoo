@@ -139,7 +139,7 @@ export const AdminSettingsWidget: React.FC<AdminSettingsWidgetProps> = ({
                 min={2}
                 max={100}
                 value={config.maxParticipantsPerRoom}
-                onChange={(e) => setConfig({ ...config, maxParticipantsPerRoom: parseInt(e.target.value) || 25 })}
+                onChange={(e) => setConfig({ ...config, maxParticipantsPerRoom: parseInt(e.target.value) || 15 })}
                 className="w-full bg-[#161724] border border-[#232536] rounded-xl p-2.5 text-white font-mono"
               />
               <span className="text-[10px] text-gray-500">

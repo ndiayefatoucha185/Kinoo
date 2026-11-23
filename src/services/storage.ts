@@ -633,7 +633,7 @@ export const StorageService = {
     const def: SystemConfig = {
       maintenanceMode: false,
       maxRoomsGlobal: 250,
-      maxParticipantsPerRoom: 25,
+      maxParticipantsPerRoom: 15,
       inscriptionsOuvertes: true,
       autoModerationEnabled: true,
       retentionLogsJours: 90,

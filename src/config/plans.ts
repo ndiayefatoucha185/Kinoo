@@ -8,7 +8,7 @@ export interface PlanConfig {
   priceEurAnnual: number;
   priceXofMonthly: number;
   priceXofAnnual: number;
-  maxParticipants: number; // 5 Découverte/Essai, 15 Standard, 25 Premium
+  maxParticipants: number; // 3 Découverte/Essai, 7 Standard, 15 Premium
   maxMonthlyRooms: number; // 3 Découverte, 10 Standard, 25 Premium (l'essai gratuit n'offre qu'une séance au total)
   allowLocalFiles: boolean;
   allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
@@ -49,7 +49,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 0,
     priceXofMonthly: 0,
     priceXofAnnual: 0,
-    maxParticipants: 5,
+    maxParticipants: 3,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
     allowCatalogue: false,
@@ -67,7 +67,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 1.46,
     priceXofMonthly: 1200,
     priceXofAnnual: 960,
-    maxParticipants: 5,
+    maxParticipants: 3,
     maxMonthlyRooms: 3,
     allowLocalFiles: false,
     allowCatalogue: false,
@@ -85,7 +85,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 3.42,
     priceXofMonthly: 2800,
     priceXofAnnual: 2240,
-    maxParticipants: 15,
+    maxParticipants: 7,
     maxMonthlyRooms: 10,
     allowLocalFiles: true,
     allowCatalogue: false,
@@ -103,7 +103,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     priceEurAnnual: 5.79,
     priceXofMonthly: 4750,
     priceXofAnnual: 3800,
-    maxParticipants: 25,
+    maxParticipants: 15,
     maxMonthlyRooms: 25,
     allowLocalFiles: true,
     allowCatalogue: true,

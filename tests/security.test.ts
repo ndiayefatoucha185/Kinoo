@@ -60,10 +60,10 @@ test('comparaison en temps constant', () => {
   assert.equal(safeEqual('abc', 'abcd'), false);
 });
 
-test('formules : 5/15/25 participants et 3/10/25 séances par mois', () => {
-  assert.equal(KINOO_PLANS.GRATUIT.maxParticipants, 5);
-  assert.equal(KINOO_PLANS.STANDARD.maxParticipants, 15);
-  assert.equal(KINOO_PLANS.PREMIUM.maxParticipants, 25);
+test('formules : 3/7/15 participants et 3/10/25 séances par mois', () => {
+  assert.equal(KINOO_PLANS.GRATUIT.maxParticipants, 3);
+  assert.equal(KINOO_PLANS.STANDARD.maxParticipants, 7);
+  assert.equal(KINOO_PLANS.PREMIUM.maxParticipants, 15);
   assert.equal(KINOO_PLANS.GRATUIT.maxMonthlyRooms, 3);
   assert.equal(KINOO_PLANS.STANDARD.maxMonthlyRooms, 10);
   assert.equal(KINOO_PLANS.PREMIUM.maxMonthlyRooms, 25);
@@ -85,7 +85,7 @@ test('catalogue réservé au Premium, fichier local réservé à Standard et Pre
 test('forfait Découverte : 1 200 FCFA, mêmes limites que l’ancien Gratuit, sans fichiers locaux', () => {
   const d = KINOO_PLANS.DECOUVERTE;
   assert.equal(d.priceXofMonthly, 1200);
-  assert.equal(d.maxParticipants, 5);
+  assert.equal(d.maxParticipants, 3);
   assert.equal(d.maxMonthlyRooms, 3);
   assert.equal(d.allowLocalFiles, false);
   assert.notEqual(sourceNotAllowedReason('DECOUVERTE', { typeSource: 'FICHIER_LOCAL' }), null);
