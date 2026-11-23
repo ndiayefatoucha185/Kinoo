@@ -828,9 +828,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <Users className="w-4 h-4 shrink-0" />
                       <span>Mes amis</span>
                     </div>
-                    {currentUser.forfait === 'PREMIUM' ? (
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    ) : (
+                    {currentUser.forfait !== 'PREMIUM' && (
                       <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold">
                         Premium
                       </span>
@@ -867,11 +865,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <MessageSquare className="w-4 h-4 shrink-0" />
                       <span>Messages</span>
                     </div>
-                    {currentUser.forfait === 'PREMIUM' ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EC4899] text-white font-bold">
-                        2
-                      </span>
-                    ) : (
+                    {currentUser.forfait !== 'PREMIUM' && (
                       <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold">
                         Premium
                       </span>
@@ -1044,9 +1038,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <Users className="w-4 h-4 shrink-0" />
                   <span>Mes amis</span>
                 </div>
-                {currentUser.forfait === 'PREMIUM' ? (
-                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                ) : (
+                {currentUser.forfait !== 'PREMIUM' && (
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold">
                     Premium
                   </span>
@@ -1079,11 +1071,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <MessageSquare className="w-4 h-4 shrink-0" />
                   <span>Messages</span>
                 </div>
-                {currentUser.forfait === 'PREMIUM' ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EC4899] text-white font-bold">
-                    2
-                  </span>
-                ) : (
+                {currentUser.forfait !== 'PREMIUM' && (
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 font-bold">
                     Premium
                   </span>
@@ -3132,10 +3120,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
                       <span>Jusqu'à 15 participants</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
-                      <span>Assistant IA personnel dédié</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />

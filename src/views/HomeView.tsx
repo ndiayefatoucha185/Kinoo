@@ -509,7 +509,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <ul className="space-y-2 text-xs text-[#FAFAFA] pt-1">
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>25 séances par mois</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Jusqu'à 15 participants</span></li>
-                <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Assistant IA personnel dédié</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Réseau d'amis & messagerie privée</span></li>
                 <li className="flex items-start gap-1.5"><IconCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" /><span>Qualité et débit prioritaires</span></li>
               </ul>
