@@ -1,22 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { matchPath, pathForView } from '../src/utils/routes';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { matchPath, pathForView } from '../src/utils/routes.ts';
 
-describe('adresses lisibles', () => {
-  it('reconnaît les pages publiques', () => {
-    expect(matchPath('/tarifs').view).toBe('pricing');
-    expect(matchPath('/Tarifs/').view).toBe('pricing');
-    expect(matchPath('/comment-ca-marche').view).toBe('how_it_works');
-    expect(matchPath('/comment-faire').view).toBe('how_it_works');
-    expect(matchPath('/sources').view).toBe('media_sources');
-    expect(matchPath('/').view).toBe('home');
-  });
-  it('/connexion et /inscription ouvrent la fenêtre de connexion', () => {
-    expect(matchPath('/connexion')).toEqual({ view: 'home', auth: 'login' });
-    expect(matchPath('/inscription')).toEqual({ view: 'home', auth: 'signup' });
-  });
-  it('chaque vue a une adresse et inversement', () => {
-    expect(pathForView('pricing')).toBe('/tarifs');
-    expect(matchPath(pathForView('legal')!).view).toBe('legal');
-    expect(matchPath('/inconnu').view).toBeNull();
-  });
+test('reconnaît les pages publiques', () => {
+  assert.equal(matchPath('/tarifs').view, 'pricing');
+  assert.equal(matchPath('/Tarifs/').view, 'pricing');
+  assert.equal(matchPath('/comment-ca-marche').view, 'how_it_works');
+  assert.equal(matchPath('/comment-faire').view, 'how_it_works');
+  assert.equal(matchPath('/sources').view, 'media_sources');
+  assert.equal(matchPath('/').view, 'home');
+});
+
+test('/connexion et /inscription ouvrent la fenêtre de connexion', () => {
+  assert.deepEqual(matchPath('/connexion'), { view: 'home', auth: 'login' });
+  assert.deepEqual(matchPath('/inscription'), { view: 'home', auth: 'signup' });
+});
+
+test('chaque vue a une adresse et inversement', () => {
+  assert.equal(pathForView('pricing'), '/tarifs');
+  assert.equal(matchPath(pathForView('legal')!).view, 'legal');
+  assert.equal(matchPath('/inconnu').view, null);
 });
