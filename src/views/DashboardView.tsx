@@ -3123,6 +3123,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Import de fichiers vidéo locaux</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Chat vocal & débriefing micro</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Catalogue « Films & séries du moment »</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
+                      <span>Aucune publicité</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-purple-400 shrink-0" />
                       <span>Réseau d'amis & messagerie</span>
                     </li>
                     <li className="flex items-center gap-2">
