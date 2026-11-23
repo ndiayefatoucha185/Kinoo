@@ -29,7 +29,7 @@ import { KINOO_PLANS } from '../config/plans';
 interface PricingViewProps {
   currentUser?: User | null;
   onOpenCreateRoom: () => void;
-  onOpenAuth?: (mode?: 'login' | 'signup', opts?: { couple?: boolean }) => void;
+  onOpenAuth?: (mode?: 'login' | 'signup', opts?: { couple?: boolean; plan?: string }) => void;
   onPlanChanged?: (newPlan: UserPlan) => void;
   onQuickLogin?: (email: string) => void;
   onOpenCouple?: () => void;
@@ -49,7 +49,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
   const handleSelectPlan = (plan: UserPlan) => {
     if (!currentUser) {
       if (onOpenAuth) {
-        onOpenAuth('signup');
+        onOpenAuth('signup', { plan });
       } else {
         onOpenCreateRoom();
       }
