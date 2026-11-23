@@ -349,6 +349,8 @@ async function startServer() {
         'Disallow: /admin',
         'Disallow: /superadmin',
         'Disallow: /dashboard',
+        'Disallow: /espace',
+        'Disallow: /salle',
         'Disallow: /api/',
         'Disallow: /ws',
         '',
@@ -362,10 +364,10 @@ async function startServer() {
     const today = new Date().toISOString().slice(0, 10);
     const pages: Array<[string, string, string]> = [
       ['/', 'weekly', '1.0'],
-      ['/?view=how_it_works', 'monthly', '0.8'],
-      ['/?view=media_sources', 'monthly', '0.8'],
-      ['/?view=pricing', 'weekly', '0.9'],
-      ['/?view=legal', 'monthly', '0.5'],
+      ['/comment-ca-marche', 'monthly', '0.8'],
+      ['/sources', 'monthly', '0.8'],
+      ['/tarifs', 'weekly', '0.9'],
+      ['/legal', 'monthly', '0.5'],
     ];
     const urls = pages
       .map(([p, freq, prio]) => `  <url><loc>${base}${p.replace(/&/g, '&amp;')}</loc><lastmod>${today}</lastmod><changefreq>${freq}</changefreq><priority>${prio}</priority></url>`)

@@ -1,10 +1,11 @@
 import { ArrowLeft as IconArrowLeft, Heart as IconHeartApp } from 'lucide-react';
 import { IS_COUPLE_APP, COUPLE_WEB_ENABLED } from './utils/appMode';
+import { matchPath, pathForView } from './utils/routes';
 import { CoupleOnlyNotice } from './components/couple/CoupleOnlyNotice';
 import { CoupleLanding } from './components/couple/CoupleLanding';
 import './styles/couple.css';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User, Room } from './types/kinoo';
 import { StorageService } from './services/storage';
 import { AuthService } from './services/auth';
@@ -50,6 +51,11 @@ export default function App() {
     const user = StorageService.getCurrentUser();
     if (user?.role === 'SUPER_ADMIN') return 'superadmin';
     if (user && IS_COUPLE_APP) return 'couple';
+    // Adresse lisible (/tarifs, /comment-ca-marche…) : on ouvre directement la bonne page
+    if (!IS_COUPLE_APP && typeof window !== 'undefined') {
+      const { view } = matchPath(window.location.pathname);
+      if (view && ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status'].includes(view)) return view;
+    }
     return user ? 'dashboard' : 'home';
   });
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
@@ -178,6 +184,15 @@ export default function App() {
             addToast(err?.message || 'Erreur lors de la validation du lien de déblocage.', 'error');
             window.location.hash = '';
           });
+      }
+    }
+
+    // /connexion et /inscription ouvrent directement la fenêtre de connexion
+    if (!IS_COUPLE_APP && !currentUser) {
+      const { auth } = matchPath(window.location.pathname);
+      if (auth) {
+        setAuthMode(auth);
+        setIsAuthModalOpen(true);
       }
     }
 
@@ -321,6 +336,13 @@ export default function App() {
     const metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) metaDesc.setAttribute('content', newDesc);
 
+    // Adresse canonique propre à chaque page publique
+    const pagePath = pathForView(currentView);
+    const canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical && pagePath && !['watchparty', 'dashboard', 'superadmin', 'specs', 'couple'].includes(currentView)) {
+      canonical.setAttribute('href', window.location.origin + (pagePath === '/' ? '/' : pagePath));
+    }
+
     const ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) ogTitle.setAttribute('content', newTitle);
 
@@ -330,6 +352,42 @@ export default function App() {
     // Track privacy-friendly page view without persistent identifiers
     PrivacyAnalytics.trackPageView(currentView);
   }, [currentView]);
+
+  // Adresse du navigateur = page affichée (et boutons précédent/suivant qui fonctionnent)
+  const firstUrlSync = useRef(true);
+  useEffect(() => {
+    if (IS_COUPLE_APP) return;
+    const target = pathForView(currentView);
+    if (!target) return;
+    const here = window.location.pathname.replace(/\/+$/, '') || '/';
+    const first = firstUrlSync.current;
+    firstUrlSync.current = false;
+    if (first) {
+      // Premier affichage : on garde ?invite=, ?room= et le fragment (liens e-mail) intacts
+      const keep = /[?&](invite|room)=/.test(window.location.search) || window.location.hash;
+      if (here !== target && !keep && matchPath(here).auth === null) {
+        window.history.replaceState(null, '', target);
+      }
+      return;
+    }
+    if (here !== target) {
+      window.history.pushState(null, '', target);
+    }
+  }, [currentView]);
+
+  useEffect(() => {
+    if (IS_COUPLE_APP) return;
+    const onPop = () => {
+      const { view } = matchPath(window.location.pathname);
+      if (view && ['home', 'how_it_works', 'media_sources', 'pricing', 'legal', 'status'].includes(view)) {
+        setCurrentView(view);
+      } else if (view === 'dashboard' && currentUser) {
+        setCurrentView('dashboard');
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [currentUser]);
 
   const handleAuthSuccess = (user: User, opts?: { openCouple?: boolean }) => {
     setCurrentUser(user);
