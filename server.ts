@@ -338,6 +338,41 @@ async function startServer() {
     next();
   });
 
+  // robots.txt et sitemap.xml : toujours construits avec l'adresse publique réelle (PUBLIC_BASE_URL)
+  app.get('/robots.txt', (_req, res) => {
+    const base = getPublicBaseUrl().replace(/\/+$/, '');
+    res.type('text/plain').send(
+      [
+        '# KINOO Robots.txt',
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /admin',
+        'Disallow: /superadmin',
+        'Disallow: /dashboard',
+        'Disallow: /api/',
+        'Disallow: /ws',
+        '',
+        `Sitemap: ${base}/sitemap.xml`,
+        '',
+      ].join('\n')
+    );
+  });
+  app.get('/sitemap.xml', (_req, res) => {
+    const base = getPublicBaseUrl().replace(/\/+$/, '');
+    const today = new Date().toISOString().slice(0, 10);
+    const pages: Array<[string, string, string]> = [
+      ['/', 'weekly', '1.0'],
+      ['/?view=how_it_works', 'monthly', '0.8'],
+      ['/?view=media_sources', 'monthly', '0.8'],
+      ['/?view=pricing', 'weekly', '0.9'],
+      ['/?view=legal', 'monthly', '0.5'],
+    ];
+    const urls = pages
+      .map(([p, freq, prio]) => `  <url><loc>${base}${p.replace(/&/g, '&amp;')}</loc><lastmod>${today}</lastmod><changefreq>${freq}</changefreq><priority>${prio}</priority></url>`)
+      .join('\n');
+    res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`);
+  });
+
   // Vite middleware in dev or static files in prod
   if (!isProd) {
     const vite = await createViteServer({
@@ -351,15 +386,20 @@ async function startServer() {
     app.get('*', (req, res) => {
       const indexPath = path.join(distPath, 'index.html');
       const sentryDsn = process.env.SENTRY_DSN || process.env.VITE_SENTRY_DSN || '';
-      if (sentryDsn && fs.existsSync(indexPath)) {
+      if (fs.existsSync(indexPath)) {
         let html = fs.readFileSync(indexPath, 'utf-8');
-        const publicBaseUrl = process.env.PUBLIC_BASE_URL || process.env.APP_URL || '';
-        const cfg = JSON.stringify({ SENTRY_DSN: sentryDsn, PUBLIC_BASE_URL: publicBaseUrl })
-          .replace(/</g, '\\u003c')
-          .replace(/>/g, '\\u003e');
-        const runtimeScript = `<script nonce="${res.locals.nonce}" id="kinoo-runtime-config">window.__KINOO_RUNTIME_CONFIG__ = ${cfg};</script>`;
-        html = html.replace('</head>', `${runtimeScript}</head>`);
-        return res.send(html);
+        // Les adresses de partage (canonique, aperçu) suivent l'adresse publique réelle du site
+        const base = getPublicBaseUrl().replace(/\/+$/, '');
+        html = html.split('https://kinoo.app').join(base);
+        if (sentryDsn) {
+          const publicBaseUrl = process.env.PUBLIC_BASE_URL || process.env.APP_URL || '';
+          const cfg = JSON.stringify({ SENTRY_DSN: sentryDsn, PUBLIC_BASE_URL: publicBaseUrl })
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e');
+          const runtimeScript = `<script nonce="${res.locals.nonce}" id="kinoo-runtime-config">window.__KINOO_RUNTIME_CONFIG__ = ${cfg};</script>`;
+          html = html.replace('</head>', `${runtimeScript}</head>`);
+        }
+        return res.type('html').send(html);
       }
       res.sendFile(indexPath);
     });

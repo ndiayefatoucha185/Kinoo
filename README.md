@@ -41,7 +41,7 @@ Le compte Super Admin est créé au premier démarrage à partir de `ADMIN_EMAIL
 
 ## Fonctionnement des salles
 
-- À la création, l'hôte indique le **nombre de personnes à inviter** (plafonné par sa formule : 8 / 15 / 25 personnes hôte compris).
+- À la création, l'hôte indique le **nombre de personnes à inviter** (plafonné par sa formule : 3 / 7 / 15 personnes hôte compris).
 - Quand tout le monde est entré, la salle **se verrouille** ; les personnes déjà entrées peuvent revenir après une coupure.
 - **Salle d'attente** : la séance démarre automatiquement quand tout le monde est là (option), ou quand l'hôte clique sur « Démarrer maintenant ».
 - Si l'hôte quitte, la séance est terminée (immédiatement via « Quitter », ou après 60 s s'il ferme simplement l'onglet). Une salle vide se termine après 60 s.

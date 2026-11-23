@@ -223,7 +223,7 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <div className="w-5 h-5 rounded-md bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 5 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 3 personnes</strong></span>
                 </li>
 
                 {/* Uniquement lien URL */}
@@ -365,12 +365,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>10 séances</strong> par mois</span>
                 </li>
 
-                {/* Invitation jusqu'à 15 personnes */}
+                {/* Invitation jusqu'à 7 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#EC4899]/20 text-[#EC4899] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 15 personnes</strong></span>
+                  <span>Invitation <strong>jusqu'à 7 personnes</strong></span>
                 </li>
 
                 {/* Au choix par lien URL ou par import vidéo */}
@@ -510,12 +510,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                   <span><strong>Toutes les fonctions Standard incluses</strong> (import vidéo, suggestions, chat + vocal, débriefing, sans pub)</span>
                 </li>
 
-                {/* Invitation jusqu'à 25 personnes */}
+                {/* Invitation jusqu'à 15 personnes */}
                 <li className="flex items-start gap-2.5 text-[#FAFAFA]">
                   <div className="w-5 h-5 rounded-md bg-[#3B82F6]/20 text-[#3B82F6] flex items-center justify-center shrink-0 mt-0.5">
                     <Check className="w-3.5 h-3.5" />
                   </div>
-                  <span>Invitation <strong>jusqu'à 25 personnes</strong> simultanément</span>
+                  <span>Invitation <strong>jusqu'à 15 personnes</strong> simultanément</span>
                 </li>
 
                 {/* Catalogue : Premium uniquement */}
@@ -687,12 +687,12 @@ export const PricingView: React.FC<PricingViewProps> = ({
                     <Users className="w-4 h-4 text-[#3B82F6]" />
                     <span>Capacité d'invitation par séance</span>
                   </td>
-                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 5 personnes</td>
+                  <td className="py-3.5 px-4 text-center text-[#B8B4C0]">Jusqu'à 3 personnes</td>
                   <td className="py-3.5 px-4 text-center font-semibold text-white bg-[#EC4899]/5 border-x border-[#EC4899]/20">
-                    Jusqu'à 15 personnes
+                    Jusqu'à 7 personnes
                   </td>
                   <td className="py-3.5 px-4 text-center font-bold text-emerald-400 bg-[#3B82F6]/5">
-                    Jusqu'à 25 personnes
+                    Jusqu'à 15 personnes
                   </td>
                 </tr>
 

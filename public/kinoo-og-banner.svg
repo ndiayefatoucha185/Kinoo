@@ -58,12 +58,12 @@
   <!-- Feature Pills -->
   <g transform="translate(600, 500)">
     <rect x="-380" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
-    <text x="-265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">🎬 Synchronisation &lt; 20ms</text>
+    <text x="-265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">Lecture synchronisée</text>
 
     <rect x="-115" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
-    <text x="0" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">🔒 Conforme RGPD &amp; DRM</text>
+    <text x="0" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">Chat et salon débrief</text>
 
     <rect x="150" y="0" width="230" height="42" rx="21" fill="#141417" stroke="#282832" stroke-width="1.5" />
-    <text x="265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">📱 Web, Mobile &amp; TV</text>
+    <text x="265" y="27" text-anchor="middle" font-family="'Poppins', sans-serif" font-weight="600" font-size="14" fill="#FFFFFF">Web, mobile et TV</text>
   </g>
 </svg>
