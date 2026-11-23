@@ -401,3 +401,14 @@ html.light .kinoo-couple-banner .text-\[\#B8B4C0\] { color: #64748b !important; 
 html.light .kinoo-couple-banner .bg-black\/25 { background: rgba(255,255,255,0.75) !important; border-color: #fbcfe8 !important; }
 html.light .kinoo-couple-banner .text-rose-300 { color: #be185d !important; }
 html.light .text-\[\#D9D4E3\] { color: #475569 !important; }
+
+/* ==========================================================================
+   MODE CLAIR — survol : les fonds sombres au survol (hover:bg-[#1x/#2x/#3x…])
+   deviennent un gris clair, sinon le texte (assombri en mode clair) devient illisible.
+   ========================================================================== */
+html.light [class*="hover:bg-[#1"]:hover,
+html.light [class*="hover:bg-[#2"]:hover,
+html.light [class*="hover:bg-[#3"]:hover,
+html.light [class*="hover:bg-[#0"]:hover {
+  background-color: #eef0f5 !important;
+}
