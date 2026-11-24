@@ -454,7 +454,7 @@ class RoomSyncEngine {
     }
 
     // Actions d'hôte et signalisation validées et diffusées par le serveur (format identique aux paquets locaux)
-    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED') {
+    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED' || msg.type === 'DEBRIEF_START') {
       const packet: SyncPacket = {
         type: msg.type,
         roomId: this.currentRoomId,

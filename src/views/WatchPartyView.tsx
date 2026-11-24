@@ -1761,8 +1761,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
             </div>
 
             {/* Action Buttons Row */}
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 {isHost ? (
                   isPlaying ? (
                     <button
@@ -1872,7 +1872,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               </div>
 
               {/* Expressive Reactions Bar */}
-              <div className="flex items-center gap-1 bg-[#09090B] p-1 rounded-xl border border-[#232326]">
+              <div className="flex flex-wrap items-center gap-1 bg-[#09090B] p-1 rounded-xl border border-[#232326] max-w-full">
                 {['❤️', '😂', '👏', '🍿', '😮', '🔥'].map((emoji) => (
                   <button
                     key={emoji}
@@ -1886,7 +1886,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               </div>
 
               {/* Host Specific Management Controls & Debrief */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
                 {isHost && canChangeMedia && (
                   <button
                     onClick={() => setShowChangeMediaModal(true)}

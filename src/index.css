@@ -421,3 +421,9 @@ html.light footer button:hover,
 html.light footer a:hover {
   text-decoration: underline;
 }
+
+/* Mobile : jamais de défilement latéral de la page (la salle ne doit pas « bouger » de gauche à droite) */
+html, body {
+  max-width: 100%;
+  overflow-x: clip;
+}
