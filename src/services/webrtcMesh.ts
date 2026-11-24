@@ -126,6 +126,10 @@ class WebRTCMeshService {
     this.onSpeakingChanged = callbacks.onSpeaking;
   }
 
+  public getIceServers(): RTCIceServer[] {
+    return this.iceServers;
+  }
+
   public getLocalStream(): MediaStream | null {
     return this.localStream;
   }
@@ -248,6 +252,8 @@ class WebRTCMeshService {
     }
 
     if (packet.type === 'WEBRTC_SIGNAL') {
+      // Les signaux du film (diffusion de l'hôte) sont gérés par filmBroadcast, jamais par la voix
+      if (payload.channel === 'film') return;
       const signalType = payload.type;
 
       if (signalType === 'OFFER') {
