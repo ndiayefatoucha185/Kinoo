@@ -45,6 +45,7 @@ import { X } from 'lucide-react';
 import { WebRTCControls } from '../components/WebRTCControls';
 import { InviteModal } from '../components/InviteModal';
 import { webrtcMesh } from '../services/webrtcMesh';
+import { filmBroadcast } from '../services/filmBroadcast';
 import { cleanUserPseudo } from '../services/storage';
 import { extractYouTubeId } from '../utils/mediaHelper';
 
@@ -135,6 +136,10 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [showChangeMediaModal, setShowChangeMediaModal] = useState(false);
   const [showDebriefModal, setShowDebriefModal] = useState(false);
   const [guestLocalFileUrl, setGuestLocalFileUrl] = useState<string>('');
+  // Film local diffusé par l'hôte : flux reçu côté invité
+  const [filmStream, setFilmStream] = useState<MediaStream | null>(null);
+  const [filmMuted, setFilmMuted] = useState(true);
+  const filmVideoRef = useRef<HTMLVideoElement | null>(null);
   const guestFileInputRef = useRef<HTMLInputElement | null>(null);
   const [reportTarget, setReportTarget] = useState<{ type: 'PARTICIPANT' | 'MESSAGE' | 'CONTENU'; id?: string; name: string }>({
     type: 'CONTENU',
@@ -169,6 +174,49 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const userRole: UserRole = isHost ? 'HOTE' : 'PARTICIPANT';
   const isHostRef = useRef(false);
   isHostRef.current = isHost;
+  const participationsRef = useRef<Participation[]>([]);
+  participationsRef.current = participations;
+  const isLocalFileRoom = room?.sourceContenu?.typeSource === 'FICHIER_LOCAL';
+
+  // HÔTE : diffuse son film local aux invités (capture de la balise vidéo)
+  useEffect(() => {
+    if (!isLocalFileRoom || !isHost) return;
+    filmBroadcast.startHost({
+      user: { id: localUserId, pseudo: localPseudo },
+      getVideo: () => videoRef.current,
+      getGuestIds: () =>
+        participationsRef.current.filter((p) => p.estActif && !p.estBanni).map((p) => p.utilisateurId),
+      onUnsupported: () =>
+        onToast('Votre navigateur ne peut pas diffuser le film aux invités. Utilisez Chrome, Edge ou Firefox sur ordinateur.', 'error'),
+    });
+    return () => filmBroadcast.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLocalFileRoom, isHost, localUserId, room?.sourceContenu?.id]);
+
+  // INVITÉ : reçoit le film diffusé par l'hôte (sauf s'il a lié son propre fichier)
+  useEffect(() => {
+    if (!isLocalFileRoom || isHost || guestLocalFileUrl) {
+      setFilmStream(null);
+      return;
+    }
+    filmBroadcast.startGuest({
+      user: { id: localUserId, pseudo: localPseudo },
+      onStream: (st) => setFilmStream(st),
+    });
+    return () => {
+      filmBroadcast.stop();
+      setFilmStream(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLocalFileRoom, isHost, guestLocalFileUrl, localUserId, room?.sourceContenu?.id]);
+
+  // INVITÉ : branche le flux reçu sur la balise vidéo dédiée
+  useEffect(() => {
+    const v = filmVideoRef.current;
+    if (!v) return;
+    if (v.srcObject !== filmStream) v.srcObject = filmStream;
+    if (filmStream) v.play().catch(() => {});
+  }, [filmStream]);
   const handleStartDebriefRef = useRef<() => void>(() => {});
   const handleFilmEndedRef = useRef<() => void>(() => {});
 
@@ -890,6 +938,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         break;
 
       case 'WEBRTC_SIGNAL':
+        if ((packet as any).payload?.channel === 'film') {
+          void filmBroadcast.handlePacket(packet);
+        } else {
+          webrtcMesh.handleSignalingPacket(packet);
+        }
+        break;
+
       case 'WEBRTC_SPEAKING':
         webrtcMesh.handleSignalingPacket(packet);
         break;
@@ -1106,6 +1161,11 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     } else if (videoRef.current) {
       videoRef.current.muted = !isMuted;
       setIsMuted(!isMuted);
+    } else if (filmVideoRef.current) {
+      const next = !filmMuted;
+      filmVideoRef.current.muted = next;
+      setFilmMuted(next);
+      setIsMuted(next);
     }
   };
 
@@ -1552,21 +1612,49 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
                 )}
               </div>
             ) : room.sourceContenu?.typeSource === 'FICHIER_LOCAL' && !isHost && !guestLocalFileUrl ? (
-              <div className="w-full aspect-video bg-black flex flex-col items-center justify-center text-center gap-3 px-5 py-6">
-                <FileVideo className="w-9 h-9 text-[#EC4899]" />
-                <h3 className="text-sm sm:text-base font-bold text-white">Cette séance utilise un film de l’appareil de l’hôte</h3>
-                <p className="text-xs sm:text-sm text-[#B8B4C0] max-w-md leading-relaxed">
-                  Le film n’est pas envoyé par internet. Pour le regarder, choisissez <strong className="text-white">le même fichier</strong>
-                  {room.sourceContenu?.nomFichier ? <> (<strong className="text-white">{room.sourceContenu.nomFichier}</strong>)</> : null} sur votre appareil :
-                  la lecture se synchronisera ensuite avec l’hôte.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => guestFileInputRef.current?.click()}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white font-bold text-xs sm:text-sm shadow-lg hover:opacity-95"
-                >
-                  Choisir le fichier sur mon appareil
-                </button>
+              <div className="relative w-full aspect-video bg-black">
+                <video
+                  ref={filmVideoRef}
+                  autoPlay
+                  playsInline
+                  muted={filmMuted}
+                  className={`w-full h-full object-contain ${filmStream ? '' : 'hidden'}`}
+                />
+                {filmStream && filmMuted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilmMuted(false);
+                      setIsMuted(false);
+                      if (filmVideoRef.current) {
+                        filmVideoRef.current.muted = false;
+                        filmVideoRef.current.play().catch(() => {});
+                      }
+                    }}
+                    className="absolute inset-0 m-auto w-fit h-fit px-6 py-3 bg-gradient-to-r from-[#7C3AED] to-[#EC4899] text-white font-bold rounded-xl shadow-lg text-xs sm:text-sm flex items-center gap-2"
+                  >
+                    <Volume2 className="w-4 h-4" />
+                    <span>Toucher pour activer le son</span>
+                  </button>
+                )}
+                {!filmStream && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-3 px-5 py-6">
+                    <FileVideo className="w-9 h-9 text-[#EC4899] animate-pulse" />
+                    <h3 className="text-sm sm:text-base font-bold text-white">Connexion au film de l’hôte…</h3>
+                    <p className="text-xs sm:text-sm text-[#B8B4C0] max-w-md leading-relaxed">
+                      Le film est diffusé en direct depuis l’appareil de l’hôte : il démarre dans quelques secondes. Il faut que l’hôte garde cette page ouverte.
+                      Si rien n’apparaît, vous pouvez aussi choisir vous-même <strong className="text-white">le même fichier</strong>
+                      {room.sourceContenu?.nomFichier ? <> (<strong className="text-white">{room.sourceContenu.nomFichier}</strong>)</> : null} sur votre appareil.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => guestFileInputRef.current?.click()}
+                      className="px-4 py-2 rounded-xl bg-[#232326] hover:bg-[#303038] text-white font-semibold text-xs border border-[#383840]"
+                    >
+                      Choisir le fichier sur mon appareil
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <HlsPlayer
