@@ -36,7 +36,7 @@ import {
 } from 'lucide-react';
 import { ReportModal } from '../components/ReportModal';
 import { ChangeMediaModal } from '../components/ChangeMediaModal';
-import { PostMovieDebriefModal } from '../components/PostMovieDebriefModal';
+import { PostMovieDebriefModal, DebriefFeedback } from '../components/PostMovieDebriefModal';
 import { UserPlanBadge } from '../components/UserPlanBadge';
 import { HlsPlayer } from '../components/HlsPlayer';
 import { ScreenControls } from '../components/ScreenControls';
@@ -46,6 +46,7 @@ import { WebRTCControls } from '../components/WebRTCControls';
 import { InviteModal } from '../components/InviteModal';
 import { webrtcMesh } from '../services/webrtcMesh';
 import { filmBroadcast } from '../services/filmBroadcast';
+import { debriefCall } from '../services/debriefCall';
 import { cleanUserPseudo } from '../services/storage';
 import { extractYouTubeId } from '../utils/mediaHelper';
 
@@ -136,6 +137,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [showChangeMediaModal, setShowChangeMediaModal] = useState(false);
   const [showDebriefModal, setShowDebriefModal] = useState(false);
   const [guestLocalFileUrl, setGuestLocalFileUrl] = useState<string>('');
+  // Notes et avis du salon débrief, partagés entre tous les participants
+  const [debriefFeedback, setDebriefFeedback] = useState<DebriefFeedback[]>([]);
   // Film local diffusé par l'hôte : flux reçu côté invité
   const [filmStream, setFilmStream] = useState<MediaStream | null>(null);
   const [filmMuted, setFilmMuted] = useState(true);
@@ -847,6 +850,20 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         if (isHost) setTimeout(() => handleHostPlayRef.current(), 700);
         break;
 
+      case 'DEBRIEF_FEEDBACK': {
+        const pl: any = packet.payload || {};
+        const stars = Math.min(5, Math.max(1, Math.round(Number(pl.stars) || 0)));
+        const entry: DebriefFeedback = {
+          id: String(pl.id || `${packet.senderId}-${packet.timestamp}`),
+          userId: packet.senderId,
+          pseudo: packet.senderPseudo || 'Participant',
+          stars,
+          text: typeof pl.text === 'string' ? pl.text.slice(0, 300) : '',
+        };
+        setDebriefFeedback((prev) => (prev.some((f) => f.id === entry.id) ? prev : [...prev, entry]));
+        break;
+      }
+
       case 'HOST_AWAY':
         if (!isHost) setHostAway(true);
         break;
@@ -940,6 +957,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'WEBRTC_SIGNAL':
         if ((packet as any).payload?.channel === 'film') {
           void filmBroadcast.handlePacket(packet);
+        } else if ((packet as any).payload?.channel === 'debrief') {
+          void debriefCall.handlePacket(packet);
         } else {
           webrtcMesh.handleSignalingPacket(packet);
         }
@@ -1369,7 +1388,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     );
   };
 
-  const filmAlmostOver = duration > 0 && currentTime > 0 && duration - currentTime <= 90;
+  const filmAlmostOver = duration > 0 && currentTime > 0 && duration - currentTime <= 1800 && currentTime > 60;
   const showEndPrompt = isHost && !showDebriefModal && !endPromptDismissed && (filmEnded || (filmAlmostOver && endChoice === null));
 
   const handleCopyInvite = () => {
@@ -1453,7 +1472,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       )}
       {hostAway && !isHost && (
         <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-          L'hôte s'est déconnecté. La lecture est en pause ; la séance sera terminée s'il ne revient pas dans une minute.
+          L'hôte s'est déconnecté. La lecture est en pause ; la séance sera terminée s'il ne revient pas dans 2 minutes.
         </div>
       )}
       {myNetworkPoor && (
@@ -2120,7 +2139,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="text-sm font-bold text-white">
-                {filmEnded ? 'Le film est terminé' : 'Le film se termine bientôt'}
+                {filmEnded ? 'Le film est terminé' : 'À la fin du film, voulez-vous un débrief ?'}
               </h3>
               <p className="text-[11px] text-[#B8B4C0] mt-0.5">
                 Que souhaitez-vous faire ? Votre choix s’appliquera {filmEnded ? 'maintenant' : 'à la fin du film'}.
@@ -2193,8 +2212,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showDebriefModal}
         onClose={() => setShowDebriefModal(false)}
         room={room}
-        currentUser={currentUser}
+        localUserId={localUserId}
+        localPseudo={localPseudo}
         participations={participations}
+        feedback={debriefFeedback}
+        onSendFeedback={(stars, text) =>
+          syncEngine.sendEvent('DEBRIEF_FEEDBACK', { id: localUserId, pseudo: localPseudo, role: userRole }, { stars, text })
+        }
+        onToast={onToast}
         onChangeMedia={() => { if (canChangeMedia) setShowChangeMediaModal(true); }}
         onLeaveRoom={onLeaveRoom}
       />

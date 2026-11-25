@@ -12,6 +12,7 @@ export type SyncEventType =
   | 'USER_KICKED'
   | 'ROOM_LOCKED'
   | 'DEBRIEF_START'
+  | 'DEBRIEF_FEEDBACK'
   | 'ROOM_TERMINATED'
   | 'CLIENT_READY'
   | 'CHAT_MESSAGE'
@@ -454,7 +455,7 @@ class RoomSyncEngine {
     }
 
     // Actions d'hôte et signalisation validées et diffusées par le serveur (format identique aux paquets locaux)
-    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED' || msg.type === 'DEBRIEF_START') {
+    if (msg.type === 'ROOM_LOCKED' || msg.type === 'ROOM_TERMINATED' || msg.type === 'USER_KICKED' || msg.type === 'DEBRIEF_START' || msg.type === 'DEBRIEF_FEEDBACK') {
       const packet: SyncPacket = {
         type: msg.type,
         roomId: this.currentRoomId,
