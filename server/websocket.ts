@@ -41,6 +41,7 @@ interface ClientConnection {
   joined: boolean;
   chatTimes: number[];
   lastReactionAt: number;
+  lastFeedbackAt: number;
 }
 
 interface ConnectionContext {
@@ -265,6 +266,7 @@ export class KinooWebSocketServer {
         joined: false,
         chatTimes: [],
         lastReactionAt: 0,
+        lastFeedbackAt: 0,
       };
 
       // Le serveur ferme la connexion si INIT_SESSION n'arrive pas dans les 5 secondes
@@ -891,7 +893,7 @@ export class KinooWebSocketServer {
   // Hôte parti : on met la lecture en pause pour tout le monde, puis la salle est terminée
   // si l'hôte n'est pas revenu après le délai de grâce (rechargement de page, coupure réseau).
   private hostAbsenceTimers = new Map<string, NodeJS.Timeout>();
-  private static readonly HOST_ABSENCE_GRACE_MS = 60_000;
+  private static readonly HOST_ABSENCE_GRACE_MS = 120_000;
 
   private cancelHostAbsence(roomId: string) {
     const t = this.hostAbsenceTimers.get(roomId);
@@ -1082,7 +1084,7 @@ export class KinooWebSocketServer {
   // Messages client -> serveur : LISTE BLANCHE. Rien n'est relayé tel quel.
   // Types acceptés : PING, JOIN_ROOM, REQUEST_SYNC, PLAY, PAUSE, SEEK, MEDIA_CHANGE (alias CHANGE_MEDIA),
   // ROOM_LOCKED, DEBRIEF_START (hôte), ROOM_TERMINATED, USER_KICKED, CHAT_MESSAGE, REACTION, CLIENT_READY,
-  // PARTICIPANT_AUDIO_VIDEO, WEBRTC_SIGNAL, WEBRTC_SPEAKING.
+  // PARTICIPANT_AUDIO_VIDEO, WEBRTC_SIGNAL, WEBRTC_SPEAKING, DEBRIEF_FEEDBACK.
   // USER_JOIN / USER_LEAVE émis par un client sont ignorés : la présence est gérée par le serveur.
   // --------------------------------------------------------------------------
   async handleClientMessage(client: ClientConnection, packet: any) {
@@ -1545,6 +1547,26 @@ export class KinooWebSocketServer {
                 horodatage: now,
               },
             },
+          },
+          client.ws
+        );
+        break;
+      }
+
+      case 'DEBRIEF_FEEDBACK': {
+        // Note (1 à 5) et avis d'après-film : visibles de tous les participants de la salle
+        if (now - client.lastFeedbackAt < 1000) break;
+        client.lastFeedbackAt = now;
+        const stars = Math.min(5, Math.max(1, Math.round(Number(payload.stars) || 0)));
+        const text = cleanText(typeof payload.text === 'string' ? payload.text : '', 300);
+        this.broadcastToRoom(
+          roomId,
+          {
+            type: 'DEBRIEF_FEEDBACK',
+            serverTimestamp: now,
+            senderId: client.userId,
+            senderPseudo: client.pseudo,
+            payload: { id: newId('fb'), stars, text },
           },
           client.ws
         );

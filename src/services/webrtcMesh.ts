@@ -253,7 +253,7 @@ class WebRTCMeshService {
 
     if (packet.type === 'WEBRTC_SIGNAL') {
       // Les signaux du film (diffusion de l'hôte) sont gérés par filmBroadcast, jamais par la voix
-      if (payload.channel === 'film') return;
+      if (payload.channel === 'film' || payload.channel === 'debrief') return;
       const signalType = payload.type;
 
       if (signalType === 'OFFER') {
