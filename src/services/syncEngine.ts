@@ -26,7 +26,8 @@ export type SyncEventType =
   | 'HOST_AWAY'
   | 'HOST_BACK'
   | 'SESSION_STARTED'
-  | 'PARTICIPANT_NETWORK';
+  | 'PARTICIPANT_NETWORK'
+  | 'CONNECTION_STATUS';
 
 export interface SyncPacket {
   type: SyncEventType;
@@ -198,6 +199,7 @@ class RoomSyncEngine {
           }
         }
         this.ws = newWs;
+        this.emitConnectionStatus('OPEN');
 
         // Transmission des secrets dans le premier message sécurisé (Point 4)
         newWs.send(
@@ -259,11 +261,13 @@ class RoomSyncEngine {
         const FATAL_CLOSE_CODES = [4400, 4401, 4403, 4404, 4410, 4423, 4429];
         if (FATAL_CLOSE_CODES.includes(event.code)) {
           console.warn('[SYNC-ENGINE] Connexion refusée par le serveur, pas de reconnexion automatique.', event.code, event.reason);
+          this.emitConnectionStatus('DENIED', event.reason || `code ${event.code}`);
           return;
         }
 
         if (!this.isIntentionalDisconnect) {
           console.warn('[SYNC-ENGINE] Déconnexion WebSocket. Tentative de reconnexion dans 2s...', event.code, event.reason);
+          this.emitConnectionStatus('RECONNECTING', event.reason || `code ${event.code}`);
           clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = setTimeout(() => {
             if (!this.isIntentionalDisconnect && this.currentRoomId && this.currentUser) {
@@ -285,6 +289,21 @@ class RoomSyncEngine {
     } catch (e) {
       console.error('[SYNC-ENGINE] Impossible d’initialiser le WebSocket:', e);
     }
+  }
+
+  /** Informe l'interface de l'état réel de la connexion à la salle (connecté / reconnexion / refusé) */
+  private emitConnectionStatus(status: 'OPEN' | 'RECONNECTING' | 'DENIED', detail?: string) {
+    if (!this.currentRoomId) return;
+    this.dispatchLocal({
+      type: 'CONNECTION_STATUS',
+      roomId: this.currentRoomId,
+      senderId: 'client',
+      senderPseudo: 'Kinoo',
+      senderRole: 'PARTICIPANT',
+      timestamp: Date.now(),
+      sequenceNumber: ++this.sequence,
+      payload: { status, detail: detail || '' },
+    } as SyncPacket);
   }
 
   private handleServerWebSocketMessage(msg: any) {

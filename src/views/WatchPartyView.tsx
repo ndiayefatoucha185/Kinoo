@@ -108,6 +108,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [syncStatus, setSyncStatus] = useState<'SYNCHRONISE' | 'RECALAGE' | 'ATTENTE'>('SYNCHRONISE');
   const [driftSec, setDriftSec] = useState(0);
   const [hostAway, setHostAway] = useState(false);
+  // État réel de la connexion temps réel à la salle
+  const [connProblem, setConnProblem] = useState<{ kind: 'RECONNECTING' | 'DENIED'; detail: string } | null>(null);
   const [sessionStarted, setSessionStarted] = useState(true);
   const [expectedTotal, setExpectedTotal] = useState<number | null>(null);
   const [autoStart, setAutoStart] = useState(true);
@@ -864,6 +866,12 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         break;
       }
 
+      case 'CONNECTION_STATUS': {
+        const st = packet.payload?.status;
+        setConnProblem(st === 'OPEN' ? null : { kind: st === 'DENIED' ? 'DENIED' : 'RECONNECTING', detail: String(packet.payload?.detail || '') });
+        break;
+      }
+
       case 'HOST_AWAY':
         if (!isHost) setHostAway(true);
         break;
@@ -1468,6 +1476,22 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
               <strong>Aperçu de développement privé :</strong> Les invités ne pourront pas rejoindre depuis cet aperçu de développement (isolé sur la base de test et réservé à votre espace). Pour tester avec des amis, utilisez l'adresse de partage (ais-pre) ou configurez <code>PUBLIC_BASE_URL</code>.
             </p>
           </div>
+        </div>
+      )}
+      {connProblem && (
+        <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-semibold flex flex-wrap items-center justify-between gap-2">
+          <span>
+            {connProblem.kind === 'DENIED'
+              ? `Connexion à la salle refusée${connProblem.detail ? ` : ${connProblem.detail}` : '.'}`
+              : 'Connexion à la salle perdue : reconnexion en cours… Les autres participants ne vous voient plus tant que la connexion n’est pas rétablie.'}
+          </span>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-[11px] font-bold shrink-0"
+          >
+            Recharger la page
+          </button>
         </div>
       )}
       {hostAway && !isHost && (
