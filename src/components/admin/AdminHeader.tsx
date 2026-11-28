@@ -149,10 +149,6 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({
       title: 'Gestion des Publicités & Campagnes',
       subtitle: 'Gestion des annonces sponsorisées affichées exclusivement aux utilisateurs de la formule Gratuit',
     },
-    couples: {
-      title: 'Forfait Couple',
-      subtitle: 'Suivi des couples inscrits, des paiements et des activations (sans accès aux contenus privés)',
-    },
     billing: {
       title: 'Abonnements & Facturation',
       subtitle: 'Revenus récurrents (MRR), abonnements actifs et quotas',

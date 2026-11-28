@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { CatalogItem } from '../../types/kinoo';
 import { StorageService } from '../../services/storage';
 import { ApiClient } from '../../services/api';
+import { AdminCatalogBulkModal } from './AdminCatalogBulkModal';
 import {
   Film,
   Plus,
@@ -20,6 +21,7 @@ import {
   X,
   Image as ImageIcon,
   Tag,
+  Layers,
 } from 'lucide-react';
 
 interface AdminCatalogWidgetProps {
@@ -38,6 +40,7 @@ export const AdminCatalogWidget: React.FC<AdminCatalogWidgetProps> = ({
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
   // Form State
@@ -274,6 +277,14 @@ export const AdminCatalogWidget: React.FC<AdminCatalogWidgetProps> = ({
           </button>
           <button
             type="button"
+            onClick={() => setIsBulkOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#181924] border border-[#272838] text-gray-200 hover:text-white hover:bg-[#202130] text-xs font-bold transition-colors"
+          >
+            <Layers className="w-4 h-4" />
+            <span>Importer plusieurs (série, animé…)</span>
+          </button>
+          <button
+            type="button"
             onClick={handleOpenCreate}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95 text-white text-xs font-bold transition-all shadow-md shadow-purple-500/20"
           >
@@ -447,6 +458,14 @@ export const AdminCatalogWidget: React.FC<AdminCatalogWidgetProps> = ({
             </div>
           ))}
         </div>
+      )}
+
+      {isBulkOpen && (
+        <AdminCatalogBulkModal
+          onClose={() => setIsBulkOpen(false)}
+          onDone={() => { void loadCatalog(); }}
+          onToast={onToast}
+        />
       )}
 
       {/* Modal: Create / Edit Catalog Item */}

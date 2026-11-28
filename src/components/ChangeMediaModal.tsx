@@ -12,6 +12,8 @@ interface ChangeMediaModalProps {
   // Le catalogue est réservé à la formule Premium
   canUseCatalogue?: boolean;
   canUseLocalFiles?: boolean;
+  /** Après le débrief : choix d'un autre film ou de l'épisode suivant */
+  mode?: 'film' | 'episode';
 }
 
 export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
@@ -20,6 +22,7 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
   onMediaSelected,
   canUseCatalogue = false,
   canUseLocalFiles = true,
+  mode,
 }) => {
   const [sourceType, setSourceType] = useState<SourceKind>(canUseLocalFiles ? 'FICHIER_LOCAL' : 'URL_WEB');
 
@@ -173,8 +176,16 @@ export const ChangeMediaModal: React.FC<ChangeMediaModalProps> = ({
               <Film className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Changer de vidéo en direct</h3>
-              <p className="text-xs text-[#B8B4C0]">La nouvelle vidéo sera immédiatement synchronisée pour tous</p>
+              <h3 className="text-base font-bold text-white">
+                {mode === 'episode' ? 'Choisir l’épisode suivant' : mode === 'film' ? 'Choisir un autre film' : 'Changer de vidéo en direct'}
+              </h3>
+              <p className="text-xs text-[#B8B4C0]">
+                {mode === 'episode'
+                  ? 'Indiquez la source de l’épisode : il sera synchronisé pour tous les invités'
+                  : mode === 'film'
+                    ? 'Indiquez la source du film : il sera synchronisé pour tous les invités'
+                    : 'La nouvelle vidéo sera immédiatement synchronisée pour tous'}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white rounded-lg">

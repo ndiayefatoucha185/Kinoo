@@ -163,6 +163,10 @@ class DebriefCallService {
         }
       }
     }
+    // Rappel régulier de l'état micro/caméra aux pairs connectés (un message perdu ne bloque plus l'affichage)
+    this.pcs.forEach((pc, id) => {
+      if (pc.connectionState === 'connected') this.send(id, { type: 'STATE', mic: this.micOn, cam: this.camOn });
+    });
     this.notify();
   }
 
