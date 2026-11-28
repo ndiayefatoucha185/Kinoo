@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import crypto from 'crypto';
 import { accrueWatchTime } from './watchtime.js';
 import { sourceNotAllowedReason } from './sourceGuard.js';
+import { getPlanConfig } from '../src/config/plans.js';
 import { isActiveCoupleMember } from './coupleAccess.js';
 import { db } from '../src/db/index.js';
 import { rooms, messages, participations, users } from '../src/db/schema.js';
@@ -60,7 +61,10 @@ const CHAT_MAX_LENGTH = 1000;
 const CHAT_MAX_PER_WINDOW = 6;
 const CHAT_WINDOW_MS = 10_000;
 const REACTION_MIN_INTERVAL_MS = 500;
-const WEBRTC_SIGNAL_TYPES = new Set(['OFFER', 'ANSWER', 'CANDIDATE']);
+const WEBRTC_SIGNAL_TYPES = new Set(['OFFER', 'ANSWER', 'CANDIDATE', 'HELLO', 'STATE']);
+// HELLO / STATE (micro, caméra actifs) ne servent qu'aux canaux dédiés (débrief, diffusion du film)
+const WEBRTC_LIGHT_TYPES = new Set(['HELLO', 'STATE']);
+const WEBRTC_LIGHT_CHANNELS = new Set(['debrief', 'film']);
 
 function extractWsToken(req: any): string | null {
   // Sécurité stricte Cloud Run : AUCUN jeton JWT n'est extrait de l'URL de connexion (les logs enregistrent les query strings).
@@ -183,6 +187,7 @@ export class KinooWebSocketServer {
     }
     this.activeGuestSecrets.delete(roomId);
     this.roomBans.delete(roomId);
+    this.debriefOpenRooms.delete(roomId);
   }
 
   private denyAndClose(ws: WebSocket, closeCode: number, errorCode: string, message: string) {
@@ -893,7 +898,9 @@ export class KinooWebSocketServer {
   // Hôte parti : on met la lecture en pause pour tout le monde, puis la salle est terminée
   // si l'hôte n'est pas revenu après le délai de grâce (rechargement de page, coupure réseau).
   private hostAbsenceTimers = new Map<string, NodeJS.Timeout>();
-  private static readonly HOST_ABSENCE_GRACE_MS = 120_000;
+  // Salles où le débrief a été lancé : l'hôte peut alors choisir un autre film / épisode
+  private debriefOpenRooms = new Set<string>();
+  private static readonly HOST_ABSENCE_GRACE_MS = 60_000;
 
   private cancelHostAbsence(roomId: string) {
     const t = this.hostAbsenceTimers.get(roomId);
@@ -1310,7 +1317,7 @@ export class KinooWebSocketServer {
           if (state?.playback === 'LECTURE' && state.last) {
             watched += Math.max(0, (now - new Date(state.last).getTime()) / 1000);
           }
-          if (watched >= 60) {
+          if (watched >= 60 && !this.debriefOpenRooms.has(roomId)) {
             this.sendError(client, 'MEDIA_LOCKED', 'Le film a commencé depuis plus d’une minute : il n’est plus possible de changer de vidéo dans cette salle.');
             break;
           }
@@ -1349,6 +1356,7 @@ export class KinooWebSocketServer {
           console.error('[WS] Erreur mise à jour source contenu:', err);
         }
 
+        this.debriefOpenRooms.delete(roomId);
         // L'hôte applique déjà le changement localement : diffusion aux autres participants uniquement
         this.broadcastToRoom(
           roomId,
@@ -1390,20 +1398,26 @@ export class KinooWebSocketServer {
       }
 
       case 'DEBRIEF_START': {
-        // Seul l'hôte ouvre le débrief d'après-film : tous les participants le reçoivent
+        // Seul l'hôte ouvre le débrief d'après-film : tous les participants le reçoivent.
+        // Durée selon la formule de l'hôte (5 min Standard/Découverte, 15 min Premium) ; le serveur fait foi.
         const isHost = await this.requireHost(client, 'HOST_ONLY', "Seul l'hôte peut lancer le débrief.");
         if (!isHost) break;
-        this.broadcastToRoom(
-          roomId,
-          {
-            type: 'DEBRIEF_START',
-            serverTimestamp: now,
-            senderId: client.userId,
-            senderPseudo: client.pseudo,
-            payload: {},
-          },
-          client.ws
-        );
+        let durationSec = getPlanConfig('DECOUVERTE').debriefMinutes * 60;
+        try {
+          const [hostUser] = await db.select({ forfait: users.forfait }).from(users).where(eq(users.id, client.userId)).limit(1);
+          durationSec = getPlanConfig(hostUser?.forfait).debriefMinutes * 60;
+        } catch {
+          /* durée minimale par défaut */
+        }
+        // Autorise un seul changement de film après ce débrief (« regarder la suite »)
+        this.debriefOpenRooms.add(roomId);
+        this.broadcastToRoom(roomId, {
+          type: 'DEBRIEF_START',
+          serverTimestamp: now,
+          senderId: client.userId,
+          senderPseudo: client.pseudo,
+          payload: { durationSec },
+        });
         break;
       }
 
@@ -1643,7 +1657,9 @@ export class KinooWebSocketServer {
         const targetUserId = typeof payload.targetUserId === 'string' ? payload.targetUserId.slice(0, 128) : '';
         if (!WEBRTC_SIGNAL_TYPES.has(payload.type)) break;
         // Contenu opaque (SDP / candidat ICE) mais strictement typé en objet ; la taille est bornée par maxPayload
-        if (payload.type === 'CANDIDATE' ? typeof payload.candidate !== 'object' : typeof payload.sdp !== 'object') break;
+        if (WEBRTC_LIGHT_TYPES.has(payload.type)) {
+          if (!WEBRTC_LIGHT_CHANNELS.has(payload.channel)) break;
+        } else if (payload.type === 'CANDIDATE' ? typeof payload.candidate !== 'object' : typeof payload.sdp !== 'object') break;
 
         const signalData = {
           type: 'WEBRTC_SIGNAL',

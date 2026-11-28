@@ -1814,7 +1814,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <p className="text-xs text-[#B8B4C0]">Gérez l'accès, l'invitation et le lancement de vos séances.</p>
               </div>
 
-              {userRooms.length === 0 ? (
+              {userRooms.length === 0 && historyRooms.length > 0 ? (
+                // Utilisateur déjà actif : plus de grand écran d'accueil, juste les actions utiles
+                <div className="bg-[#16161B] border border-[#232328] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <p className="text-xs text-[#B8B4C0]">Aucune salle ouverte pour le moment.</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={onOpenCreateRoom}
+                      className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] shadow-md hover:opacity-95 transition-all"
+                    >
+                      + Créer une salle
+                    </button>
+                    <button
+                      onClick={onOpenJoinRoom}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-[#232328] text-white hover:bg-[#2C2C34] transition-colors"
+                    >
+                      Rejoindre avec un code
+                    </button>
+                  </div>
+                </div>
+              ) : userRooms.length === 0 ? (
                 <div className="bg-[#16161B] border border-dashed border-[#232328] rounded-3xl p-12 text-center space-y-4 max-w-xl mx-auto">
                   <div className="w-14 h-14 rounded-2xl bg-[#24242C] flex items-center justify-center mx-auto text-[#EC4899]">
                     <Tv className="w-7 h-7" />

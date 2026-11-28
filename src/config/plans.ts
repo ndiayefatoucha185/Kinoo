@@ -13,6 +13,8 @@ export interface PlanConfig {
   allowLocalFiles: boolean;
   allowCatalogue: boolean; // catalogue « Films & séries du moment » : Premium uniquement
   allowVoiceDebrief: boolean;
+  /** Durée du salon débrief d'après-film (minutes) : 5 pour Essai/Découverte/Standard, 15 pour Premium */
+  debriefMinutes: number;
   allowAddFriends: boolean;
   /** Publicités : FREQUENT (Essai/Découverte), OCCASIONAL (Standard : une fois par délai), NONE (Premium) */
   adFrequency: 'FREQUENT' | 'OCCASIONAL' | 'NONE';
@@ -54,6 +56,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowLocalFiles: false,
     allowCatalogue: false,
     allowVoiceDebrief: false,
+    debriefMinutes: 5,
     allowAddFriends: false,
     adFrequency: 'FREQUENT',
     adCooldownMinutes: 0,
@@ -72,6 +75,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowLocalFiles: false,
     allowCatalogue: false,
     allowVoiceDebrief: false,
+    debriefMinutes: 5,
     allowAddFriends: false,
     adFrequency: 'FREQUENT',
     adCooldownMinutes: 0,
@@ -90,6 +94,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowLocalFiles: true,
     allowCatalogue: false,
     allowVoiceDebrief: true,
+    debriefMinutes: 5,
     allowAddFriends: false,
     adFrequency: 'OCCASIONAL',
     adCooldownMinutes: 30,
@@ -108,6 +113,7 @@ export const KINOO_PLANS: Record<UserPlan, PlanConfig> = {
     allowLocalFiles: true,
     allowCatalogue: true,
     allowVoiceDebrief: true,
+    debriefMinutes: 15,
     allowAddFriends: true,
     adFrequency: 'NONE',
     adCooldownMinutes: 0,

@@ -25,6 +25,9 @@ interface PostMovieDebriefModalProps {
   onToast?: (msg: string, type?: 'success' | 'error' | 'info') => void;
   onChangeMedia?: () => void; // conservé pour compatibilité : une salle ne projette qu'un seul film
   onLeaveRoom: () => void;
+  /** Fin du débrief (horloge locale, ms) : la fenêtre se ferme à cette heure */
+  endsAt?: number | null;
+  onTimeUp?: () => void;
 }
 
 /** Balise vidéo d'un participant distant : joue aussi le son, même caméra coupée */
@@ -57,6 +60,8 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   onSendFeedback,
   onToast,
   onLeaveRoom,
+  endsAt = null,
+  onTimeUp,
 }) => {
   const [isMicOn, setIsMicOn] = useState(false);
   const [isCamOn, setIsCamOn] = useState(false);
@@ -64,6 +69,29 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
   const [customComment, setCustomComment] = useState('');
   const [peers, setPeers] = useState<DebriefPeer[]>([]);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
+  const onTimeUpRef = useRef(onTimeUp);
+  onTimeUpRef.current = onTimeUp;
+
+  // Compte à rebours du débrief : à zéro, la fenêtre se ferme (le parent affiche alors le choix de l'hôte)
+  useEffect(() => {
+    if (!isOpen || !endsAt) {
+      setRemainingSec(null);
+      return;
+    }
+    let fired = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      setRemainingSec(left);
+      if (left <= 0 && !fired) {
+        fired = true;
+        onTimeUpRef.current?.();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+  }, [isOpen, endsAt]);
 
   // Autres participants présents (sans moi, sans doublon)
   const others = useMemo(() => {
@@ -143,9 +171,21 @@ export const PostMovieDebriefModal: React.FC<PostMovieDebriefModalProps> = ({
               <p className="text-xs text-[#B8B4C0]">Partagez vos impressions et discutez entre proches</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white rounded-lg shrink-0" aria-label="Fermer">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {remainingSec !== null && (
+              <span
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${
+                  remainingSec <= 30 ? 'text-red-300 bg-red-500/10 border-red-500/30' : 'text-[#EC4899] bg-[#EC4899]/10 border-[#EC4899]/30'
+                }`}
+                title="Temps restant pour le débrief"
+              >
+                {Math.floor(remainingSec / 60)}:{String(remainingSec % 60).padStart(2, '0')}
+              </span>
+            )}
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white rounded-lg" aria-label="Fermer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Film */}

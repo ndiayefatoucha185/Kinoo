@@ -245,6 +245,13 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const [endChoice, setEndChoice] = useState<'DEBRIEF' | 'LEAVE' | null>(null);
   const [endPromptDismissed, setEndPromptDismissed] = useState(false);
   const [filmEnded, setFilmEnded] = useState(false);
+  // Débrief chronométré, puis choix de l'hôte (autre film / épisode ou quitter)
+  const [debriefEndsAt, setDebriefEndsAt] = useState<number | null>(null);
+  const [debriefOver, setDebriefOver] = useState(false);
+  const [nextKind, setNextKind] = useState<'film' | 'episode'>('film');
+  // Hôte absent : compte à rebours avant la fermeture de la salle pour les invités
+  const [hostAwayUntil, setHostAwayUntil] = useState<number | null>(null);
+  const [hostAwayLeft, setHostAwayLeft] = useState(60);
 
   // Helper to resolve user plan for badge display
   const getUserPlan = (userId?: string, pseudo?: string) => {
@@ -873,11 +880,16 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       }
 
       case 'HOST_AWAY':
-        if (!isHost) setHostAway(true);
+        if (!isHost) {
+          setHostAway(true);
+          const graceMs = Number(packet.payload?.graceMs);
+          setHostAwayUntil(Date.now() + (Number.isFinite(graceMs) && graceMs > 0 ? graceMs : 60_000));
+        }
         break;
 
       case 'HOST_BACK':
         setHostAway(false);
+        setHostAwayUntil(null);
         break;
 
       case 'PARTICIPANT_NETWORK': {
@@ -911,10 +923,14 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         }
         break;
 
-      case 'DEBRIEF_START':
+      case 'DEBRIEF_START': {
+        const durSec = Number(packet.payload?.durationSec);
+        setDebriefEndsAt(Date.now() + (Number.isFinite(durSec) && durSec > 0 ? durSec : 300) * 1000);
+        setDebriefOver(false);
         setShowDebriefModal(true);
-        onToast('L’hôte a ouvert le débrief du film.', 'info');
+        if (!isHost) onToast('L’hôte a ouvert le débrief du film.', 'info');
         break;
+      }
 
       case 'ROOM_LOCKED':
         setRoom((prev) => (prev ? { ...prev, estVerrouillee: packet.payload?.isLocked } : null));
@@ -931,7 +947,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       case 'ROOM_TERMINATED': {
         const cached = StorageService.getRoomById(roomId);
         if (cached) StorageService.saveRoom({ ...cached, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() });
-        onToast('L’hôte a mis fin à la séance.', 'info');
+        onToast('L’hôte a mis fin à la séance. Merci d’avoir participé à cette séance Kinoo. Au revoir et à bientôt !', 'info');
         onLeaveRoom();
         break;
       }
@@ -957,6 +973,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           const newSrc = packet.payload.source as ContentSource;
           setRoom((prev) => (prev ? { ...prev, sourceContenu: newSrc, sourceContenuId: newSrc.id } : null));
           onToast(`L'Hôte a changé la vidéo : ${newSrc.titre}`, 'info');
+          resetAfterNextMedia();
           setCurrentTime(0);
           setIsPlaying(false);
         }
@@ -1092,6 +1109,17 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     };
   }, [isHost, isYouTube, room?.sourceContenu?.id]);
 
+  // Une nouvelle œuvre démarre : on repart d'une séance propre (débrief, fin de film, avis)
+  const resetAfterNextMedia = () => {
+    setDebriefOver(false);
+    setDebriefEndsAt(null);
+    setShowDebriefModal(false);
+    setFilmEnded(false);
+    setEndChoice(null);
+    setEndPromptDismissed(false);
+    setDebriefFeedback([]);
+  };
+
   // Host updates the playing media
   const handleHostMediaChange = (newSource: ContentSource) => {
     if (!room) return;
@@ -1104,6 +1132,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
     setRoom(updatedRoom);
     syncEngine.sendEvent('MEDIA_CHANGE', { id: localUserId, pseudo: localPseudo, role: userRole }, { source: newSource });
     onToast(`Source mise à jour : ${newSource.titre}`, 'success');
+    resetAfterNextMedia();
   };
 
   // Guest attaches local copy of the file for 100% native local playback
@@ -1268,12 +1297,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
       onLeaveRoom();
       return;
     }
-    if (!window.confirm('En quittant, vous mettez fin à la séance pour tous les participants. Continuer ?')) return;
-    const updated: Room = { ...room, statut: 'TERMINEE', dateFinEffective: new Date().toISOString() };
-    StorageService.saveRoom(updated);
-    syncEngine.sendEvent('ROOM_TERMINATED', { id: localUserId, pseudo: localPseudo, role: userRole });
-    ApiClient.closeRoom(room.id).catch(() => {});
-    onToast('Séance terminée.', 'success');
+    if (!window.confirm('Si vous quittez, la lecture est mise en pause et la salle reste ouverte 1 minute pour vos invités, puis elle est fermée. Vous pouvez revenir pendant ce délai. Continuer ?')) return;
     onLeaveRoom();
   };
 
@@ -1357,6 +1381,9 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
   const handleStartDebrief = () => {
     if (!isHost) return;
     syncEngine.sendEvent('DEBRIEF_START', { id: localUserId, pseudo: localPseudo, role: userRole }, {});
+    // Durée provisoire selon la formule ; le serveur renvoie la durée officielle à tous
+    setDebriefEndsAt(Date.now() + getPlanConfig(currentUser?.forfait).debriefMinutes * 60 * 1000);
+    setDebriefOver(false);
     setShowDebriefModal(true);
   };
   handleStartDebriefRef.current = handleStartDebrief;
@@ -1394,6 +1421,41 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         : 'La séance se terminera automatiquement à la fin du film.',
       'info'
     );
+  };
+
+  // Fin du temps de débrief : la fenêtre se ferme, l'hôte choisit la suite
+  useEffect(() => {
+    if (!debriefEndsAt) return;
+    const wait = Math.max(0, debriefEndsAt - Date.now());
+    const t = setTimeout(() => {
+      setShowDebriefModal(false);
+      setDebriefEndsAt(null);
+      setDebriefOver(true);
+      setShowDebriefModal(false);
+    }, wait);
+    return () => clearTimeout(t);
+  }, [debriefEndsAt]);
+
+  // Hôte absent : compte à rebours puis retour à l'accueil avec un mot de remerciement
+  useEffect(() => {
+    if (!hostAwayUntil || isHost) return;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((hostAwayUntil - Date.now()) / 1000));
+      setHostAwayLeft(left);
+      if (left <= 0) {
+        onToast('La séance est terminée. Merci d’avoir participé à cette séance Kinoo. Au revoir et à bientôt !', 'info');
+        onLeaveRoom();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostAwayUntil, isHost]);
+
+  const chooseNext = (kind: 'film' | 'episode') => {
+    setNextKind(kind);
+    setShowChangeMediaModal(true);
   };
 
   const filmAlmostOver = duration > 0 && currentTime > 0 && duration - currentTime <= 1800 && currentTime > 60;
@@ -1492,11 +1554,6 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
           >
             Recharger la page
           </button>
-        </div>
-      )}
-      {hostAway && !isHost && (
-        <div className="px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-          L'hôte s'est déconnecté. La lecture est en pause ; la séance sera terminée s'il ne revient pas dans 2 minutes.
         </div>
       )}
       {myNetworkPoor && (
@@ -2157,6 +2214,73 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         </div>
       </div>
 
+      {/* Hôte parti : la salle se ferme après le compte à rebours (aucun accès au contenu entre-temps) */}
+      {hostAway && !isHost && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+          <div className="max-w-sm w-full bg-[#141417] border border-amber-500/30 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-300 font-mono text-xl font-bold">
+              {hostAwayLeft}
+            </div>
+            <h2 className="text-base font-bold text-white">L’hôte a quitté la salle</h2>
+            <p className="text-xs text-[#B8B4C0]">
+              La lecture est en pause. La salle reste active encore <strong className="text-white">{hostAwayLeft} s</strong> : vous pouvez attendre le retour de l’hôte ou quitter maintenant.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                onToast('Merci d’avoir participé à cette séance Kinoo. À bientôt !', 'info');
+                onLeaveRoom();
+              }}
+              className="w-full px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#232326] border border-[#383840] hover:bg-[#303036]"
+            >
+              Quitter maintenant
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Débrief terminé : choix de l'hôte */}
+      {debriefOver && !showChangeMediaModal && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+          <div className="max-w-md w-full bg-[#141417] border border-[#EC4899]/30 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-[#EC4899]/10 border border-[#EC4899]/30 text-[#EC4899] flex items-center justify-center mx-auto">
+              <Sparkles className="w-6 h-6" />
+            </div>
+            <h2 className="text-lg font-bold text-white">Le temps du débrief est écoulé</h2>
+            {isHost ? (
+              <>
+                <p className="text-xs text-[#B8B4C0]">Souhaitez-vous regarder un autre film ou un autre épisode avec vos invités, ou quitter la salle ?</p>
+                <div className="flex flex-col gap-2">
+                  <button type="button" onClick={() => chooseNext('film')} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95">
+                    Regarder un autre film
+                  </button>
+                  <button type="button" onClick={() => chooseNext('episode')} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#7C3AED] to-[#EC4899] hover:opacity-95">
+                    Regarder l’épisode suivant
+                  </button>
+                  <button type="button" onClick={endSessionNow} className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#232326] border border-[#383840] hover:bg-[#303036]">
+                    Quitter la salle
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-[#B8B4C0]">L’hôte choisit la suite : un autre film, un autre épisode, ou la fin de la séance. Merci de patienter…</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToast('Merci d’avoir participé à cette séance Kinoo. À bientôt !', 'info');
+                    onLeaveRoom();
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#232326] border border-[#383840] hover:bg-[#303036]"
+                >
+                  Quitter la salle
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Fin de film : choix de l'hôte (débrief ou quitter) */}
       {showEndPrompt && (
         <div className="fixed bottom-4 inset-x-4 sm:inset-x-auto sm:right-6 sm:w-[380px] z-[60] bg-[#16161B] border border-[#EC4899]/40 rounded-2xl p-4 shadow-2xl space-y-3">
@@ -2227,6 +2351,7 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         isOpen={showChangeMediaModal}
         onClose={() => setShowChangeMediaModal(false)}
         onMediaSelected={handleHostMediaChange}
+        mode={debriefOver ? nextKind : undefined}
         canUseCatalogue={Boolean(room?.coupleId) || getPlanConfig(currentUser?.forfait).allowCatalogue}
         canUseLocalFiles={Boolean(room?.coupleId) || getPlanConfig(currentUser?.forfait).allowLocalFiles}
       />
@@ -2245,7 +2370,8 @@ export const WatchPartyView: React.FC<WatchPartyViewProps> = ({
         }
         onToast={onToast}
         onChangeMedia={() => { if (canChangeMedia) setShowChangeMediaModal(true); }}
-        onLeaveRoom={onLeaveRoom}
+        onLeaveRoom={isHost ? endSessionNow : onLeaveRoom}
+        endsAt={debriefEndsAt}
       />
 
       {/* Mandatory Age Verification Gate for Unauthenticated Guests */}

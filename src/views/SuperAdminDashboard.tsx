@@ -28,7 +28,6 @@ import { AdminUsersWidget } from '../components/admin/AdminUsersWidget';
 import { AdminRoomsWidget } from '../components/admin/AdminRoomsWidget';
 import { AdminModerationWidget } from '../components/admin/AdminModerationWidget';
 import { AdminIntegrationsWidget } from '../components/admin/AdminIntegrationsWidget';
-import { AdminCouplesWidget } from '../components/admin/AdminCouplesWidget';
 import { AdminBillingWidget } from '../components/admin/AdminBillingWidget';
 import { AdminAnalyticsWidget } from '../components/admin/AdminAnalyticsWidget';
 import { AdminAiAssistantWidget } from '../components/admin/AdminAiAssistantWidget';
@@ -574,13 +573,6 @@ export const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({
               onToggleCurrency={() => setCurrency(currency === 'EUR' ? 'FCFA' : 'EUR')}
               onSimulateNewPayment={handleSimulatePayment}
             />
-            </ErrorBoundary>
-          )}
-
-          {/* TAB : FORFAIT COUPLE */}
-          {backendStatus !== 'blocked' && activeTab === 'couples' && (
-            <ErrorBoundary moduleName="Forfait Couple">
-              <AdminCouplesWidget onToast={onToast} />
             </ErrorBoundary>
           )}
 
